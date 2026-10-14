@@ -7,7 +7,7 @@ interface SidebarProps {
   user: {
     name: string;
     designation: string;
-    role: { name: string; key: string };
+    role: { name: string; key: string; isManager?: boolean };
     permissions: string[];
     company?: { name: string; code: string } | null;
   };
@@ -50,6 +50,24 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
   }
 
   links.push({ href: "/print/blank", label: "Print Blank Form", icon: "🖨️" });
+
+  const canViewReports =
+    perms.includes("report.view") ||
+    perms.includes("admin.users") ||
+    perms.includes("admin.readonly") ||
+    perms.includes("req.director") ||
+    perms.includes("req.md") ||
+    perms.includes("req.accounts.check") ||
+    Boolean(user.role.isManager) ||
+    user.role.key.includes("manager");
+
+  if (canViewReports) {
+    links.push({
+      href: "/reports",
+      label: "Query & Custom Reports",
+      icon: "📈",
+    });
+  }
 
   const isAdmin = perms.includes("admin.users") || perms.includes("admin.readonly");
   const canManageProjects = perms.includes("project.manage");
