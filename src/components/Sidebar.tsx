@@ -161,14 +161,21 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
           <span className="mr-1.5 text-sm">⚙️</span>
           Signature & PIN
         </Link>
-        <form action="/api/auth/logout" method="POST">
-          <button
-            type="submit"
-            className="text-xs text-red-600 hover:text-red-800 font-semibold cursor-pointer"
-          >
-            Logout
-          </button>
-        </form>
+        <button
+          type="button"
+          onClick={async () => {
+            try {
+              await fetch("/api/auth/logout", {
+                method: "POST",
+                headers: { Accept: "application/json" },
+              });
+            } catch (_) {}
+            window.location.href = "/login";
+          }}
+          className="text-xs text-red-600 hover:text-red-800 font-semibold cursor-pointer"
+        >
+          Logout
+        </button>
       </div>
     </aside>
   );
