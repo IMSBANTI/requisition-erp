@@ -11,8 +11,6 @@ services:
         value: 20
       - key: DATABASE_URL
         sync: false
-      - key: DIRECT_URL
-        sync: false
       - key: SESSION_SECRET
         generateValue: true
       - key: APP_URL
