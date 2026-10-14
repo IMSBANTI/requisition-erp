@@ -53,9 +53,12 @@ export default async function AdminProjectsPage() {
             releaseBeforeMd: p.releaseBeforeMd,
             requisitionTypes: p.requisitionTypes,
             headName: p.head?.name || "None",
+            headId: p.headId,
             checkerName: p.checker?.name || "None",
+            checkerId: p.checkerId,
             directorName: p.director?.name || "Auto (Category Director)",
             active: p.active,
+            budget: p.budget ? Number(p.budget) : 0,
           }))}
           companies={companies}
           users={users}
