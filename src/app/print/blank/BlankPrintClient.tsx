@@ -113,20 +113,20 @@ export default function BlankPrintClient({ companies, selectedCompany, initialTy
 
         {/* Line Items Table (Blank for Manual handwriting) */}
         <div className="mt-1.5 border border-black">
-          <table className="w-full text-left text-[9px] border-collapse">
+          <table className="w-full text-left text-[9.5px] border-collapse">
             <thead>
               <tr className="border-b border-black font-extrabold uppercase bg-gray-50/50">
-                <th className="py-0.5 px-1.5 w-7 text-center border-r border-black">SL.</th>
-                <th className="py-0.5 px-2 border-r border-black">Particulars</th>
-                <th className="py-0.5 px-2 border-r border-black w-1/4">Purpose</th>
-                <th className="py-0.5 px-1.5 border-r border-black w-12 text-right">Qty.</th>
-                <th className="py-0.5 px-2 border-r border-black w-20 text-right">Unit Price</th>
-                <th className="py-0.5 px-2 w-24 text-right">Amount</th>
+                <th className="py-1 px-1.5 w-7 text-center border-r border-black">SL.</th>
+                <th className="py-1 px-2 border-r border-black">Particulars</th>
+                <th className="py-1 px-2 border-r border-black w-1/4">Purpose</th>
+                <th className="py-1 px-1.5 border-r border-black w-12 text-right">Qty.</th>
+                <th className="py-1 px-2 border-r border-black w-20 text-right">Unit Price</th>
+                <th className="py-1 px-2 w-24 text-right">Amount</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-black">
-              {Array.from({ length: 4 }).map((_, i) => (
-                <tr key={i} className="h-5">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <tr key={i} className="h-6">
                   <td className="py-0.5 px-1 text-center font-bold border-r border-black">{i + 1}.</td>
                   <td className="border-r border-black"></td>
                   <td className="border-r border-black"></td>
@@ -137,7 +137,7 @@ export default function BlankPrintClient({ companies, selectedCompany, initialTy
               ))}
 
               {/* Total row */}
-              <tr className="border-t border-black font-extrabold text-[10px] h-5">
+              <tr className="border-t border-black font-extrabold text-[10px] h-6">
                 <td colSpan={5} className="py-0.5 px-3 text-right uppercase border-r border-black">
                   Total
                 </td>
@@ -148,9 +148,10 @@ export default function BlankPrintClient({ companies, selectedCompany, initialTy
         </div>
 
         {/* Comments with dotted lines */}
-        <div className="mt-1 text-[9px] text-black">
+        <div className="mt-1.5 text-[9.5px] text-black">
           <span className="font-bold">Comments:</span>
-          <div className="border-b border-dotted border-black h-3.5 mt-0.5"></div>
+          <div className="border-b border-dotted border-black h-4 mt-0.5"></div>
+          <div className="border-b border-dotted border-black h-4 mt-1"></div>
         </div>
       </div>
 

@@ -166,7 +166,7 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
             </thead>
             <tbody className="divide-y divide-black">
               {req.items.map((it) => (
-                <tr key={it.id} className="min-h-[18px]">
+                <tr key={it.id} className="h-6">
                   <td className="py-0.5 px-1.5 text-center font-bold border-r border-black">{it.sl}</td>
                   <td className="py-0.5 px-2 font-medium border-r border-black">{it.particulars}</td>
                   <td className="py-0.5 px-2 border-r border-black">{it.purpose || "—"}</td>
@@ -176,9 +176,9 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
                 </tr>
               ))}
 
-              {/* Pad with empty lines if fewer than 3 items */}
-              {Array.from({ length: Math.max(0, 3 - req.items.length) }).map((_, i) => (
-                <tr key={`pad-${i}`} className="h-4">
+              {/* Pad with empty lines up to 8 rows to fill vertical space */}
+              {Array.from({ length: Math.max(0, 8 - req.items.length) }).map((_, i) => (
+                <tr key={`pad-${i}`} className="h-6">
                   <td className="border-r border-black"></td>
                   <td className="border-r border-black"></td>
                   <td className="border-r border-black"></td>
@@ -189,11 +189,11 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
               ))}
 
               {/* Total row */}
-              <tr className="border-t border-black font-extrabold text-[10px]">
-                <td colSpan={5} className="py-1 px-3 text-right uppercase border-r border-black">
+              <tr className="border-t border-black font-extrabold text-[10px] h-6">
+                <td colSpan={5} className="py-0.5 px-3 text-right uppercase border-r border-black">
                   Total
                 </td>
-                <td className="py-1 px-2 text-right font-black text-black">
+                <td className="py-0.5 px-2 text-right font-black text-black">
                   {formatTaka(req.total)}
                 </td>
               </tr>
@@ -201,10 +201,13 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
           </table>
         </div>
 
-        {/* Comments */}
-        <div className="mt-1 text-[9px] text-black">
-          <span className="font-bold">Comments: </span>
-          <span className="italic">{req.comments || "None"}</span>
+        {/* Comments with dotted line */}
+        <div className="mt-1.5 text-[9.5px] text-black">
+          <div className="flex items-start">
+            <span className="font-bold mr-1">Comments:</span>
+            <span className="italic flex-1">{req.comments || "None"}</span>
+          </div>
+          <div className="border-b border-dotted border-black h-3.5 mt-0.5"></div>
         </div>
       </div>
 
