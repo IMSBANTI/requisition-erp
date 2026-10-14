@@ -201,131 +201,139 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
           </table>
         </div>
 
-        {/* Comments with dotted line */}
-        <div className="mt-1.5 text-[9.5px] text-black">
-          <div className="flex items-start">
-            <span className="font-bold mr-1">Comments:</span>
-            <span className="italic flex-1">{req.comments || "None"}</span>
-          </div>
-          <div className="border-b border-dotted border-black h-3.5 mt-0.5"></div>
+        {/* Comments - One single line */}
+        <div className="mt-1.5 text-[9.5px] text-black flex items-baseline">
+          <span className="font-bold mr-1.5 whitespace-nowrap">Comments:</span>
+          <span className="italic flex-1 border-b border-dotted border-black pb-0.5 truncate">
+            {req.comments || ""}
+          </span>
         </div>
       </div>
 
-      {/* 5 Bottom Signature Blocks */}
+      {/* 5 Bottom Signature Blocks with clean signing space */}
       <div>
-        <div className="mt-1.5 pt-1.5 border-t border-black">
-          <div className="grid grid-cols-5 gap-1.5 text-center text-[9px]">
+        <div className="mt-2">
+          <div className="grid grid-cols-5 gap-2 text-center text-[9px]">
             {/* Box 1: Requested by */}
-            <div className="border-t border-black pt-0.5 flex flex-col justify-between min-h-[46px]">
-              <div>
-                <span className="font-bold block">Requested by</span>
-                <span className="text-[8px] truncate block">{req.makerName}</span>
+            <div className="flex flex-col justify-end">
+              <div className="h-12 flex flex-col items-center justify-end pb-1">
+                {makerApproval?.signature ? (
+                  <img
+                    src={makerApproval.signature}
+                    alt="Sign"
+                    className="h-8 w-auto max-w-full object-contain filter grayscale contrast-200"
+                  />
+                ) : (
+                  <span className="text-[7.5px] font-mono font-bold">DIGITALLY SIGNED</span>
+                )}
               </div>
-              {makerApproval?.signature ? (
-                <img
-                  src={makerApproval.signature}
-                  alt="Sign"
-                  className="h-7 w-auto mx-auto object-contain filter grayscale contrast-200"
-                />
-              ) : (
-                <span className="text-[7.5px] font-mono font-bold">DIGITALLY SIGNED</span>
-              )}
-              <span className="text-[7.5px] text-black">
-                {new Date(req.date).toLocaleDateString("en-GB")}
-              </span>
+              <div className="border-t border-black pt-1">
+                <span className="font-bold block leading-tight text-[9.5px]">Requested by</span>
+                <span className="text-[8px] text-black block truncate mt-0.5">{req.makerName}</span>
+                <span className="text-[7.5px] text-black block leading-none mt-0.5">
+                  {new Date(req.date).toLocaleDateString("en-GB")}
+                </span>
+              </div>
             </div>
 
             {/* Box 2: Checked by */}
-            <div className="border-t border-black pt-0.5 flex flex-col justify-between min-h-[46px]">
-              <div>
-                <span className="font-bold block">Checked by</span>
-                <span className="text-[8px] truncate block">{headApproval?.signerName || "Head"}</span>
+            <div className="flex flex-col justify-end">
+              <div className="h-12 flex flex-col items-center justify-end pb-1">
+                {headApproval?.signature ? (
+                  <img
+                    src={headApproval.signature}
+                    alt="Sign"
+                    className="h-8 w-auto max-w-full object-contain filter grayscale contrast-200"
+                  />
+                ) : headApproval ? (
+                  <span className="text-[7.5px] font-mono font-bold">DIGITALLY SIGNED</span>
+                ) : null}
               </div>
-              {headApproval?.signature ? (
-                <img
-                  src={headApproval.signature}
-                  alt="Sign"
-                  className="h-7 w-auto mx-auto object-contain filter grayscale contrast-200"
-                />
-              ) : headApproval ? (
-                <span className="text-[7.5px] font-mono font-bold">DIGITALLY SIGNED</span>
-              ) : null}
-              <span className="text-[7.5px] text-black">
-                {headApproval ? new Date(headApproval.createdAt).toLocaleDateString("en-GB") : ""}
-              </span>
+              <div className="border-t border-black pt-1">
+                <span className="font-bold block leading-tight text-[9.5px]">Checked by</span>
+                <span className="text-[8px] text-black block truncate mt-0.5">{headApproval?.signerName || "Head"}</span>
+                <span className="text-[7.5px] text-black block leading-none mt-0.5">
+                  {headApproval ? new Date(headApproval.createdAt).toLocaleDateString("en-GB") : ""}
+                </span>
+              </div>
             </div>
 
             {/* Box 3: Checked by */}
-            <div className="border-t border-black pt-0.5 flex flex-col justify-between min-h-[46px]">
-              <div>
-                <span className="font-bold block">Checked by</span>
-                <span className="text-[8px] truncate block">{checkerApproval?.signerName || "Checker"}</span>
+            <div className="flex flex-col justify-end">
+              <div className="h-12 flex flex-col items-center justify-end pb-1">
+                {checkerApproval?.signature ? (
+                  <img
+                    src={checkerApproval.signature}
+                    alt="Sign"
+                    className="h-8 w-auto max-w-full object-contain filter grayscale contrast-200"
+                  />
+                ) : checkerApproval ? (
+                  <span className="text-[7.5px] font-mono font-bold">DIGITALLY SIGNED</span>
+                ) : null}
               </div>
-              {checkerApproval?.signature ? (
-                <img
-                  src={checkerApproval.signature}
-                  alt="Sign"
-                  className="h-7 w-auto mx-auto object-contain filter grayscale contrast-200"
-                />
-              ) : checkerApproval ? (
-                <span className="text-[7.5px] font-mono font-bold">DIGITALLY SIGNED</span>
-              ) : null}
-              <span className="text-[7.5px] text-black">
-                {checkerApproval ? new Date(checkerApproval.createdAt).toLocaleDateString("en-GB") : ""}
-              </span>
+              <div className="border-t border-black pt-1">
+                <span className="font-bold block leading-tight text-[9.5px]">Checked by</span>
+                <span className="text-[8px] text-black block truncate mt-0.5">{checkerApproval?.signerName || "Checker"}</span>
+                <span className="text-[7.5px] text-black block leading-none mt-0.5">
+                  {checkerApproval ? new Date(checkerApproval.createdAt).toLocaleDateString("en-GB") : ""}
+                </span>
+              </div>
             </div>
 
             {/* Box 4: Checked by Accounts */}
-            <div className="border-t border-black pt-0.5 flex flex-col justify-between min-h-[46px]">
-              <div>
-                <span className="font-bold block">Checked by Accounts</span>
-                <span className="text-[8px] truncate block">{accountsApproval?.signerName || "Accounts"}</span>
+            <div className="flex flex-col justify-end">
+              <div className="h-12 flex flex-col items-center justify-end pb-1">
+                {accountsApproval?.signature ? (
+                  <img
+                    src={accountsApproval.signature}
+                    alt="Sign"
+                    className="h-8 w-auto max-w-full object-contain filter grayscale contrast-200"
+                  />
+                ) : accountsApproval ? (
+                  <span className="text-[7.5px] font-mono font-bold">DIGITALLY SIGNED</span>
+                ) : null}
               </div>
-              {accountsApproval?.signature ? (
-                <img
-                  src={accountsApproval.signature}
-                  alt="Sign"
-                  className="h-7 w-auto mx-auto object-contain filter grayscale contrast-200"
-                />
-              ) : accountsApproval ? (
-                <span className="text-[7.5px] font-mono font-bold">DIGITALLY SIGNED</span>
-              ) : null}
-              <span className="text-[7.5px] text-black">
-                {accountsApproval ? new Date(accountsApproval.createdAt).toLocaleDateString("en-GB") : ""}
-              </span>
+              <div className="border-t border-black pt-1">
+                <span className="font-bold block leading-tight text-[9.5px]">Checked by Accounts</span>
+                <span className="text-[8px] text-black block truncate mt-0.5">{accountsApproval?.signerName || "Accounts"}</span>
+                <span className="text-[7.5px] text-black block leading-none mt-0.5">
+                  {accountsApproval ? new Date(accountsApproval.createdAt).toLocaleDateString("en-GB") : ""}
+                </span>
+              </div>
             </div>
 
             {/* Box 5: Approve by management */}
-            <div className="border-t border-black pt-0.5 flex flex-col justify-between min-h-[46px]">
-              <div>
-                <span className="font-bold block">Approve by management</span>
-              </div>
-              <div className="flex items-center justify-center space-x-1">
+            <div className="flex flex-col justify-end">
+              <div className="h-12 flex items-center justify-center space-x-1 pb-1">
                 {directorApproval?.signature && (
                   <img
                     src={directorApproval.signature}
                     alt="Director"
-                    className="h-6 w-auto object-contain filter grayscale contrast-200"
+                    className="h-8 w-auto object-contain filter grayscale contrast-200"
                   />
                 )}
                 {mdApproval?.signature && (
                   <img
                     src={mdApproval.signature}
                     alt="MD"
-                    className="h-6 w-auto object-contain filter grayscale contrast-200"
+                    className="h-8 w-auto object-contain filter grayscale contrast-200"
                   />
                 )}
                 {!directorApproval && !mdApproval && (
                   <span className="text-[7.5px] font-bold">APPROVED</span>
                 )}
               </div>
-              <span className="text-[7.5px] text-black">
-                {mdApproval
-                  ? new Date(mdApproval.createdAt).toLocaleDateString("en-GB")
-                  : directorApproval
-                  ? new Date(directorApproval.createdAt).toLocaleDateString("en-GB")
-                  : ""}
-              </span>
+              <div className="border-t border-black pt-1">
+                <span className="font-bold block leading-tight text-[9.5px]">Approve by management</span>
+                <span className="text-[8px] text-black block truncate mt-0.5">Director & MD</span>
+                <span className="text-[7.5px] text-black block leading-none mt-0.5">
+                  {mdApproval
+                    ? new Date(mdApproval.createdAt).toLocaleDateString("en-GB")
+                    : directorApproval
+                    ? new Date(directorApproval.createdAt).toLocaleDateString("en-GB")
+                    : ""}
+                </span>
+              </div>
             </div>
           </div>
         </div>

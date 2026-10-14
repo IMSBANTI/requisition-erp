@@ -147,37 +147,52 @@ export default function BlankPrintClient({ companies, selectedCompany, initialTy
           </table>
         </div>
 
-        {/* Comments with dotted lines */}
-        <div className="mt-1.5 text-[9.5px] text-black">
-          <span className="font-bold">Comments:</span>
-          <div className="border-b border-dotted border-black h-4 mt-0.5"></div>
-          <div className="border-b border-dotted border-black h-4 mt-1"></div>
+        {/* Comments - One single line */}
+        <div className="mt-1.5 text-[9.5px] text-black flex items-baseline">
+          <span className="font-bold mr-1.5 whitespace-nowrap">Comments:</span>
+          <span className="flex-1 border-b border-dotted border-black"></span>
         </div>
       </div>
 
-      {/* 5 Bottom Signature Boxes */}
+      {/* 5 Bottom Signature Blocks with clean signing space */}
       <div>
-        <div className="mt-1.5 pt-1.5 border-t border-black">
-          <div className="grid grid-cols-5 gap-1.5 text-center text-[9px]">
-            <div className="border-t border-black pt-0.5 min-h-[44px] flex flex-col justify-between">
-              <span className="font-bold block">Requested by</span>
-              <span className="text-[8px] text-black">Maker</span>
+        <div className="mt-2">
+          <div className="grid grid-cols-5 gap-2 text-center text-[9px]">
+            <div className="flex flex-col justify-end">
+              {/* Clean open space for physical signature */}
+              <div className="h-12"></div>
+              <div className="border-t border-black pt-1">
+                <span className="font-bold block leading-tight text-[9.5px]">Requested by</span>
+                <span className="text-[8px] text-black block mt-0.5">Maker</span>
+              </div>
             </div>
-            <div className="border-t border-black pt-0.5 min-h-[44px] flex flex-col justify-between">
-              <span className="font-bold block">Checked by</span>
-              <span className="text-[8px] text-black">Head</span>
+            <div className="flex flex-col justify-end">
+              <div className="h-12"></div>
+              <div className="border-t border-black pt-1">
+                <span className="font-bold block leading-tight text-[9.5px]">Checked by</span>
+                <span className="text-[8px] text-black block mt-0.5">Head</span>
+              </div>
             </div>
-            <div className="border-t border-black pt-0.5 min-h-[44px] flex flex-col justify-between">
-              <span className="font-bold block">Checked by</span>
-              <span className="text-[8px] text-black">Checker</span>
+            <div className="flex flex-col justify-end">
+              <div className="h-12"></div>
+              <div className="border-t border-black pt-1">
+                <span className="font-bold block leading-tight text-[9.5px]">Checked by</span>
+                <span className="text-[8px] text-black block mt-0.5">Checker</span>
+              </div>
             </div>
-            <div className="border-t border-black pt-0.5 min-h-[44px] flex flex-col justify-between">
-              <span className="font-bold block">Checked by Accounts</span>
-              <span className="text-[8px] text-black">Accounts</span>
+            <div className="flex flex-col justify-end">
+              <div className="h-12"></div>
+              <div className="border-t border-black pt-1">
+                <span className="font-bold block leading-tight text-[9.5px]">Checked by Accounts</span>
+                <span className="text-[8px] text-black block mt-0.5">Accounts</span>
+              </div>
             </div>
-            <div className="border-t border-black pt-0.5 min-h-[44px] flex flex-col justify-between">
-              <span className="font-bold block">Approve by management</span>
-              <span className="text-[8px] text-black">Director & MD</span>
+            <div className="flex flex-col justify-end">
+              <div className="h-12"></div>
+              <div className="border-t border-black pt-1">
+                <span className="font-bold block leading-tight text-[9.5px]">Approve by management</span>
+                <span className="text-[8px] text-black block mt-0.5">Director & MD</span>
+              </div>
             </div>
           </div>
         </div>
