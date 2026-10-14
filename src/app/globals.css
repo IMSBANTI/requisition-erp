@@ -17,8 +17,15 @@ body {
 
 @media print {
   @page {
-    size: A4;
-    margin: 10mm 15mm;
+    size: A4 portrait;
+    margin: 6mm 8mm;
+  }
+  *, *::before, *::after {
+    color: #000000 !important;
+    background-color: transparent !important;
+    border-color: #000000 !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
   }
   body {
     background-color: #ffffff !important;
@@ -26,10 +33,22 @@ body {
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
+  img {
+    filter: grayscale(100%) contrast(150%) !important;
+  }
   .no-print {
     display: none !important;
   }
   .print-only {
     display: block !important;
+  }
+  .half-a4-voucher {
+    width: 100% !important;
+    max-width: 195mm !important;
+    max-height: 138mm !important;
+    overflow: hidden !important;
+    page-break-inside: avoid !important;
+    border: 1px solid #000000 !important;
+    background-color: #ffffff !important;
   }
 }
