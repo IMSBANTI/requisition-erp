@@ -1,0 +1,262 @@
+// IMS GROUP — Requisition Approval ERP
+// Database: Neon PostgreSQL (pooled DATABASE_URL for app, DIRECT_URL for migrations)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ───────────────────────── Organisation ─────────────────────────
+
+model Company {
+  id          String       @id @default(cuid())
+  code        String       @unique // IMS, CLAN, SCL, TP
+  name        String       // short display name
+  legalName   String       // printed on the form header
+  address     String
+  phone       String?
+  email       String?
+  website     String?      // hidden on print when empty
+  logo        String       // /logos/xxx.png
+  accentColor String       @default("#E42528")
+  paperTint   String       @default("#FFFFFF") // blank form tint (CLAN = light yellow)
+  active      Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  departments Department[]
+  projects    Project[]
+  users       User[]       @relation("UserCompany")
+  scopedUsers User[]       @relation("UserCompanyScope")
+  requisitions Requisition[]
+}
+
+model Department {
+  id           String        @id @default(cuid())
+  name         String
+  companyId    String?       // null = group-wide department
+  company      Company?      @relation(fields: [companyId], references: [id])
+  headId       String?
+  head         User?         @relation("DepartmentHead", fields: [headId], references: [id])
+  active       Boolean       @default(true)
+  users        User[]        @relation("UserDepartment")
+  requisitions Requisition[]
+  createdAt    DateTime      @default(now())
+
+  @@unique([name, companyId])
+}
+
+/// Categories drive routing to the right Director / IT head
+/// IMS_OUTSOURCING_STUDIO | BUSINESS_DEVELOPMENT | OPERATIONS_EVENT | AI_IT | GENERAL
+model Project {
+  id               String        @id @default(cuid())
+  code             String        @unique
+  name             String
+  companyId        String
+  company          Company       @relation(fields: [companyId], references: [id])
+  kind             String        @default("PERMANENT") // PERMANENT | TIME_BOUND
+  startDate        DateTime?
+  endDate          DateTime?
+  category         String        @default("GENERAL")
+  requisitionTypes String[]      @default(["BPO", "ADMIN", "CASH"]) // bracket tag on the form
+  allowOtherType   Boolean       @default(true)
+  // Workflow configuration
+  headId           String?       // "Checked by" #1 — project / department head
+  head             User?         @relation("ProjectHead", fields: [headId], references: [id])
+  checkerId        String?       // "Checked by" #2 — optional assigned checker
+  checker          User?         @relation("ProjectChecker", fields: [checkerId], references: [id])
+  directorId       String?       // mandatory Director (falls back to category Director)
+  director         User?         @relation("ProjectDirector", fields: [directorId], references: [id])
+  mdApprovalMode   String        @default("INSTANT") // INSTANT | WEEKLY | MONTHLY
+  releaseBeforeMd  Boolean       @default(true) // batch projects: Accounts may execute after Director
+  budget           Decimal?      @db.Decimal(14, 2)
+  active           Boolean       @default(true)
+  createdById      String?
+  createdAt        DateTime      @default(now())
+  members          User[]        @relation("UserProjectScope")
+  requisitions     Requisition[]
+}
+
+// ───────────────────────── Users & roles ─────────────────────────
+
+model Role {
+  id          String   @id @default(cuid())
+  key         String   @unique
+  name        String
+  description String?
+  permissions String[]
+  isManager   Boolean  @default(false) // manager-made requisitions skip "Checked by" head
+  users       User[]
+}
+
+model User {
+  id                 String        @id @default(cuid())
+  email              String        @unique
+  name               String
+  designation        String
+  passwordHash       String
+  pinHash            String?
+  signature          String?       // PNG data URL (drawn or uploaded)
+  roleId             String
+  role               Role          @relation(fields: [roleId], references: [id])
+  companyId          String?
+  company            Company?      @relation("UserCompany", fields: [companyId], references: [id])
+  departmentId       String?
+  department         Department?   @relation("UserDepartment", fields: [departmentId], references: [id])
+  companyScopes      Company[]     @relation("UserCompanyScope")
+  projectScopes      Project[]     @relation("UserProjectScope")
+  directorCategories String[]      @default([]) // categories this Director approves
+  extraPermissions   String[]      @default([]) // e.g. req.view.all granted by Director/MD
+  active             Boolean       @default(true)
+  mustChangePassword Boolean       @default(true)
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+
+  headOfDepartments  Department[]  @relation("DepartmentHead")
+  headOfProjects     Project[]     @relation("ProjectHead")
+  checkerOfProjects  Project[]     @relation("ProjectChecker")
+  directorOfProjects Project[]     @relation("ProjectDirector")
+  requisitions       Requisition[] @relation("Maker")
+  assignedSteps      Requisition[] @relation("CurrentAssignee")
+  executions         Requisition[] @relation("Executor")
+  approvals          Approval[]
+  notifications      Notification[]
+  auditLogs          AuditLog[]
+}
+
+// ───────────────────────── Requisition ─────────────────────────
+
+/// Status: DRAFT | PENDING_HEAD | PENDING_CHECKER | PENDING_ACCOUNTS | PENDING_DIRECTOR |
+///         PENDING_MD | APPROVED | FORWARDED | EXECUTED | RETURNED | REJECTED | CANCELLED
+/// mdStatus: NOT_REQUIRED | PENDING | PENDING_BATCH | APPROVED
+model Requisition {
+  id              String            @id @default(cuid())
+  number          String?           @unique // IMS-BPO-2026-10-0001 (assigned on submit)
+  companyId       String
+  company         Company           @relation(fields: [companyId], references: [id])
+  projectId       String
+  project         Project           @relation(fields: [projectId], references: [id])
+  departmentId    String?
+  department      Department?       @relation(fields: [departmentId], references: [id])
+  type            String            // BPO / ADMIN / CASH / other
+  category        String
+  priority        String            @default("NORMAL")
+  makerId         String
+  maker           User              @relation("Maker", fields: [makerId], references: [id])
+  makerName       String            // snapshot as printed
+  makerDesignation String
+  date            DateTime          @default(now())
+  disburseOn      DateTime?
+  total           Decimal           @default(0) @db.Decimal(14, 2)
+  amountInWords   String            @default("")
+  comments        String?
+  paymentMode     String?           // CASH | CHEQUE | BANK | ADVANCE | BILL_ADJUSTMENT
+  vendor          String?
+  source          String            @default("SYSTEM") // SYSTEM | MANUAL
+  status          String            @default("DRAFT")
+  mdStatus        String            @default("PENDING")
+  chain           Json?             // resolved approval chain at submission (see src/lib/workflow.ts)
+  stepIndex       Int               @default(0) // number of chain steps completed
+  currentAssigneeId String?
+  currentAssignee User?             @relation("CurrentAssignee", fields: [currentAssigneeId], references: [id])
+  executorId      String?
+  executor        User?             @relation("Executor", fields: [executorId], references: [id])
+  submittedAt     DateTime?
+  approvedAt      DateTime?
+  executedAt      DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  items           RequisitionItem[]
+  approvals       Approval[]
+  attachments     Attachment[]
+  auditLogs       AuditLog[]
+
+  @@index([status])
+  @@index([companyId, date])
+  @@index([projectId, date])
+  @@index([makerId])
+  @@index([currentAssigneeId])
+}
+
+model RequisitionItem {
+  id            String      @id @default(cuid())
+  requisitionId String
+  requisition   Requisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  sl            Int
+  particulars   String
+  purpose       String?
+  qty           Decimal     @db.Decimal(14, 3)
+  unitPrice     Decimal     @db.Decimal(14, 2)
+  amount        Decimal     @db.Decimal(14, 2)
+}
+
+/// One row per signature/action. step: MAKER | HEAD | CHECKER | ACCOUNTS | DIRECTOR | MD | FORWARD | EXECUTION
+model Approval {
+  id            String      @id @default(cuid())
+  requisitionId String
+  requisition   Requisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  step          String
+  action        String      // SUBMITTED | APPROVED | RETURNED | REJECTED | FORWARDED | EXECUTED
+  userId        String
+  user          User        @relation(fields: [userId], references: [id])
+  signerName    String
+  signerDesignation String
+  signature     String?     // snapshot of the signature image at signing time
+  comment       String?
+  docHash       String      // sha256 of requisition content at signing time
+  ip            String?
+  batch         Boolean     @default(false)
+  createdAt     DateTime    @default(now())
+
+  @@index([requisitionId])
+}
+
+model Attachment {
+  id            String      @id @default(cuid())
+  requisitionId String
+  requisition   Requisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  fileName      String
+  mimeType      String
+  size          Int
+  data          Bytes
+  isManualScan  Boolean     @default(false)
+  uploadedById  String
+  createdAt     DateTime    @default(now())
+}
+
+// ───────────────────────── System ─────────────────────────
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message   String
+  link      String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+}
+
+model AuditLog {
+  id            String       @id @default(cuid())
+  userId        String?
+  user          User?        @relation(fields: [userId], references: [id])
+  requisitionId String?
+  requisition   Requisition? @relation(fields: [requisitionId], references: [id], onDelete: SetNull)
+  action        String
+  details       String?
+  ip            String?
+  createdAt     DateTime     @default(now())
+
+  @@index([createdAt])
+}
+
+/// Serial counters for requisition numbers, key = COMPANY-TYPE-YYYY-MM
+model Counter {
+  key   String @id
+  value Int    @default(0)
+}

@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: ims-requisition-erp
+    env: node
+    plan: starter
+    region: singapore
+    buildCommand: npm ci && npx prisma db push --accept-data-loss && npm run build
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: APP_URL
+        sync: false
