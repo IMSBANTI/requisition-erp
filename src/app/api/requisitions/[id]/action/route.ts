@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { requireUser, verifySecret, clientIp } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { stateAfter, STATUS_STEP, ChainStep } from "@/lib/workflow";
+import { createNotification, notifyUsers, findUsersWithPermission } from "@/lib/notifications";
 
 export async function POST(
   request: Request,
@@ -84,6 +85,45 @@ export async function POST(
         }),
       ]);
 
+      // Notify next approver and maker
+      if (nextWorkflow.assigneeId) {
+        await createNotification({
+          userId: nextWorkflow.assigneeId,
+          message: `Requisition ${req.number || req.id} (${req.project.name}) was approved by ${user.name} and requires your approval.`,
+          link: `/requisitions/${req.id}`,
+        });
+      } else if (nextWorkflow.status === "PENDING_ACCOUNTS") {
+        const accountsUserIds = await findUsersWithPermission("req.accounts.check");
+        await notifyUsers({
+          userIds: accountsUserIds,
+          message: `Requisition ${req.number || req.id} (${req.project.name}) requires Accounts vetting.`,
+          link: `/requisitions/${req.id}`,
+        });
+      } else if (nextWorkflow.status === "PENDING_MD") {
+        const mdUserIds = await findUsersWithPermission("req.md");
+        await notifyUsers({
+          userIds: mdUserIds,
+          message: `Requisition ${req.number || req.id} (${req.project.name}) requires MD approval.`,
+          link: `/requisitions/${req.id}`,
+        });
+      } else if (nextWorkflow.status === "APPROVED") {
+        const accountsUserIds = await findUsersWithPermission("req.forward");
+        await notifyUsers({
+          userIds: accountsUserIds,
+          message: `Requisition ${req.number || req.id} (${req.project.name}) is fully approved by management and ready to forward/execute.`,
+          link: `/requisitions/${req.id}`,
+        });
+      }
+
+      // Notify maker of approval
+      if (req.makerId !== user.id) {
+        await createNotification({
+          userId: req.makerId,
+          message: `Your requisition ${req.number || req.id} was approved by ${user.name} (${user.designation}). Next status: ${nextWorkflow.status}.`,
+          link: `/requisitions/${req.id}`,
+        });
+      }
+
       return NextResponse.json({ success: true, status: nextWorkflow.status });
     }
 
@@ -124,6 +164,14 @@ export async function POST(
           },
         }),
       ]);
+
+      if (forwardToId) {
+        await createNotification({
+          userId: forwardToId,
+          message: `Requisition ${req.number || req.id} was forwarded to you by Accounts Manager ${user.name} for execution/disbursement.`,
+          link: `/requisitions/${req.id}`,
+        });
+      }
 
       return NextResponse.json({ success: true, status: "FORWARDED" });
     }
@@ -166,6 +214,12 @@ export async function POST(
         }),
       ]);
 
+      await createNotification({
+        userId: req.makerId,
+        message: `Your requisition ${req.number || req.id} (Tk ${req.total}) has been disbursed / executed by ${user.name}.`,
+        link: `/requisitions/${req.id}`,
+      });
+
       return NextResponse.json({ success: true, status: "EXECUTED" });
     }
 
@@ -207,6 +261,12 @@ export async function POST(
         }),
       ]);
 
+      await createNotification({
+        userId: req.makerId,
+        message: `Your requisition ${req.number || req.id} was returned for correction by ${user.name}: "${comment}"`,
+        link: `/requisitions/${req.id}`,
+      });
+
       return NextResponse.json({ success: true, status: "RETURNED" });
     }
 
@@ -247,6 +307,12 @@ export async function POST(
           },
         }),
       ]);
+
+      await createNotification({
+        userId: req.makerId,
+        message: `Your requisition ${req.number || req.id} was rejected by ${user.name}: "${comment}"`,
+        link: `/requisitions/${req.id}`,
+      });
 
       return NextResponse.json({ success: true, status: "REJECTED" });
     }

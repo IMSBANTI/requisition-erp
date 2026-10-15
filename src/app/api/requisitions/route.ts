@@ -5,7 +5,8 @@ import { prisma } from "@/lib/db";
 import { resolveChain, stateAfter } from "@/lib/workflow";
 import { generateRequisitionNumber } from "@/lib/reqNumber";
 import { amountInWords } from "@/lib/numberToWords";
-import { grandTotal } from "@/lib/money";
+import { grandTotal, formatTaka } from "@/lib/money";
+import { createNotification, notifyUsers, findUsersWithPermission } from "@/lib/notifications";
 
 export async function POST(request: Request) {
   try {
@@ -176,6 +177,24 @@ export async function POST(request: Request) {
             data: bytes,
             uploadedById: user.id,
           },
+        });
+      }
+    }
+
+    // Dispatch in-app notification to the assigned approver
+    if (!isDraft) {
+      if (initialWorkflow.assigneeId) {
+        await createNotification({
+          userId: initialWorkflow.assigneeId,
+          message: `New requisition ${number} (${project.name}, Tk ${formatTaka(total)}) submitted by ${user.name} requires your signature.`,
+          link: `/requisitions/${requisition.id}`,
+        });
+      } else if (initialWorkflow.status === "PENDING_ACCOUNTS") {
+        const accountsUserIds = await findUsersWithPermission("req.accounts.check");
+        await notifyUsers({
+          userIds: accountsUserIds,
+          message: `Requisition ${number} (${project.name}, Tk ${formatTaka(total)}) requires Accounts vetting.`,
+          link: `/requisitions/${requisition.id}`,
         });
       }
     }
