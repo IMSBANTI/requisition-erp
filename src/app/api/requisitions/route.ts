@@ -30,6 +30,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Requisition must contain at least one item" }, { status: 400 });
     }
 
+    // Validate attachment file sizes (Max 200 KB)
+    const MAX_ATTACHMENT_SIZE = 200 * 1024; // 200 KB
+    const files = formData.getAll("files") as File[];
+    for (const file of files) {
+      if (file && file.size > MAX_ATTACHMENT_SIZE) {
+        const sizeKb = (file.size / 1024).toFixed(0);
+        return NextResponse.json(
+          {
+            error: `File "${file.name}" is ${sizeKb} KB. Attachments must be 200 KB or smaller. Please resize or compress the file before uploading.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
     // Verify PIN or password
     let authenticated = false;
     if (user.pinHash) {
@@ -164,7 +179,6 @@ export async function POST(request: Request) {
     });
 
     // Handle uploaded attachments if any
-    const files = formData.getAll("files") as File[];
     for (const file of files) {
       if (file && file.size > 0) {
         const bytes = Buffer.from(await file.arrayBuffer());

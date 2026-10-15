@@ -61,11 +61,38 @@ export default function RequisitionForm({ user, companies, projects }: FormProps
   ]);
 
   const [attachments, setAttachments] = useState<File[]>([]);
+  const [attachmentError, setAttachmentError] = useState("");
   const [pinOrPassword, setPinOrPassword] = useState("");
   const [showSignModal, setShowSignModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitAction, setSubmitAction] = useState<"SUBMIT" | "DRAFT">("SUBMIT");
   const [error, setError] = useState("");
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setAttachmentError("");
+    if (!e.target.files) return;
+    const selected = Array.from(e.target.files);
+    const MAX_KB = 200;
+    const oversized = selected.filter((f) => f.size > MAX_KB * 1024);
+
+    if (oversized.length > 0) {
+      const names = oversized
+        .map((f) => `"${f.name}" (${(f.size / 1024).toFixed(0)} KB)`)
+        .join(", ");
+      setAttachmentError(
+        `File size limit exceeded: ${names}. Maximum allowed file size is 200 KB per file. Please compress or resize before attaching.`
+      );
+      e.target.value = "";
+      return;
+    }
+
+    setAttachments((prev) => [...prev, ...selected]);
+    e.target.value = "";
+  }
+
+  function removeAttachment(index: number) {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
+  }
 
   // Calculations
   const calculatedTotal = useMemo(() => {
@@ -468,22 +495,60 @@ export default function RequisitionForm({ user, companies, projects }: FormProps
       </div>
 
       {/* Attachments & Submission Options */}
-      <div className="mt-6 bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="mt-6 bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-4">
         <div>
-          <label className="block text-xs font-semibold text-gray-700">Attach Quotations / Bills (PDF, Images)</label>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <label className="block text-xs font-semibold text-gray-800">
+              Attach Quotations / Bills (PDF, PNG, JPG)
+              <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
+                Max 200 KB per file
+              </span>
+            </label>
+            <span className="text-[11px] text-gray-400">
+              💡 Tip: Use <a href="https://tinyjpg.com" target="_blank" rel="noreferrer" className="underline text-blue-600">TinyJPG.com</a> or <a href="https://www.ilovepdf.com/compress_pdf" target="_blank" rel="noreferrer" className="underline text-blue-600">ILovePDF</a> to resize
+            </span>
+          </div>
+
           <input
             type="file"
             multiple
-            onChange={(e) => {
-              if (e.target.files) {
-                setAttachments(Array.from(e.target.files));
-              }
-            }}
-            className="mt-1 text-xs text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
+            accept=".pdf,.png,.jpg,.jpeg"
+            onChange={handleFileChange}
+            className="mt-2 text-xs text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
           />
+
+          {attachmentError && (
+            <div className="mt-2 p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-medium flex items-center space-x-1.5">
+              <span>⚠️</span>
+              <span>{attachmentError}</span>
+            </div>
+          )}
+
+          {/* List of currently selected attachments */}
+          {attachments.length > 0 && (
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              {attachments.map((file, i) => (
+                <div
+                  key={`${file.name}-${i}`}
+                  className="flex items-center space-x-1.5 px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-md text-xs"
+                >
+                  <span className="text-gray-500">📎</span>
+                  <span className="font-semibold text-gray-800 max-w-[180px] truncate">{file.name}</span>
+                  <span className="text-[10px] font-mono text-gray-500">({(file.size / 1024).toFixed(0)} KB)</span>
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(i)}
+                    className="ml-1 text-gray-400 hover:text-red-600 font-bold cursor-pointer"
+                  >
+                    &times;
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="pt-3 border-t border-gray-100 flex items-center justify-end space-x-3">
           <button
             type="button"
             onClick={() => {
@@ -498,6 +563,7 @@ export default function RequisitionForm({ user, companies, projects }: FormProps
           <button
             type="button"
             onClick={() => {
+              if (attachmentError) return;
               setSubmitAction("SUBMIT");
               setShowSignModal(true);
             }}
