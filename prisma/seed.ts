@@ -47,7 +47,7 @@ const ROLES = [
 const IMS_ADDRESS = "House 13, Road 04, Block F, Chairman Bari, Banani, Dhaka-1213";
 const COMPANIES = [
   { code: "IMS", name: "IMS", legalName: "INTEGRATED MARKETING SERVICE Ltd.", address: IMS_ADDRESS, phone: "+880 2 9847475", email: "info@ims.com.bd", website: "www.ims.com.bd", logo: "/logos/ims.png", accentColor: "#E42528", paperTint: "#FFFFFF" },
-  { code: "CLAN", name: "CLAN", legalName: "CLAN PRIVATE LIMITED", address: "House 09, Road 4, Block F, Banani, Dhaka-1213, Bangladesh", phone: "+880 2 9847475", email: "info@clan.com.bd", website: "www.clan.com.bd", logo: "/logos/clan.png", accentColor: "#F5A623", paperTint: "#FFF4C2" },
+  { code: "CLAN", name: "CLAN", legalName: "Country's Largest Audience Network", address: "House 09, Road 4, Block F, Banani, Dhaka-1213, Bangladesh", phone: "+880 2 9847475", email: "info@clan.com.bd", website: "www.clan.com.bd", logo: "/logos/clan.png", accentColor: "#F5A623", paperTint: "#FFF4C2" },
   { code: "SCL", name: "SCL", legalName: "SALES CONNECT LIMITED", address: IMS_ADDRESS, phone: "+880 2 9847475", email: "info@scl.net.bd", website: null, logo: "/logos/scl.png", accentColor: "#414042", paperTint: "#FFFFFF" },
   { code: "TP", name: "TradePULSE", legalName: "TRADE PULSE LTD.", address: IMS_ADDRESS, phone: "+880 2 9847475", email: "info@tradepulsebd.com", website: null, logo: "/logos/tradepulse.png", accentColor: "#004541", paperTint: "#FFFFFF" },
 ];

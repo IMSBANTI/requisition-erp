@@ -132,7 +132,7 @@ export default async function RequisitionDetailPage({ params }: Props) {
             </div>
 
             <div className="text-right max-w-sm">
-              <h2 className="text-xs font-bold text-gray-900 uppercase">
+              <h2 className="text-xs font-bold text-gray-900">
                 {req.company.legalName}
               </h2>
               <p className="text-[10px] text-gray-600 leading-tight mt-0.5">

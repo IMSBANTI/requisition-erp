@@ -46,7 +46,7 @@ export default function BlankPrintClient({ companies, selectedCompany, initialTy
 
           {/* Legal name & addresses */}
           <div className="text-center max-w-sm px-2">
-            <h1 className="text-xs font-black text-black uppercase tracking-tight">
+            <h1 className="text-xs font-black text-black tracking-tight">
               {currentCo.legalName}
             </h1>
             <p className="text-[8.5px] text-black leading-tight mt-0.5">

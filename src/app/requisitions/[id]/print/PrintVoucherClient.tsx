@@ -82,7 +82,7 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
 
           {/* Legal name & addresses */}
           <div className="text-center max-w-sm px-2">
-            <h1 className="text-xs font-black text-black uppercase tracking-tight">
+            <h1 className="text-xs font-black text-black tracking-tight">
               {req.company.legalName}
             </h1>
             <p className="text-[8.5px] text-black leading-tight mt-0.5">
