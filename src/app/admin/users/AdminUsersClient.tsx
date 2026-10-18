@@ -528,48 +528,66 @@ export default function AdminUsersClient({
         </div>
       </div>
 
-      {/* Users Table */}
+      {/* Users Table — Fits cleanly on screen with Sticky Header, Sticky Right Actions & Scroll Slider */}
       <div className="mt-4 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto overflow-y-auto max-h-[72vh]">
           <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
-                <th className="py-2.5 px-3">ID</th>
+            <thead className="sticky top-0 z-20 bg-gray-50 shadow-2xs">
+              <tr className="border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
                 <th className="py-2.5 px-3">Employee / Login Email</th>
-                <th className="py-2.5 px-3">Priority & Level</th>
-                <th className="py-2.5 px-3">Company & Departments</th>
-                <th className="py-2.5 px-3">Reporting Approver / Notes</th>
-                <th className="py-2.5 px-3">Scopes & Projects</th>
-                <th className="py-2.5 px-3 text-center">Status</th>
-                {!isReadOnly && <th className="py-2.5 px-3 text-right">Actions</th>}
+                <th className="py-2.5 px-2.5">Priority & Role</th>
+                <th className="py-2.5 px-2.5">Company & Dept</th>
+                <th className="py-2.5 px-2.5">Reporting Approver</th>
+                <th className="py-2.5 px-2.5">Scopes & Projects</th>
+                {!isReadOnly && (
+                  <th className="py-2.5 px-3 text-right sticky right-0 bg-gray-50 z-20 border-l border-gray-200">
+                    Actions
+                  </th>
+                )}
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {filteredUsers.map((u) => {
                 const pBadge = PRIORITY_BADGES[u.priorityLevel] || PRIORITY_BADGES[2];
                 return (
-                  <tr key={u.id} className="hover:bg-gray-50/80 transition-colors">
-                    <td className="py-3 px-3 font-mono font-bold text-gray-700 whitespace-nowrap">
-                      {u.employeeId ? `#${u.employeeId}` : "—"}
+                  <tr key={u.id} className="hover:bg-gray-50/90 transition-colors group">
+                    <td className="py-2.5 px-3 min-w-[180px]">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {u.employeeId && (
+                          <span className="font-mono font-bold text-[10px] px-1.5 py-0.2 rounded bg-gray-100 text-gray-700 border border-gray-200">
+                            #{u.employeeId}
+                          </span>
+                        )}
+                        <span className="font-bold text-gray-900">{u.name}</span>
+                        <span
+                          className={`inline-block w-2 h-2 rounded-full ${
+                            u.active ? "bg-green-500" : "bg-red-500"
+                          }`}
+                          title={u.active ? "Active" : "Inactive"}
+                        />
+                      </div>
+                      <span className="text-[11px] text-gray-600 font-mono block truncate max-w-[210px]">
+                        {u.email}
+                      </span>
+                      <span className="text-[10px] text-gray-400 block truncate max-w-[210px]">
+                        {u.designation}
+                      </span>
                     </td>
-                    <td className="py-3 px-3">
-                      <span className="font-bold text-gray-900 block">{u.name}</span>
-                      <span className="text-[11px] text-gray-600 font-mono block">{u.email}</span>
-                      <span className="text-[10px] text-gray-400">{u.designation}</span>
-                    </td>
-                    <td className="py-3 px-3 whitespace-nowrap">
+                    <td className="py-2.5 px-2.5 max-w-[165px]">
                       <span
                         className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold border ${pBadge.color}`}
                       >
-                        Priority {u.priorityLevel} • {u.levelLabel}
+                        P{u.priorityLevel} • {u.levelLabel}
                       </span>
-                      <span className="block text-[10px] text-gray-500 mt-0.5 font-medium">
-                        Role: {u.roleName}
+                      <span className="block text-[10px] text-gray-500 mt-1 font-medium leading-tight">
+                        {u.roleName}
                       </span>
                     </td>
-                    <td className="py-3 px-3">
+                    <td className="py-2.5 px-2.5 max-w-[165px]">
                       <span className="font-bold text-gray-800">{u.companyName}</span>
-                      <span className="block text-[11px] text-gray-600">{u.departmentName}</span>
+                      <span className="block text-[11px] text-gray-600 leading-tight">
+                        {u.departmentName}
+                      </span>
                       {u.secondaryDepartments?.length > 0 && (
                         <div className="flex flex-wrap gap-1 mt-1">
                           {u.secondaryDepartments.map((sd: string, idx: number) => (
@@ -583,21 +601,21 @@ export default function AdminUsersClient({
                         </div>
                       )}
                     </td>
-                    <td className="py-3 px-3">
+                    <td className="py-2.5 px-2.5 max-w-[180px]">
                       {u.supervisorName ? (
-                        <span className="text-[11px] font-semibold text-gray-800 block">
+                        <span className="text-[11px] font-semibold text-gray-800 block leading-tight">
                           ↳ {u.supervisorName}
                         </span>
                       ) : (
                         <span className="text-[10px] text-gray-400 block">Direct / Dept Head</span>
                       )}
                       {u.approvalNotes && (
-                        <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded inline-block mt-0.5 border border-amber-200">
+                        <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded inline-block mt-1 border border-amber-200 leading-tight">
                           {u.approvalNotes}
                         </span>
                       )}
                     </td>
-                    <td className="py-3 px-3 max-w-[200px]">
+                    <td className="py-2.5 px-2.5 max-w-[170px]">
                       {u.companyScopeCodes?.length > 0 && (
                         <div className="flex flex-wrap gap-1 mb-1">
                           {u.companyScopeCodes.map((code: string) => (
@@ -612,57 +630,51 @@ export default function AdminUsersClient({
                       )}
                       {u.projectScopeNames?.length > 0 ? (
                         <span
-                          className="text-[10px] text-gray-600 line-clamp-2"
+                          className="text-[10px] text-gray-600 line-clamp-2 leading-tight"
                           title={u.projectScopeNames.join(", ")}
                         >
-                          {u.projectScopeNames.slice(0, 3).join(", ")}
-                          {u.projectScopeNames.length > 3
-                            ? ` +${u.projectScopeNames.length - 3} more`
+                          {u.projectScopeNames.slice(0, 2).join(", ")}
+                          {u.projectScopeNames.length > 2
+                            ? ` +${u.projectScopeNames.length - 2} more`
                             : ""}
                         </span>
                       ) : (
-                        <span className="text-[10px] text-gray-400">All / Department Default</span>
+                        <span className="text-[10px] text-gray-400">All / Dept Default</span>
                       )}
                     </td>
-                    <td className="py-3 px-3 text-center whitespace-nowrap">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                          u.active ? "bg-green-100 text-green-800" : "bg-red-100 text-red-800"
-                        }`}
-                      >
-                        {u.active ? "Active" : "Inactive"}
-                      </span>
-                    </td>
                     {!isReadOnly && (
-                      <td className="py-3 px-3 text-right whitespace-nowrap space-x-2">
-                        <button
-                          type="button"
-                          onClick={() => openEditUserModal(u)}
-                          className="px-2.5 py-1 rounded text-[11px] font-bold bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 cursor-pointer"
-                        >
-                          Edit & Privileges
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedUser(u);
-                            setNewPassword(u.email);
-                            setMsg("");
-                            setErrorMsg("");
-                            setModalType("PASSWORD");
-                          }}
-                          className="px-2 py-1 rounded text-[11px] font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 cursor-pointer"
-                        >
-                          PW
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteUser(u)}
-                          className="px-2 py-1 rounded text-[11px] font-semibold text-red-600 hover:bg-red-50 cursor-pointer"
-                          title="Delete or Deactivate User"
-                        >
-                          ✕
-                        </button>
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap sticky right-0 bg-white group-hover:bg-gray-50 border-l border-gray-100 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]">
+                        <div className="inline-flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => openEditUserModal(u)}
+                            className="px-2.5 py-1 rounded text-[11px] font-bold bg-blue-600 text-white hover:bg-blue-700 shadow-2xs cursor-pointer"
+                          >
+                            Edit & Privileges
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSelectedUser(u);
+                              setNewPassword(u.email);
+                              setMsg("");
+                              setErrorMsg("");
+                              setModalType("PASSWORD");
+                            }}
+                            className="px-2 py-1 rounded text-[11px] font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200 border border-gray-200 cursor-pointer"
+                            title="Reset Password"
+                          >
+                            PW
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUser(u)}
+                            className="px-2 py-1 rounded text-[11px] font-semibold text-red-600 hover:bg-red-50 border border-transparent hover:border-red-200 cursor-pointer"
+                            title="Delete or Deactivate User"
+                          >
+                            ✕
+                          </button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -670,7 +682,7 @@ export default function AdminUsersClient({
               })}
               {filteredUsers.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-8 text-center text-gray-400 text-xs">
+                  <td colSpan={6} className="py-8 text-center text-gray-400 text-xs">
                     No users match the selected filters.
                   </td>
                 </tr>
