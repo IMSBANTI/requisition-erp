@@ -92,27 +92,35 @@ model Role {
 }
 
 model User {
-  id                 String        @id @default(cuid())
-  email              String        @unique
-  name               String
-  designation        String
-  passwordHash       String
-  pinHash            String?
-  signature          String?       // PNG data URL (drawn or uploaded)
-  roleId             String
-  role               Role          @relation(fields: [roleId], references: [id])
-  companyId          String?
-  company            Company?      @relation("UserCompany", fields: [companyId], references: [id])
-  departmentId       String?
-  department         Department?   @relation("UserDepartment", fields: [departmentId], references: [id])
-  companyScopes      Company[]     @relation("UserCompanyScope")
-  projectScopes      Project[]     @relation("UserProjectScope")
-  directorCategories String[]      @default([]) // categories this Director approves
-  extraPermissions   String[]      @default([]) // e.g. req.view.all granted by Director/MD
-  active             Boolean       @default(true)
-  mustChangePassword Boolean       @default(true)
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  id                   String        @id @default(cuid())
+  employeeId           String?       // e.g. "1001", "1002"
+  email                String        @unique
+  name                 String
+  designation          String
+  priorityLevel        Int           @default(2) // 2=Executive, 3=Manager, 4=Director/MD, 5=Super Admin
+  levelLabel           String?       @default("Executive") // Executive | Manager | Director | MD
+  secondaryDepartments String[]      @default([])
+  approvalNotes        String?
+  supervisorId         String?
+  supervisor           User?         @relation("UserSupervisor", fields: [supervisorId], references: [id])
+  subordinates         User[]        @relation("UserSupervisor")
+  passwordHash         String
+  pinHash              String?
+  signature            String?       // PNG data URL (drawn or uploaded)
+  roleId               String
+  role                 Role          @relation(fields: [roleId], references: [id])
+  companyId            String?
+  company              Company?      @relation("UserCompany", fields: [companyId], references: [id])
+  departmentId         String?
+  department           Department?   @relation("UserDepartment", fields: [departmentId], references: [id])
+  companyScopes        Company[]     @relation("UserCompanyScope")
+  projectScopes        Project[]     @relation("UserProjectScope")
+  directorCategories   String[]      @default([]) // categories this Director approves
+  extraPermissions     String[]      @default([]) // e.g. req.view.all granted by Director/MD
+  active               Boolean       @default(true)
+  mustChangePassword   Boolean       @default(true)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
 
   headOfDepartments  Department[]  @relation("DepartmentHead")
   headOfProjects     Project[]     @relation("ProjectHead")

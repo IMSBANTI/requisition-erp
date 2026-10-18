@@ -31,6 +31,7 @@ export interface WorkflowContext {
     releaseBeforeMd: boolean;
   };
   departmentHeadId: string | null;
+  supervisorId?: string | null;
   itCheckerId: string | null; // Sr. Manager IT & Transformation
   categoryDirectorId: string | null;
   makerIsMd?: boolean;
@@ -55,10 +56,13 @@ export function resolveChain(ctx: WorkflowContext): ChainStep[] {
   const chain: ChainStep[] = [];
   const maker = ctx.makerId;
   const used = new Set<string>([maker]);
+  const director = ctx.project.directorId ?? ctx.categoryDirectorId;
 
-  // 1. Checked by — Department / Project head (skipped for managers' own requisitions)
+  // 1. Checked by — Direct Supervisor / Project Head / Department Head (skipped for managers' own requisitions)
   if (!ctx.makerIsManager) {
-    const head = [ctx.project.headId, ctx.departmentHeadId].find((h) => h && !used.has(h));
+    const head = [ctx.supervisorId, ctx.project.headId, ctx.departmentHeadId].find(
+      (h) => h && !used.has(h) && h !== director
+    );
     if (head) {
       chain.push({ step: "HEAD", assigneeId: head });
       used.add(head);
@@ -78,7 +82,6 @@ export function resolveChain(ctx: WorkflowContext): ChainStep[] {
   }
 
   // 4. Director — mandatory
-  const director = ctx.project.directorId ?? ctx.categoryDirectorId;
   const makerIsDirector = director === maker;
   if (!director) throw new WorkflowError("No Director is configured for this project/category. Ask Admin to set one.");
   if (!makerIsDirector) chain.push({ step: "DIRECTOR", assigneeId: director });
