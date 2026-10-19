@@ -5,6 +5,14 @@ import { prisma } from "@/lib/db";
 import { stateAfter, STATUS_STEP, ChainStep } from "@/lib/workflow";
 import { createNotification, notifyUsers, findUsersWithPermission } from "@/lib/notifications";
 
+function resolveSignerBoxStep(user: { permissions: string[] }, currentStep?: string) {
+  if (user.permissions.includes("req.md")) return "MD";
+  if (user.permissions.includes("req.director")) return "DIRECTOR";
+  if (user.permissions.includes("req.accounts.check")) return "ACCOUNTS";
+  if (currentStep === "CHECKER" || user.permissions.includes("req.approve.it")) return "CHECKER";
+  return currentStep || "HEAD";
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -12,7 +20,14 @@ export async function POST(
   try {
     const user = await requireUser();
     const { id } = await params;
-    const { action, comment, pinOrPassword, forwardToId } = await request.json();
+    const {
+      action,
+      comment,
+      pinOrPassword,
+      forwardToId,
+      targetDirectorId,
+      signatureDataUrl,
+    } = await request.json();
 
     // Authenticate user's PIN or password
     let authenticated = false;
@@ -27,15 +42,29 @@ export async function POST(
       authenticated =
         cleanPin.toLowerCase() === user.email.toLowerCase() ||
         cleanPin === "Ims@12345" ||
-        (user.email.includes("officestuff@ims.net.bd") && cleanPin.toLowerCase() === "officestuff@ims.net.bd");
+        (user.email.includes("officestuff@ims.net.bd") &&
+          cleanPin.toLowerCase() === "officestuff@ims.net.bd");
     }
     if (!authenticated) {
-      return NextResponse.json({ error: "Incorrect 4-digit PIN or password" }, { status: 401 });
+      return NextResponse.json(
+        { error: "Incorrect 4-digit PIN or login password (default: your email)" },
+        { status: 401 }
+      );
+    }
+
+    // If user drew a new signature on the spot, save it to their profile and use it
+    let activeSignature = user.signature;
+    if (signatureDataUrl && typeof signatureDataUrl === "string" && signatureDataUrl.startsWith("data:image/")) {
+      activeSignature = signatureDataUrl;
+      await prisma.user.update({
+        where: { id: user.id },
+        data: { signature: signatureDataUrl },
+      });
     }
 
     const req = await prisma.requisition.findUnique({
       where: { id },
-      include: { project: true, company: true },
+      include: { project: true, company: true, approvals: true },
     });
 
     if (!req) {
@@ -45,6 +74,7 @@ export async function POST(
     const ip = await clientIp();
     const currentStep = STATUS_STEP[req.status];
     const chain = (req.chain as unknown as ChainStep[]) || [];
+    const signerStep = resolveSignerBoxStep(user, currentStep);
 
     // Document hash for digital signature audit
     const docHash = crypto
@@ -52,6 +82,7 @@ export async function POST(
       .update(JSON.stringify({ id: req.id, number: req.number, total: req.total.toString(), date: req.date }))
       .digest("hex");
 
+    // 1. Standard Next-Step Approve
     if (action === "APPROVE") {
       const nextIndex = req.stepIndex + 1;
       const nextWorkflow = stateAfter(chain, nextIndex, req.project.releaseBeforeMd);
@@ -60,13 +91,13 @@ export async function POST(
         prisma.approval.create({
           data: {
             requisitionId: req.id,
-            step: currentStep || "APPROVAL",
+            step: signerStep,
             action: "APPROVED",
             userId: user.id,
             signerName: user.name,
             signerDesignation: user.designation,
-            signature: user.signature,
-            comment,
+            signature: activeSignature,
+            comment: comment || "Approved and digitally signed",
             docHash,
             ip,
           },
@@ -85,14 +116,13 @@ export async function POST(
           data: {
             userId: user.id,
             requisitionId: req.id,
-            action: `APPROVED_${currentStep || "STEP"}`,
+            action: `APPROVED_${signerStep}`,
             details: `Approved by ${user.name} (${user.designation}). Next status: ${nextWorkflow.status}`,
             ip,
           },
         }),
       ]);
 
-      // Notify next approver and maker
       if (nextWorkflow.assigneeId) {
         await createNotification({
           userId: nextWorkflow.assigneeId,
@@ -117,16 +147,15 @@ export async function POST(
         const accountsUserIds = await findUsersWithPermission("req.forward");
         await notifyUsers({
           userIds: accountsUserIds,
-          message: `Requisition ${req.number || req.id} (${req.project.name}) is fully approved by management and ready to forward/execute.`,
+          message: `Requisition ${req.number || req.id} (${req.project.name}) is approved by management and ready for Accounts payment/execution.`,
           link: `/requisitions/${req.id}`,
         });
       }
 
-      // Notify maker of approval
       if (req.makerId !== user.id) {
         await createNotification({
           userId: req.makerId,
-          message: `Your requisition ${req.number || req.id} was approved by ${user.name} (${user.designation}). Next status: ${nextWorkflow.status}.`,
+          message: `Your requisition ${req.number || req.id} was approved by ${user.name} (${user.designation}).`,
           link: `/requisitions/${req.id}`,
         });
       }
@@ -134,12 +163,207 @@ export async function POST(
       return NextResponse.json({ success: true, status: nextWorkflow.status });
     }
 
-    if (action === "FORWARD") {
-      if (!user.permissions.includes("req.forward")) {
-        return NextResponse.json({ error: "Unauthorized to forward" }, { status: 403 });
+    // 2. Sign & Send to Accounts (from Manager, Director, or MD)
+    if (action === "APPROVE_TO_ACCOUNTS") {
+      const isDirectorOrMd =
+        user.permissions.includes("req.director") || user.permissions.includes("req.md");
+      const accountsAlreadySigned = req.approvals.some((a) => a.step === "ACCOUNTS");
+      const nextStatus = isDirectorOrMd && accountsAlreadySigned ? "APPROVED" : "PENDING_ACCOUNTS";
+      const nextMdStatus = user.permissions.includes("req.md") ? "APPROVED" : req.mdStatus;
+
+      await prisma.$transaction([
+        prisma.approval.create({
+          data: {
+            requisitionId: req.id,
+            step: signerStep,
+            action: "APPROVED",
+            userId: user.id,
+            signerName: user.name,
+            signerDesignation: user.designation,
+            signature: activeSignature,
+            comment: comment || "Approved and sent to Accounts",
+            docHash,
+            ip,
+          },
+        }),
+        prisma.requisition.update({
+          where: { id: req.id },
+          data: {
+            status: nextStatus,
+            currentAssigneeId: null,
+            mdStatus: nextMdStatus,
+            approvedAt: isDirectorOrMd ? new Date() : undefined,
+          },
+        }),
+        prisma.auditLog.create({
+          data: {
+            userId: user.id,
+            requisitionId: req.id,
+            action: `SIGNED_${signerStep}_TO_ACCOUNTS`,
+            details: `${user.name} (${user.designation}) signed ${signerStep} and sent to Accounts (${nextStatus})`,
+            ip,
+          },
+        }),
+      ]);
+
+      const accountsUserIds = await findUsersWithPermission("req.accounts.check");
+      await notifyUsers({
+        userIds: accountsUserIds,
+        message: `Requisition ${req.number || req.id} (${req.project.name}) was signed by ${user.name} and sent to Accounts.`,
+        link: `/requisitions/${req.id}`,
+      });
+
+      if (req.makerId !== user.id) {
+        await createNotification({
+          userId: req.makerId,
+          message: `Your requisition ${req.number || req.id} was approved by ${user.name} and sent to Accounts.`,
+          link: `/requisitions/${req.id}`,
+        });
+      }
+
+      return NextResponse.json({ success: true, status: nextStatus });
+    }
+
+    // 3. Sign & Send to Director (from Manager / Head or Accounts Manager)
+    if (action === "APPROVE_TO_DIRECTOR") {
+      let resolvedDirectorId = targetDirectorId || req.project.directorId || null;
+      if (!resolvedDirectorId) {
+        const catDir = await prisma.user.findFirst({
+          where: {
+            role: { permissions: { has: "req.director" } },
+            active: true,
+          },
+          orderBy: { employeeId: "asc" },
+        });
+        resolvedDirectorId = catDir?.id || null;
       }
 
       await prisma.$transaction([
+        prisma.approval.create({
+          data: {
+            requisitionId: req.id,
+            step: signerStep,
+            action: "APPROVED",
+            userId: user.id,
+            signerName: user.name,
+            signerDesignation: user.designation,
+            signature: activeSignature,
+            comment: comment || "Signed and forwarded to Director for approval",
+            docHash,
+            ip,
+          },
+        }),
+        prisma.requisition.update({
+          where: { id: req.id },
+          data: {
+            status: "PENDING_DIRECTOR",
+            currentAssigneeId: resolvedDirectorId,
+          },
+        }),
+        prisma.auditLog.create({
+          data: {
+            userId: user.id,
+            requisitionId: req.id,
+            action: `SIGNED_${signerStep}_TO_DIRECTOR`,
+            details: `${user.name} (${user.designation}) signed ${signerStep} and routed to Director`,
+            ip,
+          },
+        }),
+      ]);
+
+      if (resolvedDirectorId) {
+        await createNotification({
+          userId: resolvedDirectorId,
+          message: `Requisition ${req.number || req.id} (${req.project.name}) was signed by ${user.name} and requires your Director approval.`,
+          link: `/requisitions/${req.id}`,
+        });
+      } else {
+        const dirUserIds = await findUsersWithPermission("req.director");
+        await notifyUsers({
+          userIds: dirUserIds,
+          message: `Requisition ${req.number || req.id} (${req.project.name}) requires Director approval.`,
+          link: `/requisitions/${req.id}`,
+        });
+      }
+
+      return NextResponse.json({ success: true, status: "PENDING_DIRECTOR" });
+    }
+
+    // 4. Sign & Forward to Managing Director (MD) for further approval
+    if (action === "APPROVE_TO_MD") {
+      await prisma.$transaction([
+        prisma.approval.create({
+          data: {
+            requisitionId: req.id,
+            step: signerStep,
+            action: "APPROVED",
+            userId: user.id,
+            signerName: user.name,
+            signerDesignation: user.designation,
+            signature: activeSignature,
+            comment: comment || "Signed and forwarded to Managing Director (MD) for further approval",
+            docHash,
+            ip,
+          },
+        }),
+        prisma.requisition.update({
+          where: { id: req.id },
+          data: {
+            status: "PENDING_MD",
+            currentAssigneeId: null,
+            mdStatus: "PENDING",
+          },
+        }),
+        prisma.auditLog.create({
+          data: {
+            userId: user.id,
+            requisitionId: req.id,
+            action: `FORWARDED_TO_MD_BY_${signerStep}`,
+            details: `${user.name} (${user.designation}) signed ${signerStep} and forwarded to MD for further approval`,
+            ip,
+          },
+        }),
+      ]);
+
+      const mdUserIds = await findUsersWithPermission("req.md");
+      await notifyUsers({
+        userIds: mdUserIds,
+        message: `Requisition ${req.number || req.id} (${req.project.name}) was signed by ${user.name} and forwarded to MD for approval.`,
+        link: `/requisitions/${req.id}`,
+      });
+
+      return NextResponse.json({ success: true, status: "PENDING_MD" });
+    }
+
+    // 5. Forward to Accounts Executive for payment/disbursement
+    if (action === "FORWARD") {
+      if (!user.permissions.includes("req.forward") && !user.permissions.includes("req.accounts.check")) {
+        return NextResponse.json({ error: "Unauthorized to forward" }, { status: 403 });
+      }
+
+      const accountsAlreadySigned = req.approvals.some((a) => a.step === "ACCOUNTS");
+      const txOps: any[] = [];
+
+      if (!accountsAlreadySigned) {
+        txOps.push(
+          prisma.approval.create({
+            data: {
+              requisitionId: req.id,
+              step: "ACCOUNTS",
+              action: "APPROVED",
+              userId: user.id,
+              signerName: user.name,
+              signerDesignation: user.designation,
+              signature: activeSignature,
+              comment: comment || "Checked by Accounts",
+              docHash,
+              ip,
+            },
+          })
+        );
+      }
+
+      txOps.push(
         prisma.approval.create({
           data: {
             requisitionId: req.id,
@@ -148,8 +372,8 @@ export async function POST(
             userId: user.id,
             signerName: user.name,
             signerDesignation: user.designation,
-            signature: user.signature,
-            comment: comment || "Forwarded to Accounts Executive for execution",
+            signature: activeSignature,
+            comment: comment || "Forwarded to Accounts Executive for payment/disbursement",
             docHash,
             ip,
           },
@@ -166,16 +390,18 @@ export async function POST(
             userId: user.id,
             requisitionId: req.id,
             action: "FORWARDED_TO_ACCOUNTS_EXECUTIVE",
-            details: `Forwarded by Accounts Manager ${user.name}`,
+            details: `Signed by Accounts & forwarded by ${user.name} for disbursement`,
             ip,
           },
-        }),
-      ]);
+        })
+      );
+
+      await prisma.$transaction(txOps);
 
       if (forwardToId) {
         await createNotification({
           userId: forwardToId,
-          message: `Requisition ${req.number || req.id} was forwarded to you by Accounts Manager ${user.name} for execution/disbursement.`,
+          message: `Requisition ${req.number || req.id} was signed by Accounts (${user.name}) and assigned to you to pay/disburse.`,
           link: `/requisitions/${req.id}`,
         });
       }
@@ -183,12 +409,40 @@ export async function POST(
       return NextResponse.json({ success: true, status: "FORWARDED" });
     }
 
+    // 6. Execute / Pay the Money (Accounts Executive or Accounts Manager)
     if (action === "EXECUTE") {
-      if (!user.permissions.includes("req.execute") || req.executorId !== user.id) {
-        return NextResponse.json({ error: "Unauthorized to execute this requisition" }, { status: 403 });
+      const canExecute =
+        user.permissions.includes("req.execute") ||
+        user.permissions.includes("req.accounts.check") ||
+        user.permissions.includes("req.forward");
+
+      if (!canExecute) {
+        return NextResponse.json({ error: "Unauthorized to execute/disburse payment" }, { status: 403 });
       }
 
-      await prisma.$transaction([
+      const accountsAlreadySigned = req.approvals.some((a) => a.step === "ACCOUNTS");
+      const txOps: any[] = [];
+
+      if (!accountsAlreadySigned) {
+        txOps.push(
+          prisma.approval.create({
+            data: {
+              requisitionId: req.id,
+              step: "ACCOUNTS",
+              action: "APPROVED",
+              userId: user.id,
+              signerName: user.name,
+              signerDesignation: user.designation,
+              signature: activeSignature,
+              comment: "Checked & Signed by Accounts",
+              docHash,
+              ip,
+            },
+          })
+        );
+      }
+
+      txOps.push(
         prisma.approval.create({
           data: {
             requisitionId: req.id,
@@ -197,8 +451,8 @@ export async function POST(
             userId: user.id,
             signerName: user.name,
             signerDesignation: user.designation,
-            signature: user.signature,
-            comment: comment || "Payment executed and disbursed",
+            signature: activeSignature,
+            comment: comment || "Payment executed and money disbursed by Accounts",
             docHash,
             ip,
           },
@@ -207,6 +461,7 @@ export async function POST(
           where: { id: req.id },
           data: {
             status: "EXECUTED",
+            executorId: user.id,
             executedAt: new Date(),
           },
         }),
@@ -215,15 +470,17 @@ export async function POST(
             userId: user.id,
             requisitionId: req.id,
             action: "EXECUTED_DISBURSED",
-            details: `Funds disbursed by Accounts Executive ${user.name}`,
+            details: `Money paid / disbursed by Accounts (${user.name})`,
             ip,
           },
-        }),
-      ]);
+        })
+      );
+
+      await prisma.$transaction(txOps);
 
       await createNotification({
         userId: req.makerId,
-        message: `Your requisition ${req.number || req.id} (Tk ${req.total}) has been disbursed / executed by ${user.name}.`,
+        message: `Your requisition ${req.number || req.id} (Tk ${req.total}) has been signed by Accounts and paid/disbursed by ${user.name}.`,
         link: `/requisitions/${req.id}`,
       });
 
@@ -239,12 +496,12 @@ export async function POST(
         prisma.approval.create({
           data: {
             requisitionId: req.id,
-            step: currentStep || "REVIEW",
+            step: signerStep,
             action: "RETURNED",
             userId: user.id,
             signerName: user.name,
             signerDesignation: user.designation,
-            signature: user.signature,
+            signature: activeSignature,
             comment,
             docHash,
             ip,
@@ -286,12 +543,12 @@ export async function POST(
         prisma.approval.create({
           data: {
             requisitionId: req.id,
-            step: currentStep || "REVIEW",
+            step: signerStep,
             action: "REJECTED",
             userId: user.id,
             signerName: user.name,
             signerDesignation: user.designation,
-            signature: user.signature,
+            signature: activeSignature,
             comment,
             docHash,
             ip,

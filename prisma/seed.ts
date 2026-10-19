@@ -700,6 +700,26 @@ async function main() {
     }
   }
 
+  // Deactivate legacy placeholder demo emails if they exist from initial seed
+  const legacyPlaceholderEmails = [
+    "abir@ims.com.bd",
+    "iftekhar@ims.com.bd",
+    "md@ims.com.bd",
+    "ims.manager@ims.com.bd",
+    "outsourcing.manager@ims.com.bd",
+    "sr.outsourcing@ims.com.bd",
+    "clan.manager@clan.com.bd",
+    "scl.manager@scl.net.bd",
+    "ims.exec@ims.com.bd",
+    "clan.exec@clan.com.bd",
+    "tp.exec@tradepulsebd.com",
+    "project.exec@ims.com.bd",
+  ];
+  await prisma.user.updateMany({
+    where: { email: { in: legacyPlaceholderEmails } },
+    data: { active: false },
+  });
+
   console.log(
     `Seeded ${ROLES.length} roles, ${COMPANIES.length} companies, ${DEPARTMENTS.length} departments, ${EXCEL_USERS.length} employees, ${PROJECTS.length} projects & events.`
   );

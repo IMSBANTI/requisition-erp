@@ -2,12 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/db";
 import { createSession, verifySecret } from "@/lib/auth";
 
-const EMAIL_ALIASES: Record<string, string> = {
+const LEGACY_TO_OFFICIAL_EMAIL: Record<string, string> = {
   "moushumi@ims.combd": "moushumi@ims.com.bd",
   "abir@ims.com.bd": "admin@ims.com.bd",
-  "admin@ims.com.bd": "abir@ims.com.bd",
   "iftekhar@ims.com.bd": "nahiyan@ims.com.bd",
-  "nahiyan@ims.com.bd": "iftekhar@ims.com.bd",
   "md@ims.com.bd": "sami.hasan@ims.com.bd",
 };
 
@@ -20,15 +18,15 @@ export async function POST(request: Request) {
     }
 
     const rawIdentifier = String(email).toLowerCase().trim();
-    const normalizedEmail = rawIdentifier === "moushumi@ims.combd" ? "moushumi@ims.com.bd" : rawIdentifier;
+    const normalizedEmail = LEGACY_TO_OFFICIAL_EMAIL[rawIdentifier] || rawIdentifier;
 
     let user = await prisma.user.findUnique({
       where: { email: normalizedEmail },
     });
 
-    if (!user && EMAIL_ALIASES[normalizedEmail]) {
+    if (!user && normalizedEmail !== rawIdentifier) {
       user = await prisma.user.findUnique({
-        where: { email: EMAIL_ALIASES[normalizedEmail] },
+        where: { email: rawIdentifier },
       });
     }
 

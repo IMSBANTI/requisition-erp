@@ -12,23 +12,37 @@ export default async function DashboardPage() {
   // Scoped queries
   const scope = requisitionScope(user);
 
+  const orPendingDashboard: any[] = [{ currentAssigneeId: user.id }];
+  if (user.permissions.includes("req.director")) {
+    orPendingDashboard.push({
+      status: {
+        in: ["PENDING_DIRECTOR", "PENDING_HEAD", "PENDING_CHECKER", "PENDING_ACCOUNTS"],
+      },
+    });
+  }
+  if (user.permissions.includes("req.accounts.check") || user.permissions.includes("req.forward")) {
+    orPendingDashboard.push({ status: { in: ["PENDING_ACCOUNTS", "APPROVED"] } });
+  }
+  if (user.permissions.includes("req.md")) {
+    orPendingDashboard.push({ status: "PENDING_MD" });
+  }
+  if (user.permissions.includes("req.execute")) {
+    orPendingDashboard.push({ status: { in: ["FORWARDED", "APPROVED"] } });
+  }
+
   const [
     totalCount,
     myCount,
-    pendingMySignature,
-    pendingAccounts,
+    totalPending,
     toExecuteCount,
     batchCount,
     recentRequisitions,
   ] = await Promise.all([
     prisma.requisition.count({ where: scope }),
     prisma.requisition.count({ where: { makerId: user.id } }),
-    prisma.requisition.count({ where: { currentAssigneeId: user.id } }),
-    user.permissions.includes("req.accounts.check")
-      ? prisma.requisition.count({ where: { status: "PENDING_ACCOUNTS" } })
-      : Promise.resolve(0),
-    user.permissions.includes("req.execute")
-      ? prisma.requisition.count({ where: { status: "FORWARDED", executorId: user.id } })
+    prisma.requisition.count({ where: { ...scope, OR: orPendingDashboard } }),
+    user.permissions.includes("req.execute") || user.permissions.includes("req.forward")
+      ? prisma.requisition.count({ where: { status: { in: ["FORWARDED", "APPROVED"] } } })
       : Promise.resolve(0),
     user.permissions.includes("req.md")
       ? prisma.requisition.count({ where: { mdStatus: "PENDING_BATCH" } })
@@ -44,8 +58,6 @@ export default async function DashboardPage() {
       },
     }),
   ]);
-
-  const totalPending = pendingMySignature + pendingAccounts;
 
   return (
     <AppShell>

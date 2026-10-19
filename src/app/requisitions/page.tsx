@@ -22,15 +22,25 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
     whereClause = { ...whereClause, makerId: user.id };
   } else if (filter === "pending") {
     const orPending: any[] = [{ currentAssigneeId: user.id }];
-    if (user.permissions.includes("req.accounts.check")) {
-      orPending.push({ status: "PENDING_ACCOUNTS" });
+    if (user.permissions.includes("req.director")) {
+      orPending.push({
+        status: {
+          in: ["PENDING_DIRECTOR", "PENDING_HEAD", "PENDING_CHECKER", "PENDING_ACCOUNTS"],
+        },
+      });
+    }
+    if (user.permissions.includes("req.accounts.check") || user.permissions.includes("req.forward")) {
+      orPending.push({ status: { in: ["PENDING_ACCOUNTS", "APPROVED"] } });
     }
     if (user.permissions.includes("req.md")) {
-      orPending.push({ status: "PENDING_MD" });
+      orPending.push({ status: "PENDING_MD" }, { mdStatus: "PENDING_BATCH" });
+    }
+    if (user.permissions.includes("req.execute")) {
+      orPending.push({ status: { in: ["FORWARDED", "APPROVED"] } });
     }
     whereClause = { ...whereClause, OR: orPending };
   } else if (filter === "to_execute") {
-    whereClause = { ...whereClause, status: "FORWARDED", executorId: user.id };
+    whereClause = { ...whereClause, status: { in: ["FORWARDED", "APPROVED"] } };
   }
 
   if (company) {

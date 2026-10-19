@@ -40,14 +40,24 @@ export default async function RequisitionDetailPage({ params }: Props) {
 
   if (!req) return notFound();
 
-  // Find accounts executives for forward action
-  const accountsExecutives = await prisma.user.findMany({
-    where: {
-      role: { key: "accounts_executive" },
-      active: true,
-    },
-    select: { id: true, name: true, designation: true },
-  });
+  // Find accounts executives for forward action & directors for routing
+  const [accountsExecutives, directors] = await Promise.all([
+    prisma.user.findMany({
+      where: {
+        role: { key: "accounts_executive" },
+        active: true,
+      },
+      select: { id: true, name: true, designation: true },
+    }),
+    prisma.user.findMany({
+      where: {
+        role: { permissions: { has: "req.director" } },
+        active: true,
+      },
+      orderBy: { employeeId: "asc" },
+      select: { id: true, name: true, designation: true },
+    }),
+  ]);
 
   // Calculate available actions for this logged-in user
   const actions = allowedActions(
@@ -100,9 +110,14 @@ export default async function RequisitionDetailPage({ params }: Props) {
           number={req.number}
           status={req.status}
           actions={actions}
+          userName={user.name}
+          userEmail={user.email}
+          userPermissions={user.permissions}
           userSignature={user.signature}
           hasPin={!!user.pinHash}
           accountsExecutives={accountsExecutives}
+          directors={directors}
+          defaultDirectorId={req.project.directorId}
         />
 
         {/* Paper Voucher Replica */}
@@ -345,25 +360,40 @@ export default async function RequisitionDetailPage({ params }: Props) {
               <div className="border-t border-gray-800 pt-1 flex flex-col justify-between min-h-[75px]">
                 <div>
                   <span className="font-bold block text-gray-900">Approve by management</span>
-                  <span className="text-gray-600">Director & MD</span>
+                  <span className="text-gray-600">
+                    {[
+                      req.approvals.find((a) => a.step === "DIRECTOR")?.signerName,
+                      req.approvals.find((a) => a.step === "MD")?.signerName,
+                    ]
+                      .filter(Boolean)
+                      .join(" & ") || "Director & MD"}
+                  </span>
                 </div>
                 <div className="flex items-center justify-center space-x-1 my-0.5">
-                  {req.approvals.find((a) => a.step === "DIRECTOR")?.signature && (
+                  {req.approvals.find((a) => a.step === "DIRECTOR")?.signature ? (
                     <img
                       src={req.approvals.find((a) => a.step === "DIRECTOR")!.signature!}
                       alt="Director"
                       className="h-8 w-auto object-contain"
                       title="Director Signature"
                     />
-                  )}
-                  {req.approvals.find((a) => a.step === "MD")?.signature && (
+                  ) : req.approvals.some((a) => a.step === "DIRECTOR") ? (
+                    <span className="text-[9px] text-green-700 font-mono font-semibold">
+                      ✓ Dir Signed
+                    </span>
+                  ) : null}
+                  {req.approvals.find((a) => a.step === "MD")?.signature ? (
                     <img
                       src={req.approvals.find((a) => a.step === "MD")!.signature!}
                       alt="MD"
                       className="h-8 w-auto object-contain"
                       title="MD Signature"
                     />
-                  )}
+                  ) : req.approvals.some((a) => a.step === "MD") ? (
+                    <span className="text-[9px] text-purple-700 font-mono font-semibold">
+                      ✓ MD Signed
+                    </span>
+                  ) : null}
                   {!req.approvals.some((a) => a.step === "DIRECTOR" || a.step === "MD") && (
                     <span className="text-[9px] text-gray-300 italic">Pending</span>
                   )}

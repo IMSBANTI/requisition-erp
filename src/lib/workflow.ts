@@ -137,25 +137,100 @@ export interface ReqSnapshot {
   mdStatus: string;
 }
 
-export type Action = "APPROVE" | "RETURN" | "REJECT" | "FORWARD" | "EXECUTE" | "MD_BATCH";
+export type Action =
+  | "APPROVE"
+  | "APPROVE_TO_ACCOUNTS"
+  | "APPROVE_TO_DIRECTOR"
+  | "APPROVE_TO_MD"
+  | "FORWARD"
+  | "EXECUTE"
+  | "RETURN"
+  | "REJECT"
+  | "MD_BATCH";
 
 /** Which actions may this user take on this requisition right now? */
 export function allowedActions(user: Actor, req: ReqSnapshot): Action[] {
   const has = (p: string) => user.permissions.includes(p);
-  const out: Action[] = [];
-  const step = STATUS_STEP[req.status];
+  const out = new Set<Action>();
 
-  if (step) {
-    let mine = false;
-    if (step === "ACCOUNTS") mine = has(PERMISSIONS.REQ_ACCOUNTS_CHECK);
-    else if (step === "MD") mine = has(PERMISSIONS.REQ_MD);
-    else mine = req.currentAssigneeId === user.id;
-    if (user.id === req.makerId) mine = false; // nobody approves their own requisition
-    if (mine) out.push("APPROVE", "RETURN", "REJECT");
+  const isClosed = ["EXECUTED", "REJECTED", "CANCELLED", "DRAFT"].includes(req.status);
+  const isPendingStage = [
+    "PENDING_HEAD",
+    "PENDING_CHECKER",
+    "PENDING_ACCOUNTS",
+    "PENDING_DIRECTOR",
+    "PENDING_MD",
+  ].includes(req.status);
+
+  if (!isClosed) {
+    // 1. Director actions (Iftekhar, Nazmus, Shible, etc.)
+    if (has(PERMISSIONS.REQ_DIRECTOR) && isPendingStage) {
+      out.add("APPROVE_TO_ACCOUNTS");
+      out.add("APPROVE_TO_MD");
+      out.add("RETURN");
+      out.add("REJECT");
+    }
+
+    // 2. Managing Director actions (Sami Hasan, Syed Sarwar Morshed Azam)
+    if (has(PERMISSIONS.REQ_MD) && (isPendingStage || req.mdStatus === "PENDING_BATCH")) {
+      out.add("APPROVE_TO_ACCOUNTS");
+      out.add("RETURN");
+      out.add("REJECT");
+    }
+
+    // 3. Accounts Manager actions (Harun Ur-Rashid, etc.)
+    if (has(PERMISSIONS.REQ_ACCOUNTS_CHECK) || has(PERMISSIONS.REQ_FORWARD)) {
+      if (isPendingStage) {
+        out.add("APPROVE_TO_DIRECTOR");
+        out.add("APPROVE_TO_MD");
+        out.add("FORWARD");
+        out.add("EXECUTE");
+        out.add("RETURN");
+        out.add("REJECT");
+      } else if (req.status === "APPROVED" || req.status === "FORWARDED") {
+        out.add("APPROVE_TO_MD");
+        out.add("FORWARD");
+        out.add("EXECUTE");
+      }
+    }
+
+    // 4. Accounts Executive actions (Israt Jahan Tanni, Sumon)
+    if (has(PERMISSIONS.REQ_EXECUTE)) {
+      if (
+        req.status === "FORWARDED" ||
+        req.status === "APPROVED" ||
+        req.status === "PENDING_ACCOUNTS"
+      ) {
+        out.add("EXECUTE");
+      }
+    }
+
+    // 5. Manager / Department Head / Project Head / IT Checker actions
+    const isHeadOrCheckerStage =
+      req.status === "PENDING_HEAD" || req.status === "PENDING_CHECKER";
+    const canSignHeadOrChecker =
+      req.currentAssigneeId === user.id ||
+      has(PERMISSIONS.REQ_APPROVE) ||
+      has(PERMISSIONS.REQ_APPROVE_IT);
+
+    if (isHeadOrCheckerStage && canSignHeadOrChecker && !has(PERMISSIONS.REQ_DIRECTOR)) {
+      out.add("APPROVE");
+      out.add("APPROVE_TO_ACCOUNTS");
+      out.add("APPROVE_TO_DIRECTOR");
+      out.add("RETURN");
+      out.add("REJECT");
+    }
   }
-  if (req.status === "APPROVED" && has(PERMISSIONS.REQ_FORWARD)) out.push("FORWARD");
-  if (req.status === "FORWARDED" && req.executorId === user.id && has(PERMISSIONS.REQ_EXECUTE)) out.push("EXECUTE");
-  if (req.mdStatus === "PENDING_BATCH" && has(PERMISSIONS.REQ_MD) && req.status !== "REJECTED" && req.status !== "RETURNED")
-    out.push("MD_BATCH");
-  return out;
+
+  if (
+    req.mdStatus === "PENDING_BATCH" &&
+    has(PERMISSIONS.REQ_MD) &&
+    req.status !== "REJECTED" &&
+    req.status !== "RETURNED"
+  ) {
+    out.add("MD_BATCH");
+  }
+
+  return Array.from(out);
 }
+
