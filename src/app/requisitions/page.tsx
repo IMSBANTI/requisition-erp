@@ -15,11 +15,10 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
   const { filter, company, search } = await searchParams;
 
   const baseScope = requisitionScope(user);
-
-  let whereClause: any = { ...baseScope };
+  const andConditions: any[] = [baseScope];
 
   if (filter === "my") {
-    whereClause = { ...whereClause, makerId: user.id };
+    andConditions.push({ makerId: user.id });
   } else if (filter === "pending") {
     const orPending: any[] = [{ currentAssigneeId: user.id }];
     if (user.permissions.includes("req.director")) {
@@ -38,25 +37,26 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
     if (user.permissions.includes("req.execute")) {
       orPending.push({ status: { in: ["FORWARDED", "APPROVED"] } });
     }
-    whereClause = { ...whereClause, OR: orPending };
+    andConditions.push({ OR: orPending });
   } else if (filter === "to_execute") {
-    whereClause = { ...whereClause, status: { in: ["FORWARDED", "APPROVED"] } };
+    andConditions.push({ status: { in: ["FORWARDED", "APPROVED"] } });
   }
 
   if (company) {
-    whereClause = { ...whereClause, company: { code: company } };
+    andConditions.push({ company: { code: company } });
   }
 
   if (search) {
-    whereClause = {
-      ...whereClause,
+    andConditions.push({
       OR: [
         { number: { contains: search, mode: "insensitive" } },
         { makerName: { contains: search, mode: "insensitive" } },
         { comments: { contains: search, mode: "insensitive" } },
       ],
-    };
+    });
   }
+
+  const whereClause = { AND: andConditions };
 
   const [requisitions, companies] = await Promise.all([
     prisma.requisition.findMany({

@@ -3,6 +3,7 @@ import { PERMISSIONS } from "./constants";
 
 export interface ScopeUser {
   id: string;
+  companyId?: string | null;
   permissions: string[];
   departmentId: string | null;
   companyScopes: { id: string }[];
@@ -10,40 +11,100 @@ export interface ScopeUser {
 }
 
 /**
- * Prisma `where` filter restricting which requisitions a user can see.
- * Everyone sees their own; approvers also see anything they are assigned to or have signed.
+ * Prisma `where` filter restricting which requisitions a user can see:
+ * - Managing Director (MD), Accounts (Manager & Executive), and Super Admin see ALL requisitions (pending, approved, rejected, executed).
+ * - Directors ONLY see requisitions for their own assigned projects, their own departments, or employees/managers reporting to them.
+ * - Managers ONLY see requisitions for their own department, their own assigned projects, or subordinates reporting to them.
+ * - Executives ONLY see their own requisitions (or any requisition explicitly assigned to them).
  */
 export function requisitionScope(user: ScopeUser): Prisma.RequisitionWhereInput {
   const p = user.permissions;
-  if (p.includes(PERMISSIONS.REQ_VIEW_ALL) || p.includes(PERMISSIONS.ADMIN_READONLY) || p.includes(PERMISSIONS.ADMIN_USERS)) {
+
+  // MD, Accounts, and Super Admin can see all requisitions (approved, pending, rejected, executed)
+  const canSeeAll =
+    p.includes(PERMISSIONS.REQ_MD) ||
+    p.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK) ||
+    p.includes(PERMISSIONS.REQ_FORWARD) ||
+    p.includes(PERMISSIONS.REQ_EXECUTE) ||
+    p.includes(PERMISSIONS.ADMIN_USERS) ||
+    p.includes(PERMISSIONS.REQ_VIEW_ALL);
+
+  if (canSeeAll) {
     return {};
   }
+
+  // Base visibility for every user: own requisitions, currently assigned to them, or already signed by them
   const or: Prisma.RequisitionWhereInput[] = [
     { makerId: user.id },
     { currentAssigneeId: user.id },
     { executorId: user.id },
     { approvals: { some: { userId: user.id } } },
   ];
-  if (p.includes(PERMISSIONS.REQ_VIEW_COMPANY) && user.companyScopes.length)
-    or.push({ companyId: { in: user.companyScopes.map((c) => c.id) } });
-  if (p.includes(PERMISSIONS.REQ_VIEW_PROJECT) && user.projectScopes.length)
-    or.push({ projectId: { in: user.projectScopes.map((x) => x.id) } });
-  if (p.includes(PERMISSIONS.REQ_VIEW_DEPARTMENT) && user.departmentId) or.push({ departmentId: user.departmentId });
-  // Pool steps: any holder of the permission can act on them
-  if (p.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK)) or.push({ status: "PENDING_ACCOUNTS" });
-  if (p.includes(PERMISSIONS.REQ_MD)) or.push({ status: "PENDING_MD" }, { mdStatus: "PENDING_BATCH" });
-  if (p.includes(PERMISSIONS.REQ_FORWARD)) or.push({ status: { in: ["APPROVED", "FORWARDED", "EXECUTED"] } });
+
+  const isApproverOrDirector =
+    p.includes(PERMISSIONS.REQ_APPROVE) || p.includes(PERMISSIONS.REQ_DIRECTOR);
+
+  if (isApproverOrDirector) {
+    // 1. Requisitions where this user is the Project Head, Project Checker, or Project Director
+    or.push(
+      { project: { headId: user.id } },
+      { project: { checkerId: user.id } },
+      { project: { directorId: user.id } }
+    );
+
+    // 2. Requisitions where this user is the Department Head
+    or.push({ department: { headId: user.id } });
+
+    // 3. Requisitions raised by direct subordinates or 2nd-level subordinates (Executive -> Manager -> Director)
+    or.push(
+      { maker: { supervisorId: user.id } },
+      { maker: { supervisor: { supervisorId: user.id } } }
+    );
+
+    // 4. Own primary department requisitions (for Department Managers / Directors)
+    if (p.includes(PERMISSIONS.REQ_VIEW_DEPARTMENT) && user.departmentId) {
+      or.push({ departmentId: user.departmentId });
+    }
+
+    // 5. Explicitly assigned projects for this Manager / Director
+    if (p.includes(PERMISSIONS.REQ_VIEW_PROJECT) && user.projectScopes.length > 0) {
+      or.push({ projectId: { in: user.projectScopes.map((x) => x.id) } });
+    }
+  }
+
+  // IT Checker sees AI/IT category requisitions
+  if (p.includes(PERMISSIONS.REQ_APPROVE_IT)) {
+    or.push({ category: "AI_IT" });
+  }
+
   return { OR: or };
 }
 
 /** Which projects may this user raise requisitions for / manage? */
 export function projectScope(user: ScopeUser): Prisma.ProjectWhereInput {
   const p = user.permissions;
-  if (p.includes(PERMISSIONS.REQ_VIEW_ALL) || p.includes(PERMISSIONS.ADMIN_USERS)) return { active: true };
-  const or: Prisma.ProjectWhereInput[] = [];
-  if (user.projectScopes.length) or.push({ id: { in: user.projectScopes.map((x) => x.id) } });
-  if (p.includes(PERMISSIONS.REQ_VIEW_COMPANY) && user.companyScopes.length)
+  if (
+    p.includes(PERMISSIONS.REQ_VIEW_ALL) ||
+    p.includes(PERMISSIONS.ADMIN_USERS) ||
+    p.includes(PERMISSIONS.REQ_MD) ||
+    p.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK)
+  ) {
+    return { active: true };
+  }
+
+  const or: Prisma.ProjectWhereInput[] = [
+    { headId: user.id },
+    { checkerId: user.id },
+    { directorId: user.id },
+  ];
+
+  if (user.projectScopes.length > 0) {
+    or.push({ id: { in: user.projectScopes.map((x) => x.id) } });
+  } else if (user.companyScopes.length > 0) {
     or.push({ companyId: { in: user.companyScopes.map((c) => c.id) } });
-  if (!or.length) return { id: "__none__" };
+  } else if (user.companyId) {
+    or.push({ companyId: user.companyId });
+  }
+
   return { active: true, OR: or };
 }

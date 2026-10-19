@@ -33,7 +33,6 @@ const P = {
 const MANAGER = [
   P.create,
   P.approve,
-  P.viewCompany,
   P.viewProject,
   P.viewDept,
   P.project,
@@ -46,22 +45,22 @@ const ROLES = [
     key: "executive",
     name: "Executive",
     isManager: false,
-    permissions: [P.create, P.viewProject],
-    description: "Posts requisitions, sees own & project requisitions",
+    permissions: [P.create],
+    description: "Posts requisitions, sees only own requisitions",
   },
   {
     key: "manager",
     name: "Manager",
     isManager: true,
     permissions: MANAGER,
-    description: "Company / project / department manager",
+    description: "Sees & approves only own department / assigned project requisitions",
   },
   {
     key: "sr_manager",
     name: "Senior Manager / Head",
     isManager: true,
-    permissions: [...MANAGER, P.viewAll],
-    description: "Senior manager / division head with cross-project analysis",
+    permissions: MANAGER,
+    description: "Sees & approves only own division / assigned project requisitions",
   },
   {
     key: "super_admin",
@@ -85,8 +84,8 @@ const ROLES = [
     key: "hr",
     name: "HR & Office Manager (Admin)",
     isManager: true,
-    permissions: [P.create, P.approve, P.adminRo, P.report, P.download, P.audit, P.viewCompany],
-    description: "HR & Office Head; read-only admin & office requisition approver",
+    permissions: [P.create, P.approve, P.adminRo, P.viewDept, P.report, P.download, P.audit],
+    description: "HR & Office Head; read-only user admin & office requisition approver",
   },
   {
     key: "director",
@@ -96,29 +95,28 @@ const ROLES = [
       P.create,
       P.approve,
       P.director,
-      P.viewAll,
-      P.viewCompany,
       P.viewProject,
+      P.viewDept,
       P.project,
       P.report,
       P.download,
       P.grant,
     ],
-    description: "Mandatory approval for own categories",
+    description: "Mandatory approval for own assigned projects & departments only",
   },
   {
     key: "accounts_manager",
     name: "Accounts Manager",
     isManager: true,
     permissions: [P.create, P.approve, P.accounts, P.forward, P.manual, P.viewAll, P.report, P.download],
-    description: "Checked by Accounts; forwards approved requisitions to executives",
+    description: "Sees all requisitions; Checked by Accounts & forwards to executives",
   },
   {
     key: "accounts_executive",
     name: "Accounts Executive",
     isManager: false,
-    permissions: [P.create, P.execute, P.viewAll],
-    description: "Executes / disburses approved requisitions",
+    permissions: [P.create, P.execute, P.viewAll, P.report, P.download],
+    description: "Sees all requisitions; executes / disburses payments",
   },
   {
     key: "md",
@@ -135,7 +133,7 @@ const ROLES = [
       P.grant,
       P.audit,
     ],
-    description: "Final approval (instant or weekly/monthly batch); sees all data",
+    description: "Final approval (instant or batch); sees all requisitions (approved, pending, rejected)",
   },
 ];
 
@@ -697,7 +695,29 @@ async function main() {
           members: { connect: memberIds.map((id) => ({ id })) },
         },
       });
+    } else {
+      await prisma.project.update({
+        where: { code: p.code },
+        data: {
+          headId: p.headEmpId ? userByEmpId[p.headEmpId] : existingProj.headId,
+          checkerId: p.checkerEmpId ? userByEmpId[p.checkerEmpId] : existingProj.checkerId,
+          directorId: p.directorEmpId ? userByEmpId[p.directorEmpId] : existingProj.directorId,
+          members: { set: memberIds.map((id) => ({ id })) },
+        },
+      });
     }
+  }
+
+  // Also ensure any existing OUT-01..OUT-24 projects point to Polok (1070) as Head and Iftekhar (1004) as Director
+  if (userByEmpId["1070"] && userByEmpId["1004"]) {
+    await prisma.project.updateMany({
+      where: { code: { startsWith: "OUT-" } },
+      data: {
+        headId: userByEmpId["1070"],
+        checkerId: userByEmpId["1071"] || null,
+        directorId: userByEmpId["1004"],
+      },
+    });
   }
 
   // Deactivate legacy placeholder demo emails if they exist from initial seed

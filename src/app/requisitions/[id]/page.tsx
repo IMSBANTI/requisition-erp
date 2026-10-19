@@ -1,7 +1,8 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { requisitionScope } from "@/lib/rbac";
 import { allowedActions } from "@/lib/workflow";
 import { formatTaka } from "@/lib/money";
 import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
@@ -16,8 +17,11 @@ export default async function RequisitionDetailPage({ params }: Props) {
   const user = await requireUser();
   const { id } = await params;
 
-  const req = await prisma.requisition.findUnique({
-    where: { id },
+  const scope = requisitionScope(user);
+  const req = await prisma.requisition.findFirst({
+    where: {
+      AND: [{ id }, scope],
+    },
     include: {
       company: true,
       project: true,
@@ -38,7 +42,7 @@ export default async function RequisitionDetailPage({ params }: Props) {
     },
   });
 
-  if (!req) return notFound();
+  if (!req) redirect("/requisitions?denied=1");
 
   // Find accounts executives for forward action & directors for routing
   const [accountsExecutives, directors] = await Promise.all([

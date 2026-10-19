@@ -40,7 +40,7 @@ export default async function DashboardPage() {
   ] = await Promise.all([
     prisma.requisition.count({ where: scope }),
     prisma.requisition.count({ where: { makerId: user.id } }),
-    prisma.requisition.count({ where: { ...scope, OR: orPendingDashboard } }),
+    prisma.requisition.count({ where: { AND: [scope, { OR: orPendingDashboard }] } }),
     user.permissions.includes("req.execute") || user.permissions.includes("req.forward")
       ? prisma.requisition.count({ where: { status: { in: ["FORWARDED", "APPROVED"] } } })
       : Promise.resolve(0),
