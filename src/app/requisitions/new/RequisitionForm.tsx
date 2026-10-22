@@ -29,11 +29,33 @@ interface ItemRow {
 export default function RequisitionForm({ user, companies, projects }: FormProps) {
   const router = useRouter();
 
+  const [companyFilter, setCompanyFilter] = useState<string>("ALL");
+
+  const filteredProjects = useMemo(() => {
+    if (companyFilter === "ALL") return projects;
+    return projects.filter((p) => p.companyId === companyFilter);
+  }, [projects, companyFilter]);
+
   const [projectId, setProjectId] = useState(projects[0]?.id || "");
   const selectedProject = useMemo(() => projects.find((p) => p.id === projectId), [projectId, projects]);
 
   const [companyId, setCompanyId] = useState(selectedProject?.companyId || companies[0]?.id || "");
   const selectedCompany = useMemo(() => companies.find((c) => c.id === companyId), [companyId, companies]);
+
+  // When sister concern / company filter changes, auto-select first matching project and letterhead
+  function handleCompanyFilterChange(cId: string) {
+    setCompanyFilter(cId);
+    if (cId !== "ALL") {
+      setCompanyId(cId);
+      const matching = projects.filter((p) => p.companyId === cId);
+      if (matching.length > 0 && !matching.some((p) => p.id === projectId)) {
+        const first = matching[0];
+        setProjectId(first.id);
+        setCategory(first.category || "GENERAL");
+        setType(first.requisitionTypes[0] || "BPO");
+      }
+    }
+  }
 
   // When project changes, update company and default category
   function handleProjectChange(id: string) {
@@ -193,15 +215,49 @@ export default function RequisitionForm({ user, companies, projects }: FormProps
       )}
 
       {/* Meta Project & Requisition Controls */}
-      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <div>
-          <label className="block text-xs font-semibold text-gray-700">Select Project</label>
+          <label className="block text-xs font-semibold text-gray-700">
+            Sister Concern (IMS / CLAN / SCL / TradePULSE)
+          </label>
+          <select
+            value={companyId}
+            onChange={(e) => {
+              const newCompId = e.target.value;
+              setCompanyId(newCompId);
+              handleCompanyFilterChange(newCompId);
+            }}
+            className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold focus:ring-[#E42528] focus:border-[#E42528]"
+          >
+            {companies.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.name} — {c.legalName}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between">
+            <label className="block text-xs font-semibold text-gray-700">
+              Select Project / Event / Division
+            </label>
+            {companyFilter !== "ALL" && (
+              <button
+                type="button"
+                onClick={() => setCompanyFilter("ALL")}
+                className="text-[10px] font-bold text-[#E42528] hover:underline cursor-pointer"
+              >
+                Show All ({projects.length})
+              </button>
+            )}
+          </div>
           <select
             value={projectId}
             onChange={(e) => handleProjectChange(e.target.value)}
             className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:ring-[#E42528] focus:border-[#E42528]"
           >
-            {projects.map((p) => (
+            {(filteredProjects.length > 0 ? filteredProjects : projects).map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name} ({p.code})
               </option>

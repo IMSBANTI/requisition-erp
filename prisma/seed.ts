@@ -82,10 +82,10 @@ const ROLES = [
   },
   {
     key: "hr",
-    name: "HR & Office Manager (Admin)",
+    name: "HR & Office Manager (IMS GROUP)",
     isManager: true,
-    permissions: [P.create, P.approve, P.adminRo, P.viewDept, P.report, P.download, P.audit],
-    description: "HR & Office Head; read-only user admin & office requisition approver",
+    permissions: [P.create, P.approve, P.adminRo, P.viewAll, P.viewDept, P.project, P.report, P.download, P.audit],
+    description: "IMS GROUP HR & Office Head; handles IMS, CLAN, SCL, TradePULSE & project requisitions",
   },
   {
     key: "director",
@@ -222,7 +222,7 @@ type SeedUser = {
   priority: number;
   level: "Executive" | "Manager" | "Director" | "MD";
   role: string;
-  company: "IMS" | "CLAN" | "SCL" | "TP";
+  company: "IMS" | "CLAN" | "SCL" | "TP" | null;
   scopes: ("IMS" | "CLAN" | "SCL" | "TP")[];
   supervisorEmpId?: string;
   notes?: string;
@@ -230,10 +230,10 @@ type SeedUser = {
 };
 
 const EXCEL_USERS: SeedUser[] = [
-  { empId: "1001", name: "Abir Abedin", email: "admin@ims.com.bd", dept: "IT", priority: 5, level: "Manager", role: "super_admin", company: "IMS", scopes: ["IMS", "CLAN", "SCL", "TP"], notes: "Admin For All, Can edit and change user accessibility" },
+  { empId: "1001", name: "Abir Abedin", email: "admin@ims.com.bd", dept: "IT", secondaryDepts: ["IMS GROUP"], priority: 5, level: "Manager", role: "super_admin", company: null, scopes: ["IMS", "CLAN", "SCL", "TP"], notes: "IMS GROUP — Admin For All, handles IMS, CLAN, SCL, TradePULSE & projects" },
   { empId: "1002", name: "Saad Ali Shadil", email: "shadil@clan.com.bd", dept: "CLAN", priority: 2, level: "Executive", role: "executive", company: "CLAN", scopes: ["CLAN"], supervisorEmpId: "1016", notes: "Approval from 1016" },
-  { empId: "1004", name: "Iftekhar Hussein", email: "nahiyan@ims.com.bd", dept: "Business Development", secondaryDepts: ["Outsourcing/TradePulse", "Event projects"], priority: 4, level: "Director", role: "director", company: "IMS", scopes: ["IMS", "CLAN", "SCL", "TP"], supervisorEmpId: "1025", notes: "Approval from 1025 or 1015", dirCats: ["IMS_OUTSOURCING_STUDIO", "BUSINESS_DEVELOPMENT", "OPERATIONS_EVENT", "AI_IT", "GENERAL"] },
-  { empId: "1005", name: "Nazmus Sakib Rahman", email: "nazmus@ims.com.bd", dept: "Business Development Red team", secondaryDepts: ["Studio Project base"], priority: 4, level: "Director", role: "director", company: "IMS", scopes: ["IMS", "CLAN", "SCL", "TP"], supervisorEmpId: "1025", notes: "Approval from 1025 or 1015", dirCats: ["BUSINESS_DEVELOPMENT", "IMS_OUTSOURCING_STUDIO"] },
+  { empId: "1004", name: "Iftekhar Hussein", email: "nahiyan@ims.com.bd", dept: "Business Development", secondaryDepts: ["IMS GROUP", "Outsourcing/TradePulse", "Event projects"], priority: 4, level: "Director", role: "director", company: null, scopes: ["IMS", "CLAN", "SCL", "TP"], supervisorEmpId: "1025", notes: "IMS GROUP Director — Approval from 1025 or 1015", dirCats: ["IMS_OUTSOURCING_STUDIO", "BUSINESS_DEVELOPMENT", "OPERATIONS_EVENT", "AI_IT", "GENERAL"] },
+  { empId: "1005", name: "Nazmus Sakib Rahman", email: "nazmus@ims.com.bd", dept: "Business Development Red team", secondaryDepts: ["IMS GROUP", "Studio Project base"], priority: 4, level: "Director", role: "director", company: null, scopes: ["IMS", "CLAN", "SCL", "TP"], supervisorEmpId: "1025", notes: "IMS GROUP Director — Approval from 1025 or 1015", dirCats: ["BUSINESS_DEVELOPMENT", "IMS_OUTSOURCING_STUDIO"] },
   { empId: "1006", name: "Shahidul Islam", email: "shahidul@clan.com.bd", dept: "CLAN", priority: 3, level: "Manager", role: "manager", company: "CLAN", scopes: ["CLAN"], supervisorEmpId: "1016", notes: "Approval from 1016" },
   { empId: "1007", name: "Tasfir Rabbi", email: "tasfir@ims.com.bd", dept: "Studio", priority: 3, level: "Manager", role: "manager", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1004", notes: "Approval from 1004 or 1005" },
   { empId: "1008", name: "Sohag Mia", email: "sohag@ims.com.bd", dept: "Studio", priority: 2, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1009", notes: "Studio Head 1009 or 1007" },
@@ -241,8 +241,8 @@ const EXCEL_USERS: SeedUser[] = [
   { empId: "1010", name: "Mahmudul Hasan", email: "mahmud@ims.com.bd", dept: "Studio", priority: 2, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1009", notes: "Studio Head 1009 or 1007" },
   { empId: "1011", name: "Md Lipon", email: "officestuff@ims.net.bd", dept: "Office", priority: 2, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1014", notes: "Office Head 1014" },
   { empId: "1012", name: "Partha Baidya", email: "partha@clan.com.bd", dept: "CLAN", priority: 2, level: "Executive", role: "executive", company: "CLAN", scopes: ["CLAN"], supervisorEmpId: "1016", notes: "Approval from 1016" },
-  { empId: "1014", name: "Moushumi Tamanna", email: "moushumi@ims.com.bd", dept: "HR", priority: 4, level: "Manager", role: "hr", company: "IMS", scopes: ["IMS", "CLAN", "SCL", "TP"], supervisorEmpId: "1004", notes: "HR & Office Head" },
-  { empId: "1015", name: "Sami Hasan", email: "sami.hasan@ims.com.bd", dept: "IMS GROUP", priority: 4, level: "MD", role: "md", company: "IMS", scopes: ["IMS", "CLAN", "SCL", "TP"], notes: "Managing Director" },
+  { empId: "1014", name: "Moushumi Tamanna", email: "moushumi@ims.com.bd", dept: "HR", secondaryDepts: ["IMS GROUP", "Office"], priority: 4, level: "Manager", role: "hr", company: null, scopes: ["IMS", "CLAN", "SCL", "TP"], supervisorEmpId: "1004", notes: "IMS GROUP — HR & Office Head (IMS, CLAN, SCL, TradePULSE)" },
+  { empId: "1015", name: "Sami Hasan", email: "sami.hasan@ims.com.bd", dept: "IMS GROUP", priority: 4, level: "MD", role: "md", company: null, scopes: ["IMS", "CLAN", "SCL", "TP"], notes: "IMS GROUP Managing Director (IMS, CLAN, SCL, TradePULSE)" },
   { empId: "1016", name: "Abrar Jawad", email: "abrar@ims.com.bd", dept: "CLAN", priority: 3, level: "Manager", role: "manager", company: "CLAN", scopes: ["CLAN", "IMS"], supervisorEmpId: "1004", notes: "Approval from 1004" },
   { empId: "1018", name: "Nazmus Sakib", email: "nazmus.sakib@ims.com.bd", dept: "Business Development Blue team", priority: 3, level: "Manager", role: "manager", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1004", notes: "Approval from 1004" },
   { empId: "1019", name: "Mahmud Al Fahad Rakib", email: "farhad@ims.com.bd", dept: "Business Development Red team", priority: 3, level: "Manager", role: "manager", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1005", notes: "Approval from 1005" },
@@ -250,8 +250,8 @@ const EXCEL_USERS: SeedUser[] = [
   { empId: "1021", name: "Al Zami", email: "zami@ims.com.bd", dept: "Business Development Blue team", priority: 2, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1020", notes: "1020 or 1018 or Direct 1004" },
   { empId: "1022", name: "Adib Ahnaf", email: "aroz@ims.com.bd", dept: "Business Development Red team", priority: 2, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1019", notes: "1019 or Direct 1005" },
   { empId: "1024", name: "Naima Sultana", email: "naima@ims.com.bd", dept: "Business Development Red team", priority: 2, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1019", notes: "1019 or Direct 1005" },
-  { empId: "1025", name: "Syed Sarwar Morshed Azam", email: "sarwarmorshed@ims.com.bd", dept: "IMS GROUP", priority: 4, level: "MD", role: "md", company: "IMS", scopes: ["IMS", "CLAN", "SCL", "TP"], notes: "Managing Director" },
-  { empId: "1026", name: "Mahabub Hasan Shible", email: "shible@ims.com.bd", dept: "Operations Projects", secondaryDepts: ["Event projects"], priority: 4, level: "Director", role: "director", company: "IMS", scopes: ["IMS", "CLAN", "SCL", "TP"], supervisorEmpId: "1025", dirCats: ["OPERATIONS_EVENT", "GENERAL"] },
+  { empId: "1025", name: "Syed Sarwar Morshed Azam", email: "sarwarmorshed@ims.com.bd", dept: "IMS GROUP", priority: 4, level: "MD", role: "md", company: null, scopes: ["IMS", "CLAN", "SCL", "TP"], notes: "IMS GROUP Managing Director (IMS, CLAN, SCL, TradePULSE)" },
+  { empId: "1026", name: "Mahabub Hasan Shible", email: "shible@ims.com.bd", dept: "Operations Projects", secondaryDepts: ["IMS GROUP", "Event projects"], priority: 4, level: "Director", role: "director", company: null, scopes: ["IMS", "CLAN", "SCL", "TP"], supervisorEmpId: "1025", notes: "IMS GROUP Director — Operations & Events", dirCats: ["OPERATIONS_EVENT", "GENERAL"] },
   { empId: "1027", name: "Shati", email: "shati.officestuff@ims.net.bd", dept: "Office", priority: 2, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1014", notes: "Office Head 1014 (Password: officestuff@ims.net.bd)" },
   { empId: "1028", name: "MD Tanvir", email: "tanvir.hossen@ims.com.bd", dept: "Studio", priority: 2, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1009", notes: "Studio Head 1009 or 1007" },
   { empId: "1030", name: "Tapash Chandra", email: "tapash@clan.com.bd", dept: "CLAN", priority: 2, level: "Executive", role: "executive", company: "CLAN", scopes: ["CLAN"], supervisorEmpId: "1016", notes: "Approval from 1016" },
@@ -261,9 +261,9 @@ const EXCEL_USERS: SeedUser[] = [
   { empId: "1035", name: "Habibur Rahman", email: "sujan@ims.com.bd", dept: "Studio", priority: 2, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1007", notes: "Studio Head 1007 or 1031" },
   { empId: "1036", name: "Fahim Muntasir", email: "fahim@ims.com.bd", dept: "Business Development", priority: 2, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1004", notes: "Approval from 1004" },
   { empId: "1037", name: "Mukarram Hoque Faisal", email: "mukarram@ims.com.bd", dept: "Business Development", priority: 2, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1004", notes: "Approval from 1004" },
-  { empId: "1050", name: "Md. Harun Ur-Rashid", email: "harun@ims.com.bd", dept: "Accounts", priority: 4, level: "Manager", role: "accounts_manager", company: "IMS", scopes: ["IMS", "CLAN", "SCL", "TP"], notes: "Approve all Requisitions then Goes to 1004 / 1005 / 1026" },
-  { empId: "1051", name: "Israt Jahan", email: "tanni@ims.com.bd", dept: "Accounts", priority: 3, level: "Executive", role: "accounts_executive", company: "IMS", scopes: ["IMS", "CLAN", "SCL", "TP"] },
-  { empId: "1052", name: "Sumon", email: "sumon@ims.com.bd", dept: "Accounts", priority: 2, level: "Executive", role: "accounts_executive", company: "IMS", scopes: ["IMS", "CLAN", "SCL", "TP"] },
+  { empId: "1050", name: "Md. Harun Ur-Rashid", email: "harun@ims.com.bd", dept: "Accounts", secondaryDepts: ["IMS GROUP"], priority: 4, level: "Manager", role: "accounts_manager", company: null, scopes: ["IMS", "CLAN", "SCL", "TP"], notes: "IMS GROUP Accounts Manager — Approve all Requisitions then Goes to 1004 / 1005 / 1026 or MD" },
+  { empId: "1051", name: "Israt Jahan", email: "tanni@ims.com.bd", dept: "Accounts", secondaryDepts: ["IMS GROUP"], priority: 3, level: "Executive", role: "accounts_executive", company: null, scopes: ["IMS", "CLAN", "SCL", "TP"], notes: "IMS GROUP Accounts — Handles IMS, CLAN, SCL, TradePULSE & project requisitions" },
+  { empId: "1052", name: "Sumon", email: "sumon@ims.com.bd", dept: "Accounts", secondaryDepts: ["IMS GROUP"], priority: 2, level: "Executive", role: "accounts_executive", company: null, scopes: ["IMS", "CLAN", "SCL", "TP"], notes: "IMS GROUP Accounts — Handles IMS, CLAN, SCL, TradePULSE & project requisitions" },
   { empId: "1070", name: "Murshalin Mahmud Polok", email: "polok@ims.com.bd", dept: "Outsourcing", secondaryDepts: ["TradePulse", "Events projects"], priority: 4, level: "Manager", role: "sr_manager", company: "IMS", scopes: ["IMS", "TP", "SCL"], supervisorEmpId: "1004", notes: "Head of Outsourcing & TradePulse" },
   { empId: "1071", name: "Rakib Hasan", email: "rakib@ims.com.bd", dept: "Outsourcing", secondaryDepts: ["TradePulse", "Events projects"], priority: 4, level: "Manager", role: "sr_manager", company: "IMS", scopes: ["IMS", "TP", "SCL"], supervisorEmpId: "1004", notes: "Manager Outsourcing & TradePulse" },
   { empId: "1072", name: "Nawshad Ur Rahman", email: "nawshad@ims.com.bd", dept: "Outsourcing", secondaryDepts: ["TradePulse", "Events projects"], priority: 3, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS", "TP"], supervisorEmpId: "1070", notes: "Approver ID 1070 or 1071" },
@@ -340,7 +340,7 @@ async function main() {
       secondaryDepartments: x.secondaryDepts ?? [],
       approvalNotes: x.notes ?? null,
       roleId: roles[x.role],
-      companyId: co[x.company],
+      companyId: x.company ? co[x.company] : null,
       departmentId: dept[x.dept],
       directorCategories: x.dirCats ?? [],
       companyScopes: { set: x.scopes.map((c) => ({ id: co[c] })) },
@@ -361,6 +361,19 @@ async function main() {
       row = await prisma.user.update({
         where: { email: cleanEmail },
         data: { ...data, passwordHash: emailPwHash },
+      });
+    } else if (x.company === null) {
+      // Ensure IMS GROUP officers (MD, Directors, Abir IT, Harun Accounts, Moushumi HR, Israt Accounts)
+      // always have companyId: null ("IMS GROUP") and all 4 sister-concern scopes synced
+      row = await prisma.user.update({
+        where: { email: cleanEmail },
+        data: {
+          companyId: null,
+          secondaryDepartments: x.secondaryDepts ?? existingUser.secondaryDepartments,
+          approvalNotes: x.notes ?? existingUser.approvalNotes,
+          directorCategories: x.dirCats ?? existingUser.directorCategories,
+          companyScopes: { set: x.scopes.map((c) => ({ id: co[c] })) },
+        },
       });
     } else {
       row = existingUser;

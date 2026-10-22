@@ -87,13 +87,17 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
       <div className="px-4 py-3 bg-gray-50/80 border-b border-gray-200">
         <p className="text-xs font-semibold text-gray-800 truncate">{user.name}</p>
         <p className="text-[11px] text-gray-500 truncate">{user.designation}</p>
-        <div className="mt-1 flex items-center space-x-1.5">
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
           <span className="inline-block px-1.5 py-0.5 text-[10px] font-semibold bg-red-50 text-[#E42528] rounded border border-red-200">
             {user.role.name}
           </span>
-          {user.company && (
+          {user.company ? (
             <span className="inline-block px-1.5 py-0.5 text-[10px] font-semibold bg-gray-100 text-gray-700 rounded border border-gray-200">
               {user.company.code}
+            </span>
+          ) : (
+            <span className="inline-block px-1.5 py-0.5 text-[10px] font-bold bg-gray-900 text-white rounded">
+              IMS GROUP
             </span>
           )}
         </div>

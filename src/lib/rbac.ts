@@ -6,27 +6,31 @@ export interface ScopeUser {
   companyId?: string | null;
   permissions: string[];
   departmentId: string | null;
+  directorCategories?: string[];
   companyScopes: { id: string }[];
   projectScopes: { id: string }[];
 }
 
 /**
  * Prisma `where` filter restricting which requisitions a user can see:
- * - Managing Director (MD), Accounts (Manager & Executive), and Super Admin see ALL requisitions (pending, approved, rejected, executed).
- * - Directors ONLY see requisitions for their own assigned projects, their own departments, or employees/managers reporting to them.
+ * - IMS GROUP Central Officers — Managing Director (MD), Accounts (Harun, Israt Jahan, Sumon),
+ *   IT Super Admin (Abir Abedin), and HR (Moushumi Tamanna) — see ALL requisitions across IMS, CLAN, SCL, TradePULSE & all projects.
+ * - Directors (IMS GROUP: Iftekhar, Nazmus, Shible) see requisitions across IMS, CLAN, SCL, TradePULSE & projects
+ *   for their own assigned projects, departments, or employees/managers reporting to them (isolated from other Directors' exclusive projects).
  * - Managers ONLY see requisitions for their own department, their own assigned projects, or subordinates reporting to them.
  * - Executives ONLY see their own requisitions (or any requisition explicitly assigned to them).
  */
 export function requisitionScope(user: ScopeUser): Prisma.RequisitionWhereInput {
   const p = user.permissions;
 
-  // MD, Accounts, and Super Admin can see all requisitions (approved, pending, rejected, executed)
+  // MD, Accounts, Super Admin (IT), and HR (IMS GROUP) can see all requisitions across IMS, CLAN, SCL, TradePULSE & projects
   const canSeeAll =
     p.includes(PERMISSIONS.REQ_MD) ||
     p.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK) ||
     p.includes(PERMISSIONS.REQ_FORWARD) ||
     p.includes(PERMISSIONS.REQ_EXECUTE) ||
     p.includes(PERMISSIONS.ADMIN_USERS) ||
+    p.includes(PERMISSIONS.ADMIN_READONLY) ||
     p.includes(PERMISSIONS.REQ_VIEW_ALL);
 
   if (canSeeAll) {
@@ -83,11 +87,17 @@ export function requisitionScope(user: ScopeUser): Prisma.RequisitionWhereInput 
 /** Which projects may this user raise requisitions for / manage? */
 export function projectScope(user: ScopeUser): Prisma.ProjectWhereInput {
   const p = user.permissions;
+  // IMS GROUP officers (MD, Directors, Abir IT, Harun Accounts, Israt Accounts, Moushumi HR) can select any project across IMS, CLAN, SCL, TradePULSE
   if (
     p.includes(PERMISSIONS.REQ_VIEW_ALL) ||
     p.includes(PERMISSIONS.ADMIN_USERS) ||
+    p.includes(PERMISSIONS.ADMIN_READONLY) ||
     p.includes(PERMISSIONS.REQ_MD) ||
-    p.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK)
+    p.includes(PERMISSIONS.REQ_DIRECTOR) ||
+    p.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK) ||
+    p.includes(PERMISSIONS.REQ_FORWARD) ||
+    p.includes(PERMISSIONS.REQ_EXECUTE) ||
+    !user.companyId
   ) {
     return { active: true };
   }

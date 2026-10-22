@@ -86,9 +86,14 @@ export default function AdminUsersClient({
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
       if (companyFilter !== "ALL") {
-        const inPrimary = u.companyId === companyFilter;
-        const inScopes = u.companyScopeIds?.includes(companyFilter);
-        if (!inPrimary && !inScopes) return false;
+        if (companyFilter === "IMS_GROUP") {
+          const isGroupOfficer = !u.companyId || (u.companyScopeCodes?.length ?? 0) >= 4;
+          if (!isGroupOfficer) return false;
+        } else {
+          const inPrimary = u.companyId === companyFilter || !u.companyId;
+          const inScopes = u.companyScopeIds?.includes(companyFilter);
+          if (!inPrimary && !inScopes) return false;
+        }
       }
       if (priorityFilter !== "ALL" && String(u.priorityLevel) !== priorityFilter) {
         return false;
@@ -494,6 +499,7 @@ export default function AdminUsersClient({
             className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white text-gray-700 font-medium"
           >
             <option value="ALL">All Sister Concerns (IMS / CLAN / TP / SCL)</option>
+            <option value="IMS_GROUP">IMS GROUP (MD, Directors, IT, Accounts, HR)</option>
             {companies.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({c.code})
@@ -584,8 +590,14 @@ export default function AdminUsersClient({
                       </span>
                     </td>
                     <td className="py-2.5 px-2.5 max-w-[165px]">
-                      <span className="font-bold text-gray-800">{u.companyName}</span>
-                      <span className="block text-[11px] text-gray-600 leading-tight">
+                      {u.companyName === "IMS GROUP" ? (
+                        <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-gray-900 text-white">
+                          IMS GROUP
+                        </span>
+                      ) : (
+                        <span className="font-bold text-gray-800">{u.companyName}</span>
+                      )}
+                      <span className="block text-[11px] text-gray-600 leading-tight mt-0.5">
                         {u.departmentName}
                       </span>
                       {u.secondaryDepartments?.length > 0 && (
@@ -869,13 +881,20 @@ export default function AdminUsersClient({
               {/* Row 3: Company, Department & Direct Supervisor */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-semibold text-gray-700">Primary Sister Concern</label>
+                  <label className="block font-semibold text-gray-700">Primary Sister Concern / Group</label>
                   <select
                     value={companyId}
-                    onChange={(e) => setCompanyId(e.target.value)}
-                    className="mt-1 w-full px-2.5 py-1.5 border border-gray-300 rounded bg-white"
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setCompanyId(val);
+                      if (!val) {
+                        // IMS GROUP selected -> automatically check all 4 sister concerns (IMS, CLAN, SCL, TP)
+                        setCompanyScopeIds(companies.map((c) => c.id));
+                      }
+                    }}
+                    className="mt-1 w-full px-2.5 py-1.5 border border-gray-300 rounded bg-white font-semibold"
                   >
-                    <option value="">All / Group-Wide</option>
+                    <option value="">IMS GROUP (Handles IMS, CLAN, SCL, TradePULSE & All Projects)</option>
                     {companies.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.name} — {c.legalName}

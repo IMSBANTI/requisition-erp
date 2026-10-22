@@ -41,7 +41,9 @@ export default async function AppShell({ children }: { children: React.ReactNode
           <div className="flex items-center space-x-2 text-xs text-gray-500 font-medium">
             <span className="font-bold text-gray-900 tracking-tight">IMS GROUP</span>
             <span>&bull;</span>
-            <span className="text-gray-700 font-semibold">{user.company?.name || "Group Headquarters"}</span>
+            <span className="text-gray-700 font-semibold">
+              {user.company?.name || "IMS GROUP (IMS • CLAN • SCL • TradePULSE)"}
+            </span>
             {user.department && (
               <>
                 <span>&bull;</span>
