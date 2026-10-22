@@ -92,7 +92,31 @@ export default async function RequisitionDetailPage({ params }: Props) {
               </span>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Project: <strong>{req.project.name}</strong> &bull; Company: <strong>{req.company.name}</strong>
+              {[
+                "IMS-HO",
+                "IMS-IT",
+                "IMS-STUDIO",
+                "IMS-BD-BLUE",
+                "IMS-BD-RED",
+                "CLAN-MAIN",
+                "SCL-MAIN",
+              ].includes(req.project.code) || req.project.code.endsWith("-CORP") ? (
+                <>
+                  <span className="inline-block px-1.5 py-0.5 mr-1.5 rounded text-[10px] font-bold bg-red-50 text-[#E42528] border border-red-200">
+                    IMS Group Company (Permanent Staff)
+                  </span>
+                  Company: <strong>{req.company.name}</strong> &bull; Department:{" "}
+                  <strong>{req.department?.name || req.project.name}</strong>
+                </>
+              ) : (
+                <>
+                  <span className="inline-block px-1.5 py-0.5 mr-1.5 rounded text-[10px] font-bold bg-gray-900 text-white">
+                    Project / Event Requisition
+                  </span>
+                  Project: <strong>{req.project.name} ({req.project.code})</strong> &bull; Company:{" "}
+                  <strong>{req.company.name}</strong>
+                </>
+              )}
             </p>
           </div>
 

@@ -13,8 +13,13 @@ interface FormProps {
     designation: string;
     signature: string | null;
     hasPin: boolean;
+    companyId?: string | null;
+    departmentId?: string | null;
+    departmentName?: string;
+    secondaryDepartments?: string[];
   };
   companies: any[];
+  departments?: any[];
   projects: any[];
 }
 
@@ -26,53 +31,207 @@ interface ItemRow {
   unitPrice: string;
 }
 
-export default function RequisitionForm({ user, companies, projects }: FormProps) {
+const COMPANY_DIVISION_CODES = new Set([
+  "IMS-HO",
+  "IMS-IT",
+  "IMS-STUDIO",
+  "IMS-BD-BLUE",
+  "IMS-BD-RED",
+  "CLAN-MAIN",
+  "SCL-MAIN",
+]);
+
+function inferCategoryFromDepartment(deptName: string): string {
+  const d = (deptName || "").toLowerCase();
+  if (d.includes("it")) return "AI_IT";
+  if (d.includes("studio")) return "STUDIO";
+  if (d.includes("business development")) return "BUSINESS_DEVELOPMENT";
+  if (d.includes("outsourcing") || d.includes("project ")) return "OUTSOURCING";
+  if (d.includes("operation") || d.includes("event")) return "OPERATIONS_EVENT";
+  if (d.includes("ims")) return "IMS";
+  return "GENERAL";
+}
+
+export default function RequisitionForm({ user, companies, departments = [], projects }: FormProps) {
   const router = useRouter();
 
-  const [companyFilter, setCompanyFilter] = useState<string>("ALL");
+  // Determine whether this user defaults to Project-Based (Outsourcing, TradePULSE, Operations & Events) or Company-Based (Permanent Employee)
+  const defaultIsProjectUser = useMemo(() => {
+    const deptText = [user.departmentName || "", ...(user.secondaryDepartments || [])]
+      .join(" ")
+      .toLowerCase();
+    return (
+      deptText.includes("outsourcing") ||
+      deptText.includes("project ") ||
+      deptText.includes("operation") ||
+      deptText.includes("event") ||
+      deptText.includes("tradepulse")
+    );
+  }, [user.departmentName, user.secondaryDepartments]);
+
+  const [requisitionMode, setRequisitionMode] = useState<"COMPANY" | "PROJECT">(
+    defaultIsProjectUser ? "PROJECT" : "COMPANY"
+  );
+
+  // Project stream filter for Project-Based mode: ALL | OUTSOURCING | TRADEPULSE | OPERATIONS_EVENT
+  const [projectStream, setProjectStream] = useState<
+    "ALL" | "OUTSOURCING" | "TRADEPULSE" | "OPERATIONS_EVENT"
+  >("ALL");
+
+  const [departmentId, setDepartmentId] = useState<string>(
+    user.departmentId || departments[0]?.id || ""
+  );
+
+  // Separate client/long-running projects (IMS Outsourcing, TradePULSE, IMS Operations & Events)
+  const projectBasedList = useMemo(() => {
+    const list = projects.filter((p) => !COMPANY_DIVISION_CODES.has(p.code));
+    return list.length > 0 ? list : projects;
+  }, [projects]);
 
   const filteredProjects = useMemo(() => {
-    if (companyFilter === "ALL") return projects;
-    return projects.filter((p) => p.companyId === companyFilter);
-  }, [projects, companyFilter]);
+    if (projectStream === "ALL") return projectBasedList;
+    if (projectStream === "OUTSOURCING") {
+      return projectBasedList.filter(
+        (p) =>
+          (p.category === "OUTSOURCING" || p.category === "IMS_OUTSOURCING_STUDIO") &&
+          p.companyCode !== "TP"
+      );
+    }
+    if (projectStream === "TRADEPULSE") {
+      return projectBasedList.filter(
+        (p) => p.companyCode === "TP" || p.name.toLowerCase().includes("tradepulse")
+      );
+    }
+    if (projectStream === "OPERATIONS_EVENT") {
+      return projectBasedList.filter(
+        (p) => p.category === "OPERATIONS_EVENT" || p.kind === "EVENT"
+      );
+    }
+    return projectBasedList;
+  }, [projectBasedList, projectStream]);
 
-  const [projectId, setProjectId] = useState(projects[0]?.id || "");
-  const selectedProject = useMemo(() => projects.find((p) => p.id === projectId), [projectId, projects]);
+  const [projectId, setProjectId] = useState(
+    projectBasedList[0]?.id || projects[0]?.id || ""
+  );
+  const selectedProject = useMemo(
+    () => projects.find((p) => p.id === projectId),
+    [projectId, projects]
+  );
 
-  const [companyId, setCompanyId] = useState(selectedProject?.companyId || companies[0]?.id || "");
-  const selectedCompany = useMemo(() => companies.find((c) => c.id === companyId), [companyId, companies]);
+  const defaultCompanyId =
+    user.companyId ||
+    companies.find((c) => c.code === "IMS")?.id ||
+    selectedProject?.companyId ||
+    companies[0]?.id ||
+    "";
 
-  // When sister concern / company filter changes, auto-select first matching project and letterhead
-  function handleCompanyFilterChange(cId: string) {
-    setCompanyFilter(cId);
-    if (cId !== "ALL") {
-      setCompanyId(cId);
-      const matching = projects.filter((p) => p.companyId === cId);
-      if (matching.length > 0 && !matching.some((p) => p.id === projectId)) {
-        const first = matching[0];
-        setProjectId(first.id);
-        setCategory(first.category || "GENERAL");
-        setType(first.requisitionTypes[0] || "BPO");
+  const [companyId, setCompanyId] = useState(defaultCompanyId);
+  const selectedCompany = useMemo(
+    () => companies.find((c) => c.id === companyId),
+    [companyId, companies]
+  );
+
+  // Switch between IMS Group Company Requisition & Project/Event Requisition
+  function handleModeChange(mode: "COMPANY" | "PROJECT") {
+    setRequisitionMode(mode);
+    if (mode === "COMPANY") {
+      const compId =
+        user.companyId || companies.find((c) => c.code === "IMS")?.id || companies[0]?.id || "";
+      setCompanyId(compId);
+      const deptObj = departments.find((d) => d.id === departmentId);
+      const inferredCat = inferCategoryFromDepartment(deptObj?.name || user.departmentName || "");
+      setCategory(inferredCat);
+      setType(inferredCat === "AI_IT" ? "IT" : inferredCat === "STUDIO" ? "STUDIO" : "ADMIN");
+    } else {
+      const firstProj = filteredProjects[0] || projectBasedList[0] || projects[0];
+      if (firstProj) {
+        setProjectId(firstProj.id);
+        setCompanyId(firstProj.companyId);
+        setCategory(
+          firstProj.category === "IMS_OUTSOURCING_STUDIO"
+            ? "OUTSOURCING"
+            : firstProj.category || "OUTSOURCING"
+        );
+        setType(firstProj.requisitionTypes?.[0] || "BPO");
       }
     }
   }
 
-  // When project changes, update company and default category
+  function handleStreamChange(stream: "ALL" | "OUTSOURCING" | "TRADEPULSE" | "OPERATIONS_EVENT") {
+    setProjectStream(stream);
+    let list = projectBasedList;
+    if (stream === "OUTSOURCING") {
+      list = projectBasedList.filter(
+        (p) =>
+          (p.category === "OUTSOURCING" || p.category === "IMS_OUTSOURCING_STUDIO") &&
+          p.companyCode !== "TP"
+      );
+    } else if (stream === "TRADEPULSE") {
+      list = projectBasedList.filter(
+        (p) => p.companyCode === "TP" || p.name.toLowerCase().includes("tradepulse")
+      );
+    } else if (stream === "OPERATIONS_EVENT") {
+      list = projectBasedList.filter(
+        (p) => p.category === "OPERATIONS_EVENT" || p.kind === "EVENT"
+      );
+    }
+    if (list.length > 0) {
+      const first = list[0];
+      setProjectId(first.id);
+      setCompanyId(first.companyId);
+      setCategory(
+        first.category === "IMS_OUTSOURCING_STUDIO"
+          ? "OUTSOURCING"
+          : first.category || "OUTSOURCING"
+      );
+      setType(first.requisitionTypes?.[0] || "BPO");
+    }
+  }
+
+  // When project changes in PROJECT mode, update company and default category
   function handleProjectChange(id: string) {
     setProjectId(id);
     const p = projects.find((x) => x.id === id);
     if (p) {
       setCompanyId(p.companyId);
-      setCategory(p.category || "GENERAL");
-      setType(p.requisitionTypes[0] || "BPO");
+      setCategory(
+        p.category === "IMS_OUTSOURCING_STUDIO" ? "OUTSOURCING" : p.category || "OUTSOURCING"
+      );
+      setType(p.requisitionTypes?.[0] || "BPO");
     }
   }
 
-  const [type, setType] = useState(selectedProject?.requisitionTypes[0] || "BPO");
+  function handleDepartmentChange(dId: string) {
+    setDepartmentId(dId);
+    const dObj = departments.find((d) => d.id === dId);
+    if (dObj) {
+      const cat = inferCategoryFromDepartment(dObj.name);
+      setCategory(cat);
+      if (cat === "AI_IT") setType("IT");
+      else if (cat === "STUDIO") setType("STUDIO");
+      else setType("ADMIN");
+    }
+  }
+
+  const initialCat = defaultIsProjectUser
+    ? selectedProject?.category === "IMS_OUTSOURCING_STUDIO"
+      ? "OUTSOURCING"
+      : selectedProject?.category || "OUTSOURCING"
+    : inferCategoryFromDepartment(user.departmentName || "");
+
+  const [type, setType] = useState(
+    defaultIsProjectUser
+      ? selectedProject?.requisitionTypes?.[0] || "BPO"
+      : initialCat === "AI_IT"
+      ? "IT"
+      : initialCat === "STUDIO"
+      ? "STUDIO"
+      : "ADMIN"
+  );
   const [customType, setCustomType] = useState("");
   const activeType = type === "OTHER" ? customType : type;
 
-  const [category, setCategory] = useState(selectedProject?.category || "GENERAL");
+  const [category, setCategory] = useState(initialCat);
   const [priority, setPriority] = useState("NORMAL");
   const [disburseOn, setDisburseOn] = useState("");
   const [paymentMode, setPaymentMode] = useState("CASH");
@@ -160,8 +319,10 @@ export default function RequisitionForm({ user, companies, projects }: FormProps
     try {
       // Build FormData for multipart payload including files
       const formData = new FormData();
+      formData.append("requisitionMode", requisitionMode);
       formData.append("projectId", projectId);
       formData.append("companyId", companyId);
+      formData.append("departmentId", departmentId);
       formData.append("type", activeType.trim().toUpperCase() || "BPO");
       formData.append("category", category);
       formData.append("priority", priority);
@@ -214,97 +375,212 @@ export default function RequisitionForm({ user, companies, projects }: FormProps
         </div>
       )}
 
-      {/* Meta Project & Requisition Controls */}
-      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div>
-          <label className="block text-xs font-semibold text-gray-700">
-            Sister Concern (IMS / CLAN / SCL / TradePULSE)
-          </label>
-          <select
-            value={companyId}
-            onChange={(e) => {
-              const newCompId = e.target.value;
-              setCompanyId(newCompId);
-              handleCompanyFilterChange(newCompId);
-            }}
-            className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold focus:ring-[#E42528] focus:border-[#E42528]"
-          >
-            {companies.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name} — {c.legalName}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div>
-          <div className="flex items-center justify-between">
-            <label className="block text-xs font-semibold text-gray-700">
-              Select Project / Event / Division
-            </label>
-            {companyFilter !== "ALL" && (
-              <button
-                type="button"
-                onClick={() => setCompanyFilter("ALL")}
-                className="text-[10px] font-bold text-[#E42528] hover:underline cursor-pointer"
-              >
-                Show All ({projects.length})
-              </button>
-            )}
+      {/* Requisition Type Selector: IMS Group Company (Permanent Employee) vs. Project-Based (Months/Years) */}
+      <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-6 space-y-4">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
+          <div>
+            <span className="text-xs font-bold text-gray-900 block">
+              1. Choose Requisition Type
+            </span>
+            <span className="text-[11px] text-gray-500">
+              Select whether this requisition is for an IMS Group Company (permanent employee / department) or a long-running Project / Event.
+            </span>
           </div>
-          <select
-            value={projectId}
-            onChange={(e) => handleProjectChange(e.target.value)}
-            className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:ring-[#E42528] focus:border-[#E42528]"
-          >
-            {(filteredProjects.length > 0 ? filteredProjects : projects).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name} ({p.code})
-              </option>
-            ))}
-          </select>
+          <div className="inline-flex rounded-lg p-1 bg-gray-100 border border-gray-200">
+            <button
+              type="button"
+              onClick={() => handleModeChange("COMPANY")}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                requisitionMode === "COMPANY"
+                  ? "bg-[#E42528] text-white shadow-xs"
+                  : "text-gray-700 hover:text-gray-900"
+              }`}
+            >
+              🏢 IMS Group Company (Permanent Employee)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleModeChange("PROJECT")}
+              className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                requisitionMode === "PROJECT"
+                  ? "bg-gray-900 text-white shadow-xs"
+                  : "text-gray-700 hover:text-gray-900"
+              }`}
+            >
+              📁 Project-Based (Outsourcing / TradePULSE / Events)
+            </button>
+          </div>
         </div>
 
-        <div>
-          <label className="block text-xs font-semibold text-gray-700">Requisition Tag / Type</label>
-          <div className="flex space-x-2 mt-1">
-            <select
-              value={type}
-              onChange={(e) => setType(e.target.value)}
-              className="block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:ring-[#E42528] focus:border-[#E42528]"
+        {requisitionMode === "PROJECT" && (
+          <div className="flex flex-wrap items-center gap-1.5 pb-1">
+            <span className="text-[11px] font-semibold text-gray-500 mr-1">Project Source:</span>
+            <button
+              type="button"
+              onClick={() => handleStreamChange("ALL")}
+              className={`px-2.5 py-1 rounded text-[11px] font-bold border cursor-pointer ${
+                projectStream === "ALL"
+                  ? "bg-gray-900 text-white border-gray-900"
+                  : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+              }`}
             >
-              {selectedProject?.requisitionTypes?.map((t: string) => (
-                <option key={t} value={t}>
-                  ({t})
+              All Projects & Events ({projectBasedList.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => handleStreamChange("OUTSOURCING")}
+              className={`px-2.5 py-1 rounded text-[11px] font-bold border cursor-pointer ${
+                projectStream === "OUTSOURCING"
+                  ? "bg-red-50 text-[#E42528] border-red-300"
+                  : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+              }`}
+            >
+              IMS Outsourcing (Robi, GP, UPY, Singer, BAT, Unilever...)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleStreamChange("TRADEPULSE")}
+              className={`px-2.5 py-1 rounded text-[11px] font-bold border cursor-pointer ${
+                projectStream === "TRADEPULSE"
+                  ? "bg-emerald-50 text-emerald-800 border-emerald-300"
+                  : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+              }`}
+            >
+              TradePULSE
+            </button>
+            <button
+              type="button"
+              onClick={() => handleStreamChange("OPERATIONS_EVENT")}
+              className={`px-2.5 py-1 rounded text-[11px] font-bold border cursor-pointer ${
+                projectStream === "OPERATIONS_EVENT"
+                  ? "bg-blue-50 text-blue-800 border-blue-300"
+                  : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
+              }`}
+            >
+              IMS Operations & Events (Banglalink, GP, Bkash, BAT...)
+            </button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {requisitionMode === "COMPANY" ? (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700">
+                  IMS Group Company *
+                </label>
+                <select
+                  value={companyId}
+                  onChange={(e) => setCompanyId(e.target.value)}
+                  className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold focus:ring-[#E42528] focus:border-[#E42528]"
+                >
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} — {c.legalName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700">
+                  Department / Division (Permanent Staff) *
+                </label>
+                <select
+                  value={departmentId}
+                  onChange={(e) => handleDepartmentChange(e.target.value)}
+                  className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:ring-[#E42528] focus:border-[#E42528]"
+                >
+                  {departments.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-gray-700">
+                  Select Project / Event (Months / Years) *
+                </label>
+                <select
+                  value={projectId}
+                  onChange={(e) => handleProjectChange(e.target.value)}
+                  className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold focus:ring-[#E42528] focus:border-[#E42528]"
+                >
+                  {(filteredProjects.length > 0 ? filteredProjects : projects).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700">
+                  Company Voucher Letterhead
+                </label>
+                <select
+                  value={companyId}
+                  onChange={(e) => setCompanyId(e.target.value)}
+                  className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:ring-[#E42528] focus:border-[#E42528]"
+                >
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} — {c.legalName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700">Requisition Tag / Type</label>
+            <div className="flex space-x-2 mt-1">
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className="block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:ring-[#E42528] focus:border-[#E42528]"
+              >
+                {(requisitionMode === "COMPANY"
+                  ? ["ADMIN", "CASH", "BPO", "IT", "STUDIO"]
+                  : selectedProject?.requisitionTypes || ["BPO", "EVENT", "ADMIN", "CASH"]
+                ).map((t: string) => (
+                  <option key={t} value={t}>
+                    ({t})
+                  </option>
+                ))}
+                <option value="OTHER">Other (Custom)</option>
+              </select>
+              {type === "OTHER" && (
+                <input
+                  type="text"
+                  placeholder="TAG"
+                  value={customType}
+                  onChange={(e) => setCustomType(e.target.value)}
+                  className="w-24 px-2 py-1 border border-gray-300 rounded-md text-xs font-bold uppercase"
+                />
+              )}
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-gray-700">Approval Category</label>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:ring-[#E42528] focus:border-[#E42528]"
+            >
+              {CATEGORIES.map((c) => (
+                <option key={c.key} value={c.key}>
+                  {c.label}
                 </option>
               ))}
-              {selectedProject?.allowOtherType && <option value="OTHER">Other (Custom)</option>}
             </select>
-            {type === "OTHER" && (
-              <input
-                type="text"
-                placeholder="TAG"
-                value={customType}
-                onChange={(e) => setCustomType(e.target.value)}
-                className="w-24 px-2 py-1 border border-gray-300 rounded-md text-xs font-bold uppercase"
-              />
-            )}
           </div>
-        </div>
-
-        <div>
-          <label className="block text-xs font-semibold text-gray-700">Approval Category</label>
-          <select
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:ring-[#E42528] focus:border-[#E42528]"
-          >
-            {CATEGORIES.map((c) => (
-              <option key={c.key} value={c.key}>
-                {c.label}
-              </option>
-            ))}
-          </select>
         </div>
       </div>
 

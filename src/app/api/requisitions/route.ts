@@ -13,8 +13,10 @@ export async function POST(request: Request) {
     const user = await requireUser();
     const formData = await request.formData();
 
-    const projectId = formData.get("projectId") as string;
-    const companyId = formData.get("companyId") as string;
+    const requisitionMode = ((formData.get("requisitionMode") as string) || "PROJECT").toUpperCase();
+    const rawProjectId = formData.get("projectId") as string;
+    const rawCompanyId = formData.get("companyId") as string;
+    const rawDepartmentId = (formData.get("departmentId") as string) || user.departmentId || null;
     const type = (formData.get("type") as string) || "BPO";
     const category = (formData.get("category") as string) || "GENERAL";
     const priority = (formData.get("priority") as string) || "NORMAL";
@@ -64,14 +66,71 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Incorrect 4-digit PIN or password" }, { status: 401 });
     }
 
-    // Load project details
-    const project = await prisma.project.findUnique({
-      where: { id: projectId },
-      include: { company: true },
-    });
-    if (!project) {
-      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    // Load or resolve project & company details
+    const selectedCompany = rawCompanyId
+      ? await prisma.company.findUnique({ where: { id: rawCompanyId } })
+      : null;
+
+    const selectedDepartment = rawDepartmentId
+      ? await prisma.department.findUnique({ where: { id: rawDepartmentId } })
+      : null;
+
+    let project = rawProjectId
+      ? await prisma.project.findUnique({
+          where: { id: rawProjectId },
+          include: { company: true },
+        })
+      : null;
+
+    if (requisitionMode === "COMPANY") {
+      // For IMS Group Company (Permanent Employee / Department) requisitions, find or create the matching internal division workflow
+      const deptLower = (selectedDepartment?.name || "").toLowerCase();
+      const compCode = selectedCompany?.code || "IMS";
+      let targetCode = "IMS-HO";
+      if (compCode === "CLAN" || deptLower.includes("clan")) targetCode = "CLAN-MAIN";
+      else if (compCode === "SCL" || deptLower.includes("scl")) targetCode = "SCL-MAIN";
+      else if (compCode === "TP" || deptLower.includes("tradepulse")) targetCode = "TP-OPS";
+      else if (deptLower.includes("it")) targetCode = "IMS-IT";
+      else if (deptLower.includes("studio")) targetCode = "IMS-STUDIO";
+      else if (deptLower.includes("red")) targetCode = "IMS-BD-RED";
+      else if (deptLower.includes("blue") || deptLower.includes("business development")) targetCode = "IMS-BD-BLUE";
+
+      const divProject =
+        (await prisma.project.findUnique({
+          where: { code: targetCode },
+          include: { company: true },
+        })) ||
+        (selectedCompany
+          ? await prisma.project.findFirst({
+              where: { companyId: selectedCompany.id },
+              include: { company: true },
+            })
+          : null);
+
+      if (divProject) {
+        project = divProject;
+      } else if (selectedCompany) {
+        project = await prisma.project.create({
+          data: {
+            code: `${selectedCompany.code}-CORP`,
+            name: `${selectedCompany.name} Corporate & Permanent Staff`,
+            companyId: selectedCompany.id,
+            category,
+            headId: selectedDepartment?.headId || null,
+            requisitionTypes: ["ADMIN", "CASH", "BPO", "IT", "STUDIO"],
+          },
+          include: { company: true },
+        });
+      }
     }
+
+    if (!project) {
+      return NextResponse.json({ error: "Project or Company workflow not found" }, { status: 404 });
+    }
+
+    const effectiveCompany = selectedCompany || project.company;
+    const projectId = project.id;
+    const companyId = effectiveCompany.id;
 
     // Find IT Checker (Abir Abedin)
     const itChecker = await prisma.user.findFirst({
@@ -102,15 +161,13 @@ export async function POST(request: Request) {
       makerPermissions: user.permissions,
       category,
       project: {
-        headId: project.headId,
-        checkerId: project.checkerId,
+        headId: requisitionMode === "COMPANY" ? selectedDepartment?.headId || project.headId : project.headId,
+        checkerId: requisitionMode === "COMPANY" ? null : project.checkerId,
         directorId: project.directorId,
         mdApprovalMode: project.mdApprovalMode,
         releaseBeforeMd: project.releaseBeforeMd,
       },
-      departmentHeadId: user.departmentId
-        ? (await prisma.department.findUnique({ where: { id: user.departmentId } }))?.headId ?? null
-        : null,
+      departmentHeadId: selectedDepartment?.headId ?? null,
       supervisorId: user.supervisorId,
       itCheckerId: itChecker?.id ?? null,
       categoryDirectorId: categoryDirector?.id ?? null,
@@ -123,7 +180,7 @@ export async function POST(request: Request) {
     const ip = await clientIp();
 
     const isDraft = action === "DRAFT";
-    const number = isDraft ? null : await generateRequisitionNumber(project.company.code, type);
+    const number = isDraft ? null : await generateRequisitionNumber(effectiveCompany.code, type);
     const initialWorkflow = isDraft ? { status: "DRAFT", step: null, assigneeId: null, mdStatus: "PENDING" } : stateAfter(chain, 0, project.releaseBeforeMd);
 
     // Hash for signature integrity
@@ -133,9 +190,9 @@ export async function POST(request: Request) {
     const requisition = await prisma.requisition.create({
       data: {
         number,
-        companyId: project.companyId,
+        companyId,
         projectId,
-        departmentId: user.departmentId,
+        departmentId: rawDepartmentId,
         type,
         category,
         priority,
