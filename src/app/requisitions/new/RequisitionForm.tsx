@@ -462,12 +462,12 @@ export default function RequisitionForm({ user, companies, departments = [], pro
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-start">
           {requisitionMode === "COMPANY" ? (
             <>
-              <div className="flex flex-col justify-end">
-                <label className="block text-xs font-semibold text-gray-700 truncate mb-1">
-                  IMS Group Company *
+              <div className="min-w-0">
+                <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
+                  Sister Concern (IMS / CLAN / SCL / TP)
                 </label>
                 <select
                   value={companyId}
@@ -482,9 +482,9 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                 </select>
               </div>
 
-              <div className="flex flex-col justify-end">
-                <label className="block text-xs font-semibold text-gray-700 truncate mb-1">
-                  Department / Division *
+              <div className="min-w-0">
+                <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
+                  Department / Division
                 </label>
                 <select
                   value={departmentId}
@@ -501,31 +501,14 @@ export default function RequisitionForm({ user, companies, departments = [], pro
             </>
           ) : (
             <>
-              <div className="flex flex-col justify-end">
-                <label className="block text-xs font-semibold text-gray-700 truncate mb-1">
-                  Select Project / Event *
-                </label>
-                <select
-                  value={projectId}
-                  onChange={(e) => handleProjectChange(e.target.value)}
-                  className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold bg-white focus:ring-[#E42528] focus:border-[#E42528]"
-                >
-                  {(filteredProjects.length > 0 ? filteredProjects : projects).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex flex-col justify-end">
-                <label className="block text-xs font-semibold text-gray-700 truncate mb-1">
-                  Sister Concern Letterhead
+              <div className="min-w-0">
+                <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
+                  Sister Concern (IMS / CLAN / SCL / TP)
                 </label>
                 <select
                   value={companyId}
                   onChange={(e) => setCompanyId(e.target.value)}
-                  className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white focus:ring-[#E42528] focus:border-[#E42528]"
+                  className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold bg-white focus:ring-[#E42528] focus:border-[#E42528]"
                 >
                   {companies.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -534,11 +517,28 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                   ))}
                 </select>
               </div>
+
+              <div className="min-w-0">
+                <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
+                  Select Project / Event / Division
+                </label>
+                <select
+                  value={projectId}
+                  onChange={(e) => handleProjectChange(e.target.value)}
+                  className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white focus:ring-[#E42528] focus:border-[#E42528]"
+                >
+                  {(filteredProjects.length > 0 ? filteredProjects : projects).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
             </>
           )}
 
-          <div className="flex flex-col justify-end">
-            <label className="block text-xs font-semibold text-gray-700 truncate mb-1">
+          <div className="min-w-0">
+            <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
               Requisition Tag / Type
             </label>
             <div className="flex space-x-2">
@@ -569,8 +569,8 @@ export default function RequisitionForm({ user, companies, departments = [], pro
             </div>
           </div>
 
-          <div className="flex flex-col justify-end">
-            <label className="block text-xs font-semibold text-gray-700 truncate mb-1">
+          <div className="min-w-0">
+            <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
               Approval Category
             </label>
             <select

@@ -4,6 +4,9 @@ import { projectScope } from "@/lib/rbac";
 import AppShell from "@/components/AppShell";
 import RequisitionForm from "./RequisitionForm";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function NewRequisitionPage() {
   const user = await requireUser();
 
