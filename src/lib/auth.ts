@@ -74,7 +74,30 @@ async function loadUser(id: string) {
   if (user.role?.name === "Sr. Manager IT & Transformation (Super Admin)") {
     user.role.name = "Sr. Manager, Information & Transformation (Super Admin)";
   }
-  const permissions = Array.from(new Set([...user.role.permissions, ...user.extraPermissions]));
+
+  const pLevel = user.priorityLevel ?? 2;
+  const extra = user.extraPermissions || [];
+
+  // Base role permissions: strip project.manage / project.view for < P4 unless explicitly granted in Extra User Privileges
+  const rolePerms = (user.role?.permissions || []).filter((perm) => {
+    if (pLevel < 4 && (perm === "project.manage" || perm === "project.view")) {
+      return false;
+    }
+    return true;
+  });
+
+  const permissionsSet = new Set<string>([...rolePerms, ...extra]);
+
+  // P4 and P5 automatically get full view & edit access to Projects & Workflow Configuration
+  if (pLevel >= 4) {
+    permissionsSet.add("project.view");
+    permissionsSet.add("project.manage");
+  } else if (extra.includes("project.manage")) {
+    permissionsSet.add("project.view");
+    permissionsSet.add("project.manage");
+  }
+
+  const permissions = Array.from(permissionsSet);
   return { ...user, permissions };
 }
 

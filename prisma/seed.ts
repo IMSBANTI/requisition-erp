@@ -35,9 +35,13 @@ const MANAGER = [
   P.approve,
   P.viewProject,
   P.viewDept,
-  P.project,
   P.report,
   P.download,
+];
+
+const SR_MANAGER = [
+  ...MANAGER,
+  P.project,
 ];
 
 const ROLES = [
@@ -59,7 +63,7 @@ const ROLES = [
     key: "sr_manager",
     name: "Senior Manager / Head",
     isManager: true,
-    permissions: MANAGER,
+    permissions: SR_MANAGER,
     description: "Sees & approves only own division / assigned project requisitions",
   },
   {

@@ -70,7 +70,7 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
   }
 
   const isAdmin = perms.includes("admin.users") || perms.includes("admin.readonly");
-  const canManageProjects = perms.includes("project.manage");
+  const canManageProjects = perms.includes("project.manage") || perms.includes("project.view");
 
   return (
     <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0 min-h-screen">

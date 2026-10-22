@@ -1121,7 +1121,11 @@ export default function AdminUsersClient({
                   <div className="grid grid-cols-1 gap-1 max-h-36 overflow-y-auto pr-1">
                     {(Object.entries(PERMISSION_LABELS) as [Permission, string][]).map(
                       ([permKey, label]) => {
-                        const fromRole = currentRoleObj?.permissions?.includes(permKey);
+                        const isProjectPerm =
+                          permKey === "project.view" || permKey === "project.manage";
+                        const fromRole = isProjectPerm
+                          ? priorityLevel >= 4
+                          : Boolean(currentRoleObj?.permissions?.includes(permKey));
                         const checked = fromRole || extraPermissions.includes(permKey);
                         return (
                           <label
@@ -1146,7 +1150,7 @@ export default function AdminUsersClient({
                               {label}{" "}
                               {fromRole && (
                                 <span className="text-[9px] bg-gray-100 px-1 rounded">
-                                  via Role
+                                  {isProjectPerm ? "via P4/P5" : "via Role"}
                                 </span>
                               )}
                             </span>

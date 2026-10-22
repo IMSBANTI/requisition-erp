@@ -13,6 +13,7 @@ export const PERMISSIONS = {
   REQ_FORWARD: "req.forward", // Accounts Manager forwards to executive
   REQ_EXECUTE: "req.execute",
   REQ_MANUAL_ENTRY: "req.manual",
+  PROJECT_VIEW: "project.view",
   PROJECT_MANAGE: "project.manage",
   REPORT_VIEW: "report.view",
   REPORT_DOWNLOAD: "report.download",
@@ -38,7 +39,8 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "req.forward": "Forward to Accounts Executive",
   "req.execute": "Execute / disburse",
   "req.manual": "Enter manual (paper) requisitions",
-  "project.manage": "Create / edit projects",
+  "project.view": "View Projects & Workflow Configuration (Read-only)",
+  "project.manage": "Edit / Manage Projects & Workflow Configuration",
   "report.view": "View reports & analysis",
   "report.download": "Download reports",
   "admin.users": "Full admin (users, roles, masters)",

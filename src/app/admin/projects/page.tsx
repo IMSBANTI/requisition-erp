@@ -10,7 +10,10 @@ export const revalidate = 0;
 export default async function AdminProjectsPage() {
   const user = await requireUser();
 
-  if (!user.permissions.includes("project.manage") && !user.permissions.includes("admin.readonly")) {
+  const canEditProjects = user.permissions.includes("project.manage");
+  const canViewProjects = canEditProjects || user.permissions.includes("project.view");
+
+  if (!canViewProjects) {
     redirect("/?denied=1");
   }
 
@@ -66,7 +69,7 @@ export default async function AdminProjectsPage() {
           }))}
           companies={companies}
           users={users}
-          isReadOnly={user.permissions.includes("admin.readonly") && !user.permissions.includes("project.manage")}
+          isReadOnly={!canEditProjects}
         />
       </div>
     </AppShell>
