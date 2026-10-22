@@ -462,17 +462,17 @@ export default function RequisitionForm({ user, companies, departments = [], pro
           </div>
         )}
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 items-end">
           {requisitionMode === "COMPANY" ? (
             <>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700">
+              <div className="flex flex-col justify-end">
+                <label className="block text-xs font-semibold text-gray-700 truncate mb-1">
                   IMS Group Company *
                 </label>
                 <select
                   value={companyId}
                   onChange={(e) => setCompanyId(e.target.value)}
-                  className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold focus:ring-[#E42528] focus:border-[#E42528]"
+                  className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold bg-white focus:ring-[#E42528] focus:border-[#E42528]"
                 >
                   {companies.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -482,14 +482,14 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700">
-                  Department / Division (Permanent Staff) *
+              <div className="flex flex-col justify-end">
+                <label className="block text-xs font-semibold text-gray-700 truncate mb-1">
+                  Department / Division *
                 </label>
                 <select
                   value={departmentId}
                   onChange={(e) => handleDepartmentChange(e.target.value)}
-                  className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:ring-[#E42528] focus:border-[#E42528]"
+                  className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white focus:ring-[#E42528] focus:border-[#E42528]"
                 >
                   {departments.map((d) => (
                     <option key={d.id} value={d.id}>
@@ -501,14 +501,14 @@ export default function RequisitionForm({ user, companies, departments = [], pro
             </>
           ) : (
             <>
-              <div>
-                <label className="block text-xs font-semibold text-gray-700">
-                  Select Project / Event (Months / Years) *
+              <div className="flex flex-col justify-end">
+                <label className="block text-xs font-semibold text-gray-700 truncate mb-1">
+                  Select Project / Event *
                 </label>
                 <select
                   value={projectId}
                   onChange={(e) => handleProjectChange(e.target.value)}
-                  className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold focus:ring-[#E42528] focus:border-[#E42528]"
+                  className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold bg-white focus:ring-[#E42528] focus:border-[#E42528]"
                 >
                   {(filteredProjects.length > 0 ? filteredProjects : projects).map((p) => (
                     <option key={p.id} value={p.id}>
@@ -518,14 +518,14 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                 </select>
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-gray-700">
-                  Company Voucher Letterhead
+              <div className="flex flex-col justify-end">
+                <label className="block text-xs font-semibold text-gray-700 truncate mb-1">
+                  Sister Concern Letterhead
                 </label>
                 <select
                   value={companyId}
                   onChange={(e) => setCompanyId(e.target.value)}
-                  className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:ring-[#E42528] focus:border-[#E42528]"
+                  className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white focus:ring-[#E42528] focus:border-[#E42528]"
                 >
                   {companies.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -537,13 +537,15 @@ export default function RequisitionForm({ user, companies, departments = [], pro
             </>
           )}
 
-          <div>
-            <label className="block text-xs font-semibold text-gray-700">Requisition Tag / Type</label>
-            <div className="flex space-x-2 mt-1">
+          <div className="flex flex-col justify-end">
+            <label className="block text-xs font-semibold text-gray-700 truncate mb-1">
+              Requisition Tag / Type
+            </label>
+            <div className="flex space-x-2">
               <select
                 value={type}
                 onChange={(e) => setType(e.target.value)}
-                className="block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:ring-[#E42528] focus:border-[#E42528]"
+                className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white focus:ring-[#E42528] focus:border-[#E42528]"
               >
                 {(requisitionMode === "COMPANY"
                   ? ["ADMIN", "CASH", "BPO", "IT", "STUDIO"]
@@ -561,18 +563,20 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                   placeholder="TAG"
                   value={customType}
                   onChange={(e) => setCustomType(e.target.value)}
-                  className="w-24 px-2 py-1 border border-gray-300 rounded-md text-xs font-bold uppercase"
+                  className="h-9 w-24 px-2 py-1 border border-gray-300 rounded-md text-xs font-bold uppercase bg-white"
                 />
               )}
             </div>
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-gray-700">Approval Category</label>
+          <div className="flex flex-col justify-end">
+            <label className="block text-xs font-semibold text-gray-700 truncate mb-1">
+              Approval Category
+            </label>
             <select
               value={category}
               onChange={(e) => setCategory(e.target.value)}
-              className="mt-1 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium focus:ring-[#E42528] focus:border-[#E42528]"
+              className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white focus:ring-[#E42528] focus:border-[#E42528]"
             >
               {CATEGORIES.map((c) => (
                 <option key={c.key} value={c.key}>
