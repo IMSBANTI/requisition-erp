@@ -467,7 +467,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
             <>
               <div className="min-w-0">
                 <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
-                  Sister Concern (IMS / CLAN / SCL / TP)
+                  Sister Concern
                 </label>
                 <select
                   value={companyId}
@@ -503,7 +503,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
             <>
               <div className="min-w-0">
                 <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
-                  Sister Concern (IMS / CLAN / SCL / TP)
+                  Sister Concern
                 </label>
                 <select
                   value={companyId}
@@ -520,7 +520,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
 
               <div className="min-w-0">
                 <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
-                  Select Project / Event / Division
+                  Select Project / Event
                 </label>
                 <select
                   value={projectId}

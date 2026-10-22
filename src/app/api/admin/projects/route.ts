@@ -178,7 +178,6 @@ export async function DELETE(request: Request) {
         await prisma.requisitionItem.deleteMany({ where: { requisitionId: { in: reqIds } } });
         await prisma.approval.deleteMany({ where: { requisitionId: { in: reqIds } } });
         await prisma.attachment.deleteMany({ where: { requisitionId: { in: reqIds } } });
-        await prisma.notification.deleteMany({ where: { requisitionId: { in: reqIds } } });
         await prisma.requisition.deleteMany({ where: { projectId: id } });
       }
     }
