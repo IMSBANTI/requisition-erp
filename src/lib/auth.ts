@@ -68,6 +68,12 @@ async function loadUser(id: string) {
     },
   });
   if (!user || !user.active) return null;
+  if (user.designation === "Sr. Manager, IT & Transformation" || user.designation === "Sr. Manager IT & Transformation") {
+    user.designation = "Sr. Manager, Information & Transformation";
+  }
+  if (user.role?.name === "Sr. Manager IT & Transformation (Super Admin)") {
+    user.role.name = "Sr. Manager, Information & Transformation (Super Admin)";
+  }
   const permissions = Array.from(new Set([...user.role.permissions, ...user.extraPermissions]));
   return { ...user, permissions };
 }

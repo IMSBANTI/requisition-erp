@@ -11,7 +11,7 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   const demoAccounts = [
-    { label: "Super Admin — Abir Abedin (1001)", email: "admin@ims.com.bd", role: "Priority 5 • IT & Transformation" },
+    { label: "Super Admin — Abir Abedin (1001)", email: "admin@ims.com.bd", role: "Priority 5 • Sr. Manager, Information & Transformation" },
     { label: "Director — Iftekhar Hussein (1004)", email: "nahiyan@ims.com.bd", role: "Priority 4 • BD / Outsourcing / Events" },
     { label: "Director — Nazmus Sakib Rahman (1005)", email: "nazmus@ims.com.bd", role: "Priority 4 • BD Red Team / Studio" },
     { label: "Director — Mahabub Hasan Shible (1026)", email: "shible@ims.com.bd", role: "Priority 4 • Operations & Events" },

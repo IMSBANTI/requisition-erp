@@ -64,7 +64,7 @@ const ROLES = [
   },
   {
     key: "super_admin",
-    name: "Sr. Manager IT & Transformation (Super Admin)",
+    name: "Sr. Manager, Information & Transformation (Super Admin)",
     isManager: true,
     permissions: [
       P.create,
@@ -328,7 +328,7 @@ async function main() {
     const emailPwHash = await bcrypt.hash(cleanEmail, 10);
     const designation =
       x.empId === "1001"
-        ? "Sr. Manager, IT & Transformation"
+        ? "Sr. Manager, Information & Transformation"
         : `${x.level}, ${x.dept}`;
 
     const data = {
@@ -368,6 +368,7 @@ async function main() {
       row = await prisma.user.update({
         where: { email: cleanEmail },
         data: {
+          designation: x.empId === "1001" ? "Sr. Manager, Information & Transformation" : existingUser.designation,
           companyId: null,
           secondaryDepartments: x.secondaryDepts ?? existingUser.secondaryDepartments,
           approvalNotes: x.notes ?? existingUser.approvalNotes,

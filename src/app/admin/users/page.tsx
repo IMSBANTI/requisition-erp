@@ -49,7 +49,11 @@ export default async function AdminUsersPage() {
             employeeId: u.employeeId || "",
             name: u.name,
             email: u.email,
-            designation: u.designation,
+            designation:
+              u.designation === "Sr. Manager, IT & Transformation" ||
+              u.designation === "Sr. Manager IT & Transformation"
+                ? "Sr. Manager, Information & Transformation"
+                : u.designation,
             priorityLevel: u.priorityLevel ?? 2,
             levelLabel: u.levelLabel || (u.role.isManager ? "Manager" : "Executive"),
             secondaryDepartments: u.secondaryDepartments || [],
@@ -60,7 +64,10 @@ export default async function AdminUsersPage() {
               : "",
             roleId: u.roleId,
             roleKey: u.role.key,
-            roleName: u.role.name,
+            roleName:
+              u.role.name === "Sr. Manager IT & Transformation (Super Admin)"
+                ? "Sr. Manager, Information & Transformation (Super Admin)"
+                : u.role.name,
             rolePermissions: u.role.permissions,
             companyId: u.companyId || "",
             companyCode: u.company?.code || "IMS GROUP",
@@ -77,7 +84,13 @@ export default async function AdminUsersPage() {
             hasSignature: !!u.signature,
             hasPin: !!u.pinHash,
           }))}
-          roles={roles}
+          roles={roles.map((r) => ({
+            ...r,
+            name:
+              r.name === "Sr. Manager IT & Transformation (Super Admin)"
+                ? "Sr. Manager, Information & Transformation (Super Admin)"
+                : r.name,
+          }))}
           companies={companies}
           departments={departments}
           projects={projects.map((p) => ({

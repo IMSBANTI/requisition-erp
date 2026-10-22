@@ -32,7 +32,7 @@ export interface WorkflowContext {
   };
   departmentHeadId: string | null;
   supervisorId?: string | null;
-  itCheckerId: string | null; // Sr. Manager IT & Transformation
+  itCheckerId: string | null; // Sr. Manager, Information & Transformation
   categoryDirectorId: string | null;
   makerIsMd?: boolean;
 }
