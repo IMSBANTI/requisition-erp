@@ -78,7 +78,14 @@ export default async function AdminUsersPage() {
             companyScopeCodes: u.companyScopes.map((c) => c.code),
             projectScopeIds: u.projectScopes.map((p) => p.id),
             projectScopeNames: u.projectScopes.map((p) => p.name),
-            directorCategories: u.directorCategories || [],
+            directorCategories: (u.directorCategories || []).flatMap((cat) => {
+              if (cat === "IMS_OUTSOURCING_STUDIO") {
+                if (u.employeeId === "1005") return ["STUDIO"];
+                if (u.employeeId === "1004") return ["IMS", "OUTSOURCING"];
+                return ["IMS", "OUTSOURCING", "STUDIO"];
+              }
+              return [cat];
+            }),
             extraPermissions: u.extraPermissions || [],
             active: u.active,
             hasSignature: !!u.signature,

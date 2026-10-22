@@ -40,7 +40,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [companyId, setCompanyId] = useState(companies[0]?.id || "");
-  const [category, setCategory] = useState("IMS_OUTSOURCING_STUDIO");
+  const [category, setCategory] = useState("OUTSOURCING");
   const [mdApprovalMode, setMdApprovalMode] = useState("INSTANT");
   const [headId, setHeadId] = useState("");
   const [checkerId, setCheckerId] = useState("");

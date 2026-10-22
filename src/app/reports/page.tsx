@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { projectScope } from "@/lib/rbac";
+import { CATEGORIES } from "@/lib/constants";
 import AppShell from "@/components/AppShell";
 import ReportsClient from "./ReportsClient";
 
@@ -49,14 +50,7 @@ export default async function ReportsPage() {
   });
 
   // Categories list
-  const categories = [
-    { key: "AI_IT", label: "AI / IT & Transformation" },
-    { key: "OUTSOURCING", label: "Outsourcing (BPO)" },
-    { key: "STUDIO", label: "Studio & Creative" },
-    { key: "BUSINESS_DEV", label: "Business Development" },
-    { key: "OPERATIONS", label: "Operations & Events" },
-    { key: "GENERAL", label: "General & Admin" },
-  ];
+  const categories = [...CATEGORIES];
 
   return (
     <AppShell>

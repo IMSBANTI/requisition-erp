@@ -48,7 +48,9 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
 };
 
 export const CATEGORIES = [
-  { key: "IMS_OUTSOURCING_STUDIO", label: "IMS / Outsourcing / Studio" },
+  { key: "IMS", label: "IMS" },
+  { key: "OUTSOURCING", label: "Outsourcing" },
+  { key: "STUDIO", label: "Studio" },
   { key: "BUSINESS_DEVELOPMENT", label: "Business Development" },
   { key: "OPERATIONS_EVENT", label: "Operations & Events" },
   { key: "AI_IT", label: "AI / IT" },

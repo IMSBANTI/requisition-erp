@@ -198,7 +198,7 @@ export default function AdminUsersClient({
       setProjCompanyId(imsComp?.id || "");
       setProjCode("");
       setProjName("");
-      setProjCategory("IMS_OUTSOURCING_STUDIO");
+      setProjCategory("OUTSOURCING");
       setProjHeadId("");
       setProjDirectorId("");
       setProjMemberIds([]);

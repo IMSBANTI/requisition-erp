@@ -81,11 +81,14 @@ export async function POST(request: Request) {
       },
     });
 
-    // Find Category Director
+    // Find Category Director (also match legacy IMS_OUTSOURCING_STUDIO if category is IMS, OUTSOURCING, or STUDIO)
+    const categoryCandidates = ["IMS", "OUTSOURCING", "STUDIO"].includes(category)
+      ? [category, "IMS_OUTSOURCING_STUDIO"]
+      : [category];
     const categoryDirector = await prisma.user.findFirst({
       where: {
         role: { permissions: { has: "req.director" } },
-        directorCategories: { has: category },
+        directorCategories: { hasSome: categoryCandidates },
         active: true,
       },
     });
