@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { CATEGORIES } from "@/lib/constants";
 import { formatTaka } from "@/lib/money";
 
@@ -19,6 +20,7 @@ interface ProjectItem {
   checkerName: string;
   checkerId?: string | null;
   directorName: string;
+  directorId?: string | null;
   active: boolean;
   budget?: number;
 }
@@ -31,6 +33,13 @@ interface Props {
 }
 
 export default function AdminProjectsClient({ projects, companies, users, isReadOnly }: Props) {
+  const router = useRouter();
+  const [projectList, setProjectList] = useState<ProjectItem[]>(projects);
+
+  useEffect(() => {
+    setProjectList(projects);
+  }, [projects]);
+
   const [filterCo, setFilterCo] = useState<string>("ALL");
   const [search, setSearch] = useState("");
   const [showNewModal, setShowNewModal] = useState(false);
@@ -44,6 +53,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
   const [mdApprovalMode, setMdApprovalMode] = useState("INSTANT");
   const [headId, setHeadId] = useState("");
   const [checkerId, setCheckerId] = useState("");
+  const [directorId, setDirectorId] = useState("");
   const [typesStr, setTypesStr] = useState("BPO, ADMIN, CASH");
   const [budget, setBudget] = useState("");
 
@@ -55,6 +65,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
   const [editMdApprovalMode, setEditMdApprovalMode] = useState("INSTANT");
   const [editHeadId, setEditHeadId] = useState("");
   const [editCheckerId, setEditCheckerId] = useState("");
+  const [editDirectorId, setEditDirectorId] = useState("");
   const [editTypesStr, setEditTypesStr] = useState("");
   const [editBudget, setEditBudget] = useState("");
   const [editActive, setEditActive] = useState(true);
@@ -63,7 +74,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
   const [msg, setMsg] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
 
-  const filtered = projects.filter((p) => {
+  const filtered = projectList.filter((p) => {
     const matchCompany = filterCo === "ALL" || p.companyName === filterCo;
     const matchSearch =
       !search ||
@@ -77,10 +88,11 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
     setEditCode(p.code);
     setEditName(p.name);
     setEditCompanyId(p.companyId);
-    setEditCategory(p.category);
+    setEditCategory(p.category === "IMS_OUTSOURCING_STUDIO" ? "OUTSOURCING" : p.category);
     setEditMdApprovalMode(p.mdApprovalMode);
     setEditHeadId(p.headId || "");
     setEditCheckerId(p.checkerId || "");
+    setEditDirectorId(p.directorId || "");
     setEditTypesStr(p.requisitionTypes.join(", "));
     setEditBudget(p.budget ? String(p.budget) : "");
     setEditActive(p.active);
@@ -106,6 +118,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
           mdApprovalMode,
           headId: headId || null,
           checkerId: checkerId || null,
+          directorId: directorId || null,
           requisitionTypes: types,
           budget: budget ? Number(budget) : null,
         }),
@@ -114,9 +127,11 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to create project");
       setMsg("Project created successfully!");
+      router.refresh();
       setTimeout(() => {
-        window.location.reload();
-      }, 800);
+        setShowNewModal(false);
+        setLoading(false);
+      }, 600);
     } catch (err: any) {
       setErrorMsg(err.message || "Error creating project");
       setLoading(false);
@@ -143,6 +158,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
           mdApprovalMode: editMdApprovalMode,
           headId: editHeadId || null,
           checkerId: editCheckerId || null,
+          directorId: editDirectorId || null,
           requisitionTypes: types,
           budget: editBudget ? Number(editBudget) : null,
           active: editActive,
@@ -152,9 +168,11 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to update project");
       setMsg("Project updated successfully!");
+      router.refresh();
       setTimeout(() => {
-        window.location.reload();
-      }, 800);
+        setEditingProject(null);
+        setLoading(false);
+      }, 600);
     } catch (err: any) {
       setErrorMsg(err.message || "Error updating project");
       setLoading(false);
@@ -163,7 +181,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
 
   async function handleDeleteProject(p: ProjectItem) {
     const confirmed = window.confirm(
-      `Are you sure you want to delete or deactivate project:\n"${p.name} (${p.code})"?\n\nNote: If this project already has requisitions, it will be safely deactivated/archived to protect historical records.`
+      `Are you sure you want to permanently delete project:\n"${p.name} (${p.code})"?`
     );
     if (!confirmed) return;
 
@@ -174,10 +192,12 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to delete project");
-      alert(data.message || "Project deleted successfully");
-      window.location.reload();
+      // Remove immediately from UI state and refresh Next.js router cache
+      setProjectList((prev) => prev.filter((item) => item.id !== p.id));
+      router.refresh();
     } catch (err: any) {
       alert(err.message || "Error deleting project");
+    } finally {
       setLoading(false);
     }
   }
@@ -195,7 +215,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
               filterCo === "ALL" ? "bg-red-50 text-[#E42528] border-red-200" : "bg-gray-50 text-gray-700 border-gray-200"
             }`}
           >
-            All ({projects.length})
+            All ({projectList.length})
           </button>
           {companies.map((c) => (
             <button
@@ -291,6 +311,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                     <td className="py-3 px-4 text-[11px]">
                       <span className="text-gray-800 block">Head: <strong>{p.headName}</strong></span>
                       <span className="text-gray-500 block">Checker: {p.checkerName}</span>
+                      <span className="text-gray-500 block">Director: <strong>{p.directorName}</strong></span>
                     </td>
                     <td className="py-3 px-4 text-center">
                       <span
@@ -424,7 +445,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700">Project Head</label>
                   <select
@@ -448,6 +469,21 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                     className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs"
                   >
                     <option value="">None</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({u.designation})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700">Project Director</label>
+                  <select
+                    value={editDirectorId}
+                    onChange={(e) => setEditDirectorId(e.target.value)}
+                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs"
+                  >
+                    <option value="">Auto (Category Director)</option>
                     {users.map((u) => (
                       <option key={u.id} value={u.id}>
                         {u.name} ({u.designation})
@@ -605,7 +641,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700">Project Head</label>
                   <select
@@ -629,6 +665,21 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                     className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs"
                   >
                     <option value="">None</option>
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} ({u.designation})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700">Project Director</label>
+                  <select
+                    value={directorId}
+                    onChange={(e) => setDirectorId(e.target.value)}
+                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs"
+                  >
+                    <option value="">Auto (Category Director)</option>
                     {users.map((u) => (
                       <option key={u.id} value={u.id}>
                         {u.name} ({u.designation})

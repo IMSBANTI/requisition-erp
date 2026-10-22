@@ -362,9 +362,8 @@ async function main() {
         where: { email: cleanEmail },
         data: { ...data, passwordHash: emailPwHash },
       });
-    } else if (x.company === null) {
-      // Ensure IMS GROUP officers (MD, Directors, Abir IT, Harun Accounts, Moushumi HR, Israt Accounts)
-      // always have companyId: null ("IMS GROUP") and all 4 sister-concern scopes synced
+    } else if (x.company === null && existingUser.companyId !== null) {
+      // One-time migration: ensure IMS GROUP officers have companyId: null ("IMS GROUP") and all 4 sister-concern scopes
       row = await prisma.user.update({
         where: { email: cleanEmail },
         data: {
@@ -687,51 +686,80 @@ async function main() {
     },
   ];
 
+  // Check AuditLog for any projects deleted or archived by admins so seed NEVER re-creates them
+  const projectAuditLogs = await prisma.auditLog.findMany({
+    where: { action: { in: ["PROJECT_DELETED", "PROJECT_ARCHIVED", "PROJECT_CREATED"] } },
+    orderBy: { createdAt: "asc" },
+  });
+
+  const deletedProjectCodes = new Set<string>();
+  for (const log of projectAuditLogs) {
+    const match = log.details?.match(/\(([^()]+)\)\s+(?:deleted|archived|created)/i);
+    if (match && match[1]) {
+      const code = match[1].trim().toUpperCase();
+      if (log.action === "PROJECT_DELETED" || log.action === "PROJECT_ARCHIVED") {
+        deletedProjectCodes.add(code);
+      } else if (log.action === "PROJECT_CREATED") {
+        deletedProjectCodes.delete(code);
+      }
+    }
+  }
+
+  // If a previous seed run accidentally re-created a project that the admin had deleted, remove it now
+  if (deletedProjectCodes.size > 0) {
+    const toRemove = await prisma.project.findMany({
+      where: { code: { in: Array.from(deletedProjectCodes) } },
+    });
+    for (const proj of toRemove) {
+      const reqCount = await prisma.requisition.count({ where: { projectId: proj.id } });
+      if (reqCount === 0) {
+        await prisma.project.update({ where: { id: proj.id }, data: { members: { set: [] } } });
+        await prisma.project.delete({ where: { id: proj.id } });
+      }
+    }
+  }
+
+  // Check if projects have already been seeded in this database
+  const existingProjectsCount = await prisma.project.count();
+
   for (const p of PROJECTS) {
+    if (deletedProjectCodes.has(p.code.toUpperCase())) {
+      continue;
+    }
+
     const memberIds = p.memberEmpIds
       .map((eid) => userByEmpId[eid])
       .filter(Boolean);
 
     const existingProj = await prisma.project.findUnique({ where: { code: p.code } });
     if (!existingProj) {
-      await prisma.project.create({
-        data: {
-          code: p.code,
-          name: p.name,
-          companyId: co[p.company],
-          kind: p.kind ?? "PERMANENT",
-          category: p.category,
-          headId: p.headEmpId ? userByEmpId[p.headEmpId] : null,
-          checkerId: p.checkerEmpId ? userByEmpId[p.checkerEmpId] : null,
-          directorId: p.directorEmpId ? userByEmpId[p.directorEmpId] : null,
-          mdApprovalMode: p.md ?? "INSTANT",
-          requisitionTypes: p.types ?? ["BPO", "ADMIN", "CASH"],
-          members: { connect: memberIds.map((id) => ({ id })) },
-        },
-      });
-    } else {
+      // Only create default seed projects on initial bootstrap (when DB has no projects yet)
+      if (existingProjectsCount === 0) {
+        await prisma.project.create({
+          data: {
+            code: p.code,
+            name: p.name,
+            companyId: co[p.company],
+            kind: p.kind ?? "PERMANENT",
+            category: p.category,
+            headId: p.headEmpId ? userByEmpId[p.headEmpId] : null,
+            checkerId: p.checkerEmpId ? userByEmpId[p.checkerEmpId] : null,
+            directorId: p.directorEmpId ? userByEmpId[p.directorEmpId] : null,
+            mdApprovalMode: p.md ?? "INSTANT",
+            requisitionTypes: p.types ?? ["BPO", "ADMIN", "CASH"],
+            members: { connect: memberIds.map((id) => ({ id })) },
+          },
+        });
+      }
+    } else if (existingProj.category === "IMS_OUTSOURCING_STUDIO") {
+      // One-time migration for legacy combined category only; never overwrite user-configured workflow heads/checkers
       await prisma.project.update({
         where: { code: p.code },
         data: {
-          headId: p.headEmpId ? userByEmpId[p.headEmpId] : existingProj.headId,
-          checkerId: p.checkerEmpId ? userByEmpId[p.checkerEmpId] : existingProj.checkerId,
-          directorId: p.directorEmpId ? userByEmpId[p.directorEmpId] : existingProj.directorId,
-          members: { set: memberIds.map((id) => ({ id })) },
+          category: p.category,
         },
       });
     }
-  }
-
-  // Also ensure any existing OUT-01..OUT-24 projects point to Polok (1070) as Head and Iftekhar (1004) as Director
-  if (userByEmpId["1070"] && userByEmpId["1004"]) {
-    await prisma.project.updateMany({
-      where: { code: { startsWith: "OUT-" } },
-      data: {
-        headId: userByEmpId["1070"],
-        checkerId: userByEmpId["1071"] || null,
-        directorId: userByEmpId["1004"],
-      },
-    });
   }
 
   // Deactivate legacy placeholder demo emails if they exist from initial seed

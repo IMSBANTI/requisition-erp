@@ -144,31 +144,52 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Project ID is required" }, { status: 400 });
     }
 
+    // Check if the project exists
+    const targetProject = await prisma.project.findUnique({ where: { id } });
+    if (!targetProject) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
+
     // Check if any requisitions exist for this project
     const reqCount = await prisma.requisition.count({ where: { projectId: id } });
 
     if (reqCount > 0) {
-      // Archive/deactivate project so existing requisitions remain intact
-      const archived = await prisma.project.update({
-        where: { id },
-        data: { active: false },
-      });
+      // Find a fallback project (same company first, otherwise any other project) so we can permanently delete this project
+      const fallbackProject =
+        (await prisma.project.findFirst({
+          where: { id: { not: id }, companyId: targetProject.companyId, active: true },
+          orderBy: { createdAt: "asc" },
+        })) ||
+        (await prisma.project.findFirst({
+          where: { id: { not: id } },
+          orderBy: { createdAt: "asc" },
+        }));
 
-      await prisma.auditLog.create({
-        data: {
-          userId: user.id,
-          action: "PROJECT_ARCHIVED",
-          details: `Project ${archived.name} (${archived.code}) archived (has ${reqCount} historical requisitions) by ${user.name}`,
-        },
-      });
-
-      return NextResponse.json({
-        archived: true,
-        message: `Project has ${reqCount} historical requisitions. It has been deactivated/archived so historical records remain intact.`,
-      });
+      if (fallbackProject) {
+        await prisma.requisition.updateMany({
+          where: { projectId: id },
+          data: { projectId: fallbackProject.id },
+        });
+      } else {
+        // Only if it is the very last project in the entire database and has requisitions, delete those requisitions' items/approvals/attachments first
+        const reqIds = (
+          await prisma.requisition.findMany({ where: { projectId: id }, select: { id: true } })
+        ).map((r) => r.id);
+        await prisma.requisitionItem.deleteMany({ where: { requisitionId: { in: reqIds } } });
+        await prisma.approval.deleteMany({ where: { requisitionId: { in: reqIds } } });
+        await prisma.attachment.deleteMany({ where: { requisitionId: { in: reqIds } } });
+        await prisma.notification.deleteMany({ where: { requisitionId: { in: reqIds } } });
+        await prisma.requisition.deleteMany({ where: { projectId: id } });
+      }
     }
 
-    // Permanently delete project if no requisitions exist
+    // Disconnect all member relations before deleting
+    await prisma.project.update({
+      where: { id },
+      data: { members: { set: [] } },
+    });
+
+    // Permanently delete project
     const deleted = await prisma.project.delete({
       where: { id },
     });
@@ -183,7 +204,7 @@ export async function DELETE(request: Request) {
 
     return NextResponse.json({
       deleted: true,
-      message: `Project ${deleted.name} (${deleted.code}) was deleted successfully.`,
+      message: `Project "${deleted.name} (${deleted.code})" was permanently deleted.`,
     });
   } catch (err: any) {
     console.error("Project deletion error:", err);

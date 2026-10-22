@@ -4,6 +4,9 @@ import { prisma } from "@/lib/db";
 import AppShell from "@/components/AppShell";
 import AdminUsersClient from "./AdminUsersClient";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function AdminUsersPage() {
   const user = await requireUser();
 

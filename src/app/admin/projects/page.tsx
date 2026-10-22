@@ -4,6 +4,9 @@ import { prisma } from "@/lib/db";
 import AppShell from "@/components/AppShell";
 import AdminProjectsClient from "./AdminProjectsClient";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function AdminProjectsPage() {
   const user = await requireUser();
 
@@ -57,6 +60,7 @@ export default async function AdminProjectsPage() {
             checkerName: p.checker?.name || "None",
             checkerId: p.checkerId,
             directorName: p.director?.name || "Auto (Category Director)",
+            directorId: p.directorId,
             active: p.active,
             budget: p.budget ? Number(p.budget) : 0,
           }))}
