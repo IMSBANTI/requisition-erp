@@ -19,6 +19,7 @@ interface FormProps {
     departmentId?: string | null;
     departmentName?: string;
     secondaryDepartments?: string[];
+    permissions?: string[];
   };
   companies: any[];
   departments?: any[];
@@ -58,24 +59,65 @@ function inferCategoryFromDepartment(deptName: string): string {
 export default function RequisitionForm({ user, companies, departments = [], projects }: FormProps) {
   const router = useRouter();
 
-  const canSwitchModeAndFilter = (user.priorityLevel ?? 2) >= 4;
+  // Resolve user's configured "Choose Requisition Type" mode
+  const userReqMode = useMemo<
+    "BOTH" | "OPERATIONS_EVENTS" | "COMPANY_ONLY" | "PROJECT_ONLY"
+  >(() => {
+    const perms = user.permissions || [];
+    if (perms.includes("req.mode.company")) return "COMPANY_ONLY";
+    if (perms.includes("req.mode.project")) return "PROJECT_ONLY";
+    if (perms.includes("req.mode.ops_events")) return "OPERATIONS_EVENTS";
+    if (perms.includes("req.mode.both")) return "BOTH";
 
-  // Determine whether this user defaults to Project/Event Requisition or IMS Group Company Requisition
-  const defaultIsProjectUser = useMemo(() => {
     const deptText = [user.departmentName || "", ...(user.secondaryDepartments || [])]
       .join(" ")
       .toLowerCase();
     const hasAssignedClientProject = projects.some(
       (p) => !COMPANY_DIVISION_CODES.has(p.code) && !p.code.endsWith("-CORP")
     );
+
+    if (deptText.includes("operation") || deptText.includes("event")) {
+      return "OPERATIONS_EVENTS";
+    }
+    if ((user.priorityLevel ?? 2) >= 4) {
+      return "BOTH";
+    }
+    if (deptText.includes("project ")) {
+      return "PROJECT_ONLY";
+    }
+    if (user.isManager) {
+      return "BOTH";
+    }
+    if (hasAssignedClientProject) {
+      return "PROJECT_ONLY";
+    }
+    return "COMPANY_ONLY";
+  }, [
+    user.permissions,
+    user.departmentName,
+    user.secondaryDepartments,
+    user.priorityLevel,
+    user.isManager,
+    projects,
+  ]);
+
+  const canSwitchModeAndFilter =
+    userReqMode === "BOTH" || userReqMode === "OPERATIONS_EVENTS";
+
+  // Determine whether this user defaults to Project/Event Requisition or IMS Group Company Requisition
+  const defaultIsProjectUser = useMemo(() => {
+    if (userReqMode === "COMPANY_ONLY") return false;
+    if (userReqMode === "PROJECT_ONLY" || userReqMode === "OPERATIONS_EVENTS") return true;
+    const deptText = [user.departmentName || "", ...(user.secondaryDepartments || [])]
+      .join(" ")
+      .toLowerCase();
     return (
       deptText.includes("outsourcing") ||
       deptText.includes("project ") ||
       deptText.includes("operation") ||
-      deptText.includes("event") ||
-      (!canSwitchModeAndFilter && hasAssignedClientProject)
+      deptText.includes("event")
     );
-  }, [user.departmentName, user.secondaryDepartments, projects, canSwitchModeAndFilter]);
+  }, [userReqMode, user.departmentName, user.secondaryDepartments]);
 
   const [requisitionMode, setRequisitionMode] = useState<"COMPANY" | "PROJECT">(
     defaultIsProjectUser ? "PROJECT" : "COMPANY"
@@ -84,7 +126,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
   // Project / Event filter for Project-Based mode: ALL | OUTSOURCING | OPERATIONS_EVENT
   const [projectStream, setProjectStream] = useState<
     "ALL" | "OUTSOURCING" | "OPERATIONS_EVENT"
-  >("ALL");
+  >(userReqMode === "OPERATIONS_EVENTS" ? "OPERATIONS_EVENT" : "ALL");
 
   const [departmentId, setDepartmentId] = useState<string>(
     user.departmentId || departments[0]?.id || ""
@@ -131,7 +173,10 @@ export default function RequisitionForm({ user, companies, departments = [], pro
   }, [projectBasedList, onlyProjectsList, onlyEventsList, projectStream]);
 
   const [projectId, setProjectId] = useState(
-    projectBasedList[0]?.id || projects[0]?.id || ""
+    (userReqMode === "OPERATIONS_EVENTS" ? onlyEventsList[0]?.id : undefined) ||
+      projectBasedList[0]?.id ||
+      projects[0]?.id ||
+      ""
   );
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === projectId),
@@ -161,7 +206,15 @@ export default function RequisitionForm({ user, companies, departments = [], pro
       const deptObj = departments.find((d) => d.id === departmentId);
       const inferredCat = inferCategoryFromDepartment(deptObj?.name || user.departmentName || "");
       setCategory(inferredCat);
-      setType(inferredCat === "AI_IT" ? "IT" : inferredCat === "STUDIO" ? "STUDIO" : "ADMIN");
+      setType(
+        inferredCat === "AI_IT"
+          ? "IT"
+          : inferredCat === "STUDIO"
+          ? "STUDIO"
+          : inferredCat === "OPERATIONS_EVENT"
+          ? "EVENT"
+          : "ADMIN"
+      );
     } else {
       const firstProj = filteredProjects[0] || projectBasedList[0] || projects[0];
       if (firstProj) {
@@ -217,6 +270,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
       setCategory(cat);
       if (cat === "AI_IT") setType("IT");
       else if (cat === "STUDIO") setType("STUDIO");
+      else if (cat === "OPERATIONS_EVENT") setType("EVENT");
       else setType("ADMIN");
     }
   }
@@ -224,16 +278,18 @@ export default function RequisitionForm({ user, companies, departments = [], pro
   const initialCat = defaultIsProjectUser
     ? selectedProject?.category === "IMS_OUTSOURCING_STUDIO"
       ? "OUTSOURCING"
-      : selectedProject?.category || "OUTSOURCING"
+      : selectedProject?.category || (userReqMode === "OPERATIONS_EVENTS" ? "OPERATIONS_EVENT" : "OUTSOURCING")
     : inferCategoryFromDepartment(user.departmentName || "");
 
   const [type, setType] = useState(
     defaultIsProjectUser
-      ? selectedProject?.requisitionTypes?.[0] || "BPO"
+      ? selectedProject?.requisitionTypes?.[0] || (userReqMode === "OPERATIONS_EVENTS" ? "EVENT" : "BPO")
       : initialCat === "AI_IT"
       ? "IT"
       : initialCat === "STUDIO"
       ? "STUDIO"
+      : initialCat === "OPERATIONS_EVENT"
+      ? "EVENT"
       : "ADMIN"
   );
   const [customType, setCustomType] = useState("");
@@ -623,8 +679,8 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                 className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white focus:ring-[#E42528] focus:border-[#E42528]"
               >
                 {(requisitionMode === "COMPANY"
-                  ? ["ADMIN", "CASH", "BPO", "IT", "STUDIO"]
-                  : selectedProject?.requisitionTypes || ["BPO", "EVENT", "ADMIN", "CASH"]
+                  ? ["ADMIN", "CASH", "BPO", "EVENT", "OPERATION", "IT", "STUDIO"]
+                  : selectedProject?.requisitionTypes || ["BPO", "EVENT", "OPERATION", "ADMIN", "CASH"]
                 ).map((t: string) => (
                   <option key={t} value={t}>
                     ({t})

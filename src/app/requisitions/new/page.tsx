@@ -10,6 +10,100 @@ export const revalidate = 0;
 export default async function NewRequisitionPage() {
   const user = await requireUser();
 
+  // Ensure default Operations & Event projects exist if DB was bootstrapped before they were added
+  const eventCount = await prisma.project.count({
+    where: { OR: [{ kind: "EVENT" }, { category: "OPERATIONS_EVENT" }] },
+  });
+  if (eventCount <= 1) {
+    const imsCo = await prisma.company.findFirst({ where: { code: "IMS" } });
+    if (imsCo) {
+      const [ringku, pavel, kauser, shible, deletedLogs] = await Promise.all([
+        prisma.user.findFirst({ where: { employeeId: "1092" }, select: { id: true } }),
+        prisma.user.findFirst({ where: { employeeId: "1093" }, select: { id: true } }),
+        prisma.user.findFirst({ where: { employeeId: "1097" }, select: { id: true } }),
+        prisma.user.findFirst({ where: { employeeId: "1026" }, select: { id: true } }),
+        prisma.auditLog.findMany({
+          where: { action: { in: ["PROJECT_DELETED", "PROJECT_ARCHIVED"] } },
+          select: { details: true },
+        }),
+      ]);
+      const deletedCodes = new Set(
+        deletedLogs
+          .map((l) => l.details?.match(/\(([^()]+)\)\s+(?:deleted|archived)/i)?.[1]?.toUpperCase())
+          .filter(Boolean)
+      );
+      const defaultOpsEvents = [
+        {
+          code: "PROJ-BHN",
+          name: "BeHereNow (BHN)",
+          kind: "PERMANENT",
+          category: "OPERATIONS_EVENT",
+          headId: ringku?.id || null,
+          directorId: shible?.id || null,
+          requisitionTypes: ["EVENT", "BPO", "ADMIN", "CASH"],
+        },
+        {
+          code: "EVT-BL",
+          name: "Event — Banglalink",
+          kind: "EVENT",
+          category: "OPERATIONS_EVENT",
+          headId: ringku?.id || null,
+          directorId: shible?.id || null,
+          requisitionTypes: ["EVENT", "BPO", "CASH"],
+        },
+        {
+          code: "EVT-GP",
+          name: "Event — GP (GP Project Events)",
+          kind: "EVENT",
+          category: "OPERATIONS_EVENT",
+          headId: ringku?.id || null,
+          directorId: shible?.id || null,
+          requisitionTypes: ["EVENT", "BPO", "CASH"],
+        },
+        {
+          code: "EVT-BKASH",
+          name: "Event — Bkash",
+          kind: "EVENT",
+          category: "OPERATIONS_EVENT",
+          headId: pavel?.id || ringku?.id || null,
+          directorId: shible?.id || null,
+          requisitionTypes: ["EVENT", "BPO", "CASH"],
+        },
+        {
+          code: "EVT-BAT",
+          name: "Event — BAT (BAT Project Events)",
+          kind: "EVENT",
+          category: "OPERATIONS_EVENT",
+          headId: kauser?.id || ringku?.id || null,
+          directorId: shible?.id || null,
+          requisitionTypes: ["EVENT", "BPO", "CASH"],
+        },
+        {
+          code: "EVT-GEN",
+          name: "Events — General & Activations",
+          kind: "EVENT",
+          category: "OPERATIONS_EVENT",
+          headId: ringku?.id || null,
+          directorId: shible?.id || null,
+          requisitionTypes: ["EVENT", "BPO", "CASH"],
+        },
+      ];
+      for (const ep of defaultOpsEvents) {
+        if (deletedCodes.has(ep.code)) continue;
+        const exists = await prisma.project.findUnique({ where: { code: ep.code } });
+        if (!exists) {
+          await prisma.project.create({
+            data: {
+              ...ep,
+              companyId: imsCo.id,
+              mdApprovalMode: "INSTANT",
+            },
+          });
+        }
+      }
+    }
+  }
+
   // Find user's available projects and companies
   const projects = await prisma.project.findMany({
     where: projectScope(user),
@@ -97,6 +191,7 @@ export default async function NewRequisitionPage() {
             departmentId: fullUser?.departmentId || user.departmentId || null,
             departmentName: fullUser?.department?.name || user.department?.name || "",
             secondaryDepartments: fullUser?.secondaryDepartments || [],
+            permissions: user.permissions || [],
           }}
           companies={companies}
           departments={departments}

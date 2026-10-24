@@ -723,9 +723,6 @@ async function main() {
     }
   }
 
-  // Check if projects have already been seeded in this database
-  const existingProjectsCount = await prisma.project.count();
-
   for (const p of PROJECTS) {
     if (deletedProjectCodes.has(p.code.toUpperCase())) {
       continue;
@@ -737,24 +734,21 @@ async function main() {
 
     const existingProj = await prisma.project.findUnique({ where: { code: p.code } });
     if (!existingProj) {
-      // Only create default seed projects on initial bootstrap (when DB has no projects yet)
-      if (existingProjectsCount === 0) {
-        await prisma.project.create({
-          data: {
-            code: p.code,
-            name: p.name,
-            companyId: co[p.company],
-            kind: p.kind ?? "PERMANENT",
-            category: p.category,
-            headId: p.headEmpId ? userByEmpId[p.headEmpId] : null,
-            checkerId: p.checkerEmpId ? userByEmpId[p.checkerEmpId] : null,
-            directorId: p.directorEmpId ? userByEmpId[p.directorEmpId] : null,
-            mdApprovalMode: p.md ?? "INSTANT",
-            requisitionTypes: p.types ?? ["BPO", "ADMIN", "CASH"],
-            members: { connect: memberIds.map((id) => ({ id })) },
-          },
-        });
-      }
+      await prisma.project.create({
+        data: {
+          code: p.code,
+          name: p.name,
+          companyId: co[p.company],
+          kind: p.kind ?? "PERMANENT",
+          category: p.category,
+          headId: p.headEmpId ? userByEmpId[p.headEmpId] : null,
+          checkerId: p.checkerEmpId ? userByEmpId[p.checkerEmpId] : null,
+          directorId: p.directorEmpId ? userByEmpId[p.directorEmpId] : null,
+          mdApprovalMode: p.md ?? "INSTANT",
+          requisitionTypes: p.types ?? ["BPO", "ADMIN", "CASH"],
+          members: { connect: memberIds.map((id) => ({ id })) },
+        },
+      });
     } else if (existingProj.category === "IMS_OUTSOURCING_STUDIO") {
       // One-time migration for legacy combined category only; never overwrite user-configured workflow heads/checkers
       await prisma.project.update({

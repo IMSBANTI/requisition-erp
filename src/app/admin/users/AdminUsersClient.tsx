@@ -68,6 +68,9 @@ export default function AdminUsersClient({
   const [projectScopeIds, setProjectScopeIds] = useState<string[]>([]);
   const [directorCategories, setDirectorCategories] = useState<string[]>([]);
   const [extraPermissions, setExtraPermissions] = useState<string[]>([]);
+  const [reqModePerm, setReqModePerm] = useState<
+    "req.mode.both" | "req.mode.ops_events" | "req.mode.company" | "req.mode.project"
+  >("req.mode.company");
   const [active, setActive] = useState(true);
   const [projectSearchFilter, setProjectSearchFilter] = useState("");
 
@@ -123,6 +126,34 @@ export default function AdminUsersClient({
     [users]
   );
 
+  function inferReqModePermForUser(u: any): "req.mode.both" | "req.mode.ops_events" | "req.mode.company" | "req.mode.project" {
+    const ep: string[] = u.extraPermissions || [];
+    if (ep.includes("req.mode.company")) return "req.mode.company";
+    if (ep.includes("req.mode.project")) return "req.mode.project";
+    if (ep.includes("req.mode.ops_events")) return "req.mode.ops_events";
+    if (ep.includes("req.mode.both")) return "req.mode.both";
+
+    const deptText = [u.departmentName || "", ...(u.secondaryDepartments || [])]
+      .join(" ")
+      .toLowerCase();
+    if (deptText.includes("operation") || deptText.includes("event")) {
+      return "req.mode.ops_events";
+    }
+    if ((u.priorityLevel ?? 2) >= 4) {
+      return "req.mode.both";
+    }
+    if (deptText.includes("project ")) {
+      return "req.mode.project";
+    }
+    if (u.levelLabel === "Manager" || u.roleKey === "manager" || u.roleKey === "sr_manager") {
+      return "req.mode.both";
+    }
+    if ((u.projectScopeIds?.length ?? 0) > 0) {
+      return "req.mode.project";
+    }
+    return "req.mode.company";
+  }
+
   function openCreateUserModal() {
     const execRole = roles.find((r) => r.key === "executive") || roles[0];
     const imsComp = companies.find((c) => c.code === "IMS") || companies[0];
@@ -145,6 +176,7 @@ export default function AdminUsersClient({
     setProjectScopeIds([]);
     setDirectorCategories([]);
     setExtraPermissions([]);
+    setReqModePerm("req.mode.company");
     setActive(true);
     setMsg("");
     setErrorMsg("");
@@ -170,7 +202,8 @@ export default function AdminUsersClient({
     setCompanyScopeIds(u.companyScopeIds || []);
     setProjectScopeIds(u.projectScopeIds || []);
     setDirectorCategories(u.directorCategories || []);
-    setExtraPermissions(u.extraPermissions || []);
+    setExtraPermissions((u.extraPermissions || []).filter((p: string) => !p.startsWith("req.mode.")));
+    setReqModePerm(inferReqModePermForUser(u));
     setActive(u.active ?? true);
     setMsg("");
     setErrorMsg("");
@@ -275,7 +308,10 @@ export default function AdminUsersClient({
         companyScopeIds,
         projectScopeIds,
         directorCategories,
-        extraPermissions,
+        extraPermissions: [
+          ...extraPermissions.filter((p) => !p.startsWith("req.mode.")),
+          reqModePerm,
+        ],
         active,
       };
 
@@ -907,7 +943,20 @@ export default function AdminUsersClient({
                   <label className="block font-semibold text-gray-700">Primary Department</label>
                   <select
                     value={departmentId}
-                    onChange={(e) => setDepartmentId(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setDepartmentId(val);
+                      if (modalType === "CREATE_USER") {
+                        const dName = (departments.find((d) => d.id === val)?.name || "").toLowerCase();
+                        if (dName.includes("operation") || dName.includes("event")) {
+                          setReqModePerm("req.mode.ops_events");
+                        } else if (dName.includes("project ")) {
+                          setReqModePerm("req.mode.project");
+                        } else if (priorityLevel >= 4 || levelLabel === "Manager") {
+                          setReqModePerm("req.mode.both");
+                        }
+                      }
+                    }}
                     className="mt-1 w-full px-2.5 py-1.5 border border-gray-300 rounded bg-white"
                   >
                     <option value="">— Select Department —</option>
@@ -938,6 +987,68 @@ export default function AdminUsersClient({
                     className="mt-1 w-full px-2.5 py-1.5 border border-gray-300 rounded bg-white"
                   />
                   <span className="text-[10px] text-gray-400">Comma-separated secondary units</span>
+                </div>
+              </div>
+
+              {/* Row 3B: Choose Requisition Type Access (New Requisition Form Options) */}
+              <div className="border border-slate-200 bg-slate-50/70 rounded-lg p-3.5">
+                <div className="mb-2">
+                  <label className="font-bold text-gray-900 block">
+                    Choose Requisition Type Access (On &ldquo;New Requisition&rdquo; Form) *
+                  </label>
+                  <p className="text-[10px] text-gray-500">
+                    Configure which requisition types and mode toggle this user will see when submitting a requisition.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {[
+                    {
+                      key: "req.mode.both" as const,
+                      title: "🏢 + 📁 Both IMS Group Company & All Projects / Events",
+                      desc: "Shows 'Choose Requisition Type' toggle (Company + All Outsourcing & Event Projects).",
+                    },
+                    {
+                      key: "req.mode.ops_events" as const,
+                      title: "🎪 + 🏢 Operations & Event Requisitions + IMS Company",
+                      desc: "For Operation & Event Managers/Staff (e.g. Naimur Rahman Khan): shows toggle + all Event & Operations projects.",
+                    },
+                    {
+                      key: "req.mode.company" as const,
+                      title: "🏢 IMS Group Company Requisition Only",
+                      desc: "Only shows Sister Concern (IMS / CLAN / SCL / TradePULSE) & Department. Hides Project/Event toggle.",
+                    },
+                    {
+                      key: "req.mode.project" as const,
+                      title: "📁 Dedicated Project / Event Requisition Only",
+                      desc: "For specific project executives (e.g. Ruhan Kabir on Project Robi): only shows their assigned project(s).",
+                    },
+                  ].map((opt) => {
+                    const selected = reqModePerm === opt.key;
+                    return (
+                      <label
+                        key={opt.key}
+                        className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                          selected
+                            ? "bg-red-50/80 border-[#E42528] ring-1 ring-[#E42528]"
+                            : "bg-white border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="reqModePerm"
+                          checked={selected}
+                          onChange={() => setReqModePerm(opt.key)}
+                          className="mt-0.5 accent-[#E42528]"
+                        />
+                        <div>
+                          <div className="text-xs font-bold text-gray-900">{opt.title}</div>
+                          <div className="text-[10px] text-gray-500 leading-tight mt-0.5">
+                            {opt.desc}
+                          </div>
+                        </div>
+                      </label>
+                    );
+                  })}
                 </div>
               </div>
 

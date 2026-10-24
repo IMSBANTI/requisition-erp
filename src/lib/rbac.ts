@@ -7,6 +7,8 @@ export interface ScopeUser {
   priorityLevel?: number | null;
   permissions: string[];
   departmentId: string | null;
+  department?: { name: string } | null;
+  secondaryDepartments?: string[];
   directorCategories?: string[];
   companyScopes: { id: string }[];
   projectScopes: { id: string }[];
@@ -88,9 +90,10 @@ export function requisitionScope(user: ScopeUser): Prisma.RequisitionWhereInput 
 /** Which projects may this user raise requisitions for / manage? */
 export function projectScope(user: ScopeUser): Prisma.ProjectWhereInput {
   const p = user.permissions;
-  // IMS GROUP officers & P4/P5 / Project Managers can select any active project or event (including newly added ones)
+  // IMS GROUP officers & P4/P5 / Project Managers or users granted Both Company & All Projects mode
   if (
     (user.priorityLevel ?? 2) >= 4 ||
+    p.includes("req.mode.both") ||
     p.includes(PERMISSIONS.PROJECT_MANAGE) ||
     p.includes(PERMISSIONS.PROJECT_VIEW) ||
     p.includes(PERMISSIONS.REQ_VIEW_ALL) ||
@@ -112,6 +115,23 @@ export function projectScope(user: ScopeUser): Prisma.ProjectWhereInput {
     { directorId: user.id },
     { createdById: user.id },
   ];
+
+  // Check if user is in Operation / Events or explicitly granted Operations & Events mode
+  const deptText = [user.department?.name || "", ...(user.secondaryDepartments || [])]
+    .join(" ")
+    .toLowerCase();
+  const isOpsOrEventsUser =
+    p.includes("req.mode.ops_events") ||
+    deptText.includes("operation") ||
+    deptText.includes("event");
+
+  if (isOpsOrEventsUser) {
+    or.push(
+      { category: "OPERATIONS_EVENT" },
+      { kind: "EVENT" },
+      { code: { startsWith: "EVT-" } }
+    );
+  }
 
   if (user.projectScopes.length > 0) {
     or.push({ id: { in: user.projectScopes.map((x) => x.id) } });
