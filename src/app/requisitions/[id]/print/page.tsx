@@ -23,7 +23,7 @@ export default async function RequisitionPrintPage({ params }: Props) {
   if (!req) return notFound();
 
   // Generate QR Code for online verification
-  const verifyUrl = `${process.env.APP_URL || "http://localhost:3000"}/verify/${req.number || req.id}`;
+  const verifyUrl = `${process.env.APP_URL || "https://imserp.onrender.com"}/verify/${req.number || req.id}`;
   const qrDataUrl = await QRCode.toDataURL(verifyUrl, { margin: 1, width: 70 });
 
   return (
