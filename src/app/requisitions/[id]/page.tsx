@@ -100,6 +100,7 @@ export default async function RequisitionDetailPage({ params }: Props) {
                 "IMS-BD-RED",
                 "CLAN-MAIN",
                 "SCL-MAIN",
+                "TP-OPS",
               ].includes(req.project.code) || req.project.code.endsWith("-CORP") ? (
                 <>
                   <span className="inline-block px-1.5 py-0.5 mr-1.5 rounded text-[10px] font-bold bg-red-50 text-[#E42528] border border-red-200">

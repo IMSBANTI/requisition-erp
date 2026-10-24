@@ -39,6 +39,7 @@ const COMPANY_DIVISION_CODES = new Set([
   "IMS-BD-RED",
   "CLAN-MAIN",
   "SCL-MAIN",
+  "TP-OPS",
 ]);
 
 function inferCategoryFromDepartment(deptName: string): string {
@@ -55,7 +56,7 @@ function inferCategoryFromDepartment(deptName: string): string {
 export default function RequisitionForm({ user, companies, departments = [], projects }: FormProps) {
   const router = useRouter();
 
-  // Determine whether this user defaults to Project-Based (Outsourcing, TradePULSE, Operations & Events) or Company-Based (Permanent Employee)
+  // Determine whether this user defaults to Project/Event Requisition or IMS Group Company Requisition
   const defaultIsProjectUser = useMemo(() => {
     const deptText = [user.departmentName || "", ...(user.secondaryDepartments || [])]
       .join(" ")
@@ -64,8 +65,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
       deptText.includes("outsourcing") ||
       deptText.includes("project ") ||
       deptText.includes("operation") ||
-      deptText.includes("event") ||
-      deptText.includes("tradepulse")
+      deptText.includes("event")
     );
   }, [user.departmentName, user.secondaryDepartments]);
 
@@ -73,18 +73,23 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     defaultIsProjectUser ? "PROJECT" : "COMPANY"
   );
 
-  // Project stream filter for Project-Based mode: ALL | OUTSOURCING | TRADEPULSE | OPERATIONS_EVENT
+  // Project / Event filter for Project-Based mode: ALL | OUTSOURCING | OPERATIONS_EVENT
   const [projectStream, setProjectStream] = useState<
-    "ALL" | "OUTSOURCING" | "TRADEPULSE" | "OPERATIONS_EVENT"
+    "ALL" | "OUTSOURCING" | "OPERATIONS_EVENT"
   >("ALL");
 
   const [departmentId, setDepartmentId] = useState<string>(
     user.departmentId || departments[0]?.id || ""
   );
 
-  // Separate client/long-running projects (IMS Outsourcing, TradePULSE, IMS Operations & Events)
+  // Separate client projects & events (excluding internal company division buckets)
   const projectBasedList = useMemo(() => {
-    const list = projects.filter((p) => !COMPANY_DIVISION_CODES.has(p.code));
+    const list = projects.filter(
+      (p) =>
+        !COMPANY_DIVISION_CODES.has(p.code) &&
+        !p.code.endsWith("-CORP") &&
+        p.name.toLowerCase() !== "tradepulse"
+    );
     return list.length > 0 ? list : projects;
   }, [projects]);
 
@@ -94,12 +99,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
       return projectBasedList.filter(
         (p) =>
           (p.category === "OUTSOURCING" || p.category === "IMS_OUTSOURCING_STUDIO") &&
-          p.companyCode !== "TP"
-      );
-    }
-    if (projectStream === "TRADEPULSE") {
-      return projectBasedList.filter(
-        (p) => p.companyCode === "TP" || p.name.toLowerCase().includes("tradepulse")
+          p.kind !== "EVENT"
       );
     }
     if (projectStream === "OPERATIONS_EVENT") {
@@ -157,18 +157,14 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     }
   }
 
-  function handleStreamChange(stream: "ALL" | "OUTSOURCING" | "TRADEPULSE" | "OPERATIONS_EVENT") {
+  function handleStreamChange(stream: "ALL" | "OUTSOURCING" | "OPERATIONS_EVENT") {
     setProjectStream(stream);
     let list = projectBasedList;
     if (stream === "OUTSOURCING") {
       list = projectBasedList.filter(
         (p) =>
           (p.category === "OUTSOURCING" || p.category === "IMS_OUTSOURCING_STUDIO") &&
-          p.companyCode !== "TP"
-      );
-    } else if (stream === "TRADEPULSE") {
-      list = projectBasedList.filter(
-        (p) => p.companyCode === "TP" || p.name.toLowerCase().includes("tradepulse")
+          p.kind !== "EVENT"
       );
     } else if (stream === "OPERATIONS_EVENT") {
       list = projectBasedList.filter(
@@ -178,7 +174,6 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     if (list.length > 0) {
       const first = list[0];
       setProjectId(first.id);
-      setCompanyId(first.companyId);
       setCategory(
         first.category === "IMS_OUTSOURCING_STUDIO"
           ? "OUTSOURCING"
@@ -188,12 +183,11 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     }
   }
 
-  // When project changes in PROJECT mode, update company and default category
+  // When project changes in PROJECT mode, update default category and tag while keeping the selected Sister Concern
   function handleProjectChange(id: string) {
     setProjectId(id);
     const p = projects.find((x) => x.id === id);
     if (p) {
-      setCompanyId(p.companyId);
       setCategory(
         p.category === "IMS_OUTSOURCING_STUDIO" ? "OUTSOURCING" : p.category || "OUTSOURCING"
       );
@@ -383,7 +377,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
               1. Choose Requisition Type
             </span>
             <span className="text-[11px] text-gray-500">
-              Select whether this requisition is for an IMS Group Company (permanent employee / department) or a long-running Project / Event.
+              Select whether this requisition is for an IMS Group Company (IMS, CLAN, SCL, TradePULSE) or for a specific Project / Event.
             </span>
           </div>
           <div className="inline-flex rounded-lg p-1 bg-gray-100 border border-gray-200">
@@ -396,7 +390,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                   : "text-gray-700 hover:text-gray-900"
               }`}
             >
-              🏢 IMS Group Company (Permanent Employee)
+              🏢 IMS Group Company (IMS / CLAN / SCL / TradePULSE)
             </button>
             <button
               type="button"
@@ -407,14 +401,14 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                   : "text-gray-700 hover:text-gray-900"
               }`}
             >
-              📁 Project-Based (Outsourcing / TradePULSE / Events)
+              📁 Project / Event Requisition
             </button>
           </div>
         </div>
 
         {requisitionMode === "PROJECT" && (
           <div className="flex flex-wrap items-center gap-1.5 pb-1">
-            <span className="text-[11px] font-semibold text-gray-500 mr-1">Project Source:</span>
+            <span className="text-[11px] font-semibold text-gray-500 mr-1">Filter Projects & Events:</span>
             <button
               type="button"
               onClick={() => handleStreamChange("ALL")}
@@ -435,18 +429,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                   : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
               }`}
             >
-              IMS Outsourcing (Robi, GP, UPY, Singer, BAT, Unilever...)
-            </button>
-            <button
-              type="button"
-              onClick={() => handleStreamChange("TRADEPULSE")}
-              className={`px-2.5 py-1 rounded text-[11px] font-bold border cursor-pointer ${
-                projectStream === "TRADEPULSE"
-                  ? "bg-emerald-50 text-emerald-800 border-emerald-300"
-                  : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
-              }`}
-            >
-              TradePULSE
+              Projects (Robi, GP, UPY, Singer, BAT, Unilever...)
             </button>
             <button
               type="button"
@@ -457,7 +440,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                   : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
               }`}
             >
-              IMS Operations & Events (Banglalink, GP, Bkash, BAT...)
+              Events & Activations (Banglalink, GP, Bkash, BAT...)
             </button>
           </div>
         )}
