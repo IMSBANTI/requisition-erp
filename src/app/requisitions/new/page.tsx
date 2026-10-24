@@ -12,9 +12,9 @@ export default async function NewRequisitionPage() {
 
   // Ensure default Operations & Event projects exist if DB was bootstrapped before they were added
   const eventCount = await prisma.project.count({
-    where: { OR: [{ kind: "EVENT" }, { category: "OPERATIONS_EVENT" }] },
+    where: { kind: "EVENT" },
   });
-  if (eventCount <= 1) {
+  if (eventCount === 0) {
     const imsCo = await prisma.company.findFirst({ where: { code: "IMS" } });
     if (imsCo) {
       const [ringku, pavel, kauser, shible, deletedLogs] = await Promise.all([
