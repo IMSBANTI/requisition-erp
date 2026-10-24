@@ -126,7 +126,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
   // Project / Event filter for Project-Based mode: ALL | OUTSOURCING | OPERATIONS_EVENT
   const [projectStream, setProjectStream] = useState<
     "ALL" | "OUTSOURCING" | "OPERATIONS_EVENT"
-  >(userReqMode === "OPERATIONS_EVENTS" ? "OPERATIONS_EVENT" : "ALL");
+  >("ALL");
 
   const [departmentId, setDepartmentId] = useState<string>(
     user.departmentId || departments[0]?.id || ""
@@ -146,10 +146,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
   const onlyProjectsList = useMemo(
     () =>
       projectBasedList.filter(
-        (p) =>
-          p.kind !== "EVENT" &&
-          !p.code?.toUpperCase().startsWith("EVT-") &&
-          p.category !== "OPERATIONS_EVENT"
+        (p) => p.kind !== "EVENT" && !p.code?.toUpperCase().startsWith("EVT-")
       ),
     [projectBasedList]
   );
@@ -157,10 +154,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
   const onlyEventsList = useMemo(
     () =>
       projectBasedList.filter(
-        (p) =>
-          p.kind === "EVENT" ||
-          p.code?.toUpperCase().startsWith("EVT-") ||
-          p.category === "OPERATIONS_EVENT"
+        (p) => p.kind === "EVENT" || p.code?.toUpperCase().startsWith("EVT-")
       ),
     [projectBasedList]
   );
@@ -173,10 +167,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
   }, [projectBasedList, onlyProjectsList, onlyEventsList, projectStream]);
 
   const [projectId, setProjectId] = useState(
-    (userReqMode === "OPERATIONS_EVENTS" ? onlyEventsList[0]?.id : undefined) ||
-      projectBasedList[0]?.id ||
-      projects[0]?.id ||
-      ""
+    projectBasedList[0]?.id || projects[0]?.id || ""
   );
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === projectId),
@@ -531,8 +522,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                 const isSelected = p.id === projectId;
                 const isEvt =
                   p.kind === "EVENT" ||
-                  p.code?.toUpperCase().startsWith("EVT-") ||
-                  p.category === "OPERATIONS_EVENT";
+                  p.code?.toUpperCase().startsWith("EVT-");
                 return (
                   <button
                     key={p.id}

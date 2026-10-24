@@ -40,7 +40,7 @@ export default async function NewRequisitionPage() {
           category: "OPERATIONS_EVENT",
           headId: ringku?.id || null,
           directorId: shible?.id || null,
-          requisitionTypes: ["EVENT", "BPO", "ADMIN", "CASH"],
+          requisitionTypes: ["BPO", "ADMIN", "CASH"],
         },
         {
           code: "EVT-BL",
