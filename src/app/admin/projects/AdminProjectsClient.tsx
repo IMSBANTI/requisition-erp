@@ -11,6 +11,7 @@ interface ProjectItem {
   name: string;
   companyName: string;
   companyId: string;
+  kind?: string;
   category: string;
   mdApprovalMode: string;
   releaseBeforeMd: boolean;
@@ -49,6 +50,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
   const [companyId, setCompanyId] = useState(companies[0]?.id || "");
+  const [kind, setKind] = useState("PERMANENT");
   const [category, setCategory] = useState("OUTSOURCING");
   const [mdApprovalMode, setMdApprovalMode] = useState("INSTANT");
   const [headId, setHeadId] = useState("");
@@ -61,6 +63,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
   const [editCode, setEditCode] = useState("");
   const [editName, setEditName] = useState("");
   const [editCompanyId, setEditCompanyId] = useState("");
+  const [editKind, setEditKind] = useState("PERMANENT");
   const [editCategory, setEditCategory] = useState("");
   const [editMdApprovalMode, setEditMdApprovalMode] = useState("INSTANT");
   const [editHeadId, setEditHeadId] = useState("");
@@ -88,6 +91,9 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
     setEditCode(p.code);
     setEditName(p.name);
     setEditCompanyId(p.companyId);
+    setEditKind(
+      p.kind === "EVENT" || p.code?.toUpperCase().startsWith("EVT-") ? "EVENT" : "PERMANENT"
+    );
     setEditCategory(p.category === "IMS_OUTSOURCING_STUDIO" ? "OUTSOURCING" : p.category);
     setEditMdApprovalMode(p.mdApprovalMode);
     setEditHeadId(p.headId || "");
@@ -114,6 +120,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
           code,
           name,
           companyId,
+          kind,
           category,
           mdApprovalMode,
           headId: headId || null,
@@ -154,6 +161,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
           code: editCode,
           name: editName,
           companyId: editCompanyId,
+          kind: editKind,
           category: editCategory,
           mdApprovalMode: editMdApprovalMode,
           headId: editHeadId || null,
@@ -416,7 +424,18 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700">Type</label>
+                  <select
+                    value={editKind}
+                    onChange={(e) => setEditKind(e.target.value)}
+                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-semibold"
+                  >
+                    <option value="PERMANENT">Project (Regular / Long-Term)</option>
+                    <option value="EVENT">Event / Activation</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700">Category</label>
                   <select
@@ -612,7 +631,28 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700">Type</label>
+                  <select
+                    value={kind}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setKind(val);
+                      if (val === "EVENT") {
+                        setCategory("OPERATIONS_EVENT");
+                        setTypesStr("EVENT, CASH, ADMIN");
+                      } else {
+                        setCategory("OUTSOURCING");
+                        setTypesStr("BPO, ADMIN, CASH");
+                      }
+                    }}
+                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-semibold"
+                  >
+                    <option value="PERMANENT">Project (Regular / Long-Term)</option>
+                    <option value="EVENT">Event / Activation</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700">Category</label>
                   <select

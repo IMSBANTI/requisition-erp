@@ -4,6 +4,7 @@ import { PERMISSIONS } from "./constants";
 export interface ScopeUser {
   id: string;
   companyId?: string | null;
+  priorityLevel?: number | null;
   permissions: string[];
   departmentId: string | null;
   directorCategories?: string[];
@@ -87,8 +88,11 @@ export function requisitionScope(user: ScopeUser): Prisma.RequisitionWhereInput 
 /** Which projects may this user raise requisitions for / manage? */
 export function projectScope(user: ScopeUser): Prisma.ProjectWhereInput {
   const p = user.permissions;
-  // IMS GROUP officers (MD, Directors, Abir IT, Harun Accounts, Israt Accounts, Moushumi HR) can select any project across IMS, CLAN, SCL, TradePULSE
+  // IMS GROUP officers & P4/P5 / Project Managers can select any active project or event (including newly added ones)
   if (
+    (user.priorityLevel ?? 2) >= 4 ||
+    p.includes(PERMISSIONS.PROJECT_MANAGE) ||
+    p.includes(PERMISSIONS.PROJECT_VIEW) ||
     p.includes(PERMISSIONS.REQ_VIEW_ALL) ||
     p.includes(PERMISSIONS.ADMIN_USERS) ||
     p.includes(PERMISSIONS.ADMIN_READONLY) ||
@@ -106,6 +110,7 @@ export function projectScope(user: ScopeUser): Prisma.ProjectWhereInput {
     { headId: user.id },
     { checkerId: user.id },
     { directorId: user.id },
+    { createdById: user.id },
   ];
 
   if (user.projectScopes.length > 0) {

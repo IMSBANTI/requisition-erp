@@ -54,6 +54,7 @@ export default async function AdminProjectsPage() {
             name: p.name,
             companyName: p.company.name,
             companyId: p.companyId,
+            kind: p.kind,
             category: p.category,
             mdApprovalMode: p.mdApprovalMode,
             releaseBeforeMd: p.releaseBeforeMd,

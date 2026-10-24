@@ -101,22 +101,34 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     return list.length > 0 ? list : projects;
   }, [projects]);
 
+  const onlyProjectsList = useMemo(
+    () =>
+      projectBasedList.filter(
+        (p) =>
+          p.kind !== "EVENT" &&
+          !p.code?.toUpperCase().startsWith("EVT-") &&
+          p.category !== "OPERATIONS_EVENT"
+      ),
+    [projectBasedList]
+  );
+
+  const onlyEventsList = useMemo(
+    () =>
+      projectBasedList.filter(
+        (p) =>
+          p.kind === "EVENT" ||
+          p.code?.toUpperCase().startsWith("EVT-") ||
+          p.category === "OPERATIONS_EVENT"
+      ),
+    [projectBasedList]
+  );
+
   const filteredProjects = useMemo(() => {
     if (projectStream === "ALL") return projectBasedList;
-    if (projectStream === "OUTSOURCING") {
-      return projectBasedList.filter(
-        (p) =>
-          (p.category === "OUTSOURCING" || p.category === "IMS_OUTSOURCING_STUDIO") &&
-          p.kind !== "EVENT"
-      );
-    }
-    if (projectStream === "OPERATIONS_EVENT") {
-      return projectBasedList.filter(
-        (p) => p.category === "OPERATIONS_EVENT" || p.kind === "EVENT"
-      );
-    }
+    if (projectStream === "OUTSOURCING") return onlyProjectsList;
+    if (projectStream === "OPERATIONS_EVENT") return onlyEventsList;
     return projectBasedList;
-  }, [projectBasedList, projectStream]);
+  }, [projectBasedList, onlyProjectsList, onlyEventsList, projectStream]);
 
   const [projectId, setProjectId] = useState(
     projectBasedList[0]?.id || projects[0]?.id || ""
@@ -169,17 +181,11 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     setProjectStream(stream);
     let list = projectBasedList;
     if (stream === "OUTSOURCING") {
-      list = projectBasedList.filter(
-        (p) =>
-          (p.category === "OUTSOURCING" || p.category === "IMS_OUTSOURCING_STUDIO") &&
-          p.kind !== "EVENT"
-      );
+      list = onlyProjectsList;
     } else if (stream === "OPERATIONS_EVENT") {
-      list = projectBasedList.filter(
-        (p) => p.category === "OPERATIONS_EVENT" || p.kind === "EVENT"
-      );
+      list = onlyEventsList;
     }
-    if (list.length > 0) {
+    if (list.length > 0 && !list.some((p) => p.id === projectId)) {
       const first = list[0];
       setProjectId(first.id);
       setCategory(
@@ -417,41 +423,96 @@ export default function RequisitionForm({ user, companies, departments = [], pro
         )}
 
         {canSwitchModeAndFilter && requisitionMode === "PROJECT" && projectBasedList.length > 1 && (
-          <div className="flex flex-wrap items-center gap-1.5 pb-1">
-            <span className="text-[11px] font-semibold text-gray-500 mr-1">Filter Projects & Events:</span>
-            <button
-              type="button"
-              onClick={() => handleStreamChange("ALL")}
-              className={`px-2.5 py-1 rounded text-[11px] font-bold border cursor-pointer ${
-                projectStream === "ALL"
-                  ? "bg-gray-900 text-white border-gray-900"
-                  : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
-              }`}
-            >
-              All Projects & Events ({projectBasedList.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => handleStreamChange("OUTSOURCING")}
-              className={`px-2.5 py-1 rounded text-[11px] font-bold border cursor-pointer ${
-                projectStream === "OUTSOURCING"
-                  ? "bg-red-50 text-[#E42528] border-red-300"
-                  : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
-              }`}
-            >
-              Projects (Robi, GP, UPY, Singer, BAT, Unilever...)
-            </button>
-            <button
-              type="button"
-              onClick={() => handleStreamChange("OPERATIONS_EVENT")}
-              className={`px-2.5 py-1 rounded text-[11px] font-bold border cursor-pointer ${
-                projectStream === "OPERATIONS_EVENT"
-                  ? "bg-blue-50 text-blue-800 border-blue-300"
-                  : "bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100"
-              }`}
-            >
-              Events & Activations (Banglalink, GP, Bkash, BAT...)
-            </button>
+          <div className="bg-slate-50/80 border border-slate-200 rounded-lg p-3 space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                  Project & Event Directory
+                </span>
+                <span className="text-[10px] text-slate-400 font-medium">
+                  Select an individual project or event below
+                </span>
+              </div>
+              <div className="inline-flex rounded-md bg-white p-0.5 border border-slate-200 shadow-2xs">
+                <button
+                  type="button"
+                  onClick={() => handleStreamChange("ALL")}
+                  className={`px-2.5 py-1 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                    projectStream === "ALL"
+                      ? "bg-slate-900 text-white shadow-2xs"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                  }`}
+                >
+                  All ({projectBasedList.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleStreamChange("OUTSOURCING")}
+                  className={`px-2.5 py-1 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                    projectStream === "OUTSOURCING"
+                      ? "bg-[#E42528] text-white shadow-2xs"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                  }`}
+                >
+                  Projects ({onlyProjectsList.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleStreamChange("OPERATIONS_EVENT")}
+                  className={`px-2.5 py-1 rounded text-[11px] font-bold transition-all cursor-pointer ${
+                    projectStream === "OPERATIONS_EVENT"
+                      ? "bg-blue-600 text-white shadow-2xs"
+                      : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                  }`}
+                >
+                  Events ({onlyEventsList.length})
+                </button>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-1.5">
+              {(filteredProjects.length > 0 ? filteredProjects : projectBasedList).map((p) => {
+                const isSelected = p.id === projectId;
+                const isEvt =
+                  p.kind === "EVENT" ||
+                  p.code?.toUpperCase().startsWith("EVT-") ||
+                  p.category === "OPERATIONS_EVENT";
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => handleProjectChange(p.id)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-semibold border transition-all cursor-pointer ${
+                      isSelected
+                        ? isEvt
+                          ? "bg-blue-600 text-white border-blue-600 shadow-xs ring-2 ring-blue-100"
+                          : "bg-[#E42528] text-white border-[#E42528] shadow-xs ring-2 ring-red-100"
+                        : "bg-white text-slate-700 border-slate-200 hover:border-slate-300 hover:bg-slate-100"
+                    }`}
+                  >
+                    <span
+                      className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                        isSelected
+                          ? "bg-white"
+                          : isEvt
+                          ? "bg-blue-500"
+                          : "bg-[#E42528]"
+                      }`}
+                    />
+                    <span>{p.name}</span>
+                    <span
+                      className={`text-[10px] font-mono px-1 py-0.2 rounded ${
+                        isSelected
+                          ? "bg-black/15 text-white"
+                          : "bg-slate-100 text-slate-500"
+                      }`}
+                    >
+                      {p.code}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -520,11 +581,32 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                   onChange={(e) => handleProjectChange(e.target.value)}
                   className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white focus:ring-[#E42528] focus:border-[#E42528]"
                 >
-                  {(filteredProjects.length > 0 ? filteredProjects : projects).map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.code})
-                    </option>
-                  ))}
+                  {projectStream === "ALL" &&
+                  onlyProjectsList.length > 0 &&
+                  onlyEventsList.length > 0 ? (
+                    <>
+                      <optgroup label="Projects">
+                        {onlyProjectsList.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.code})
+                          </option>
+                        ))}
+                      </optgroup>
+                      <optgroup label="Events & Activations">
+                        {onlyEventsList.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.code})
+                          </option>
+                        ))}
+                      </optgroup>
+                    </>
+                  ) : (
+                    (filteredProjects.length > 0 ? filteredProjects : projects).map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.code})
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
             </>
