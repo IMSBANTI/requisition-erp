@@ -71,8 +71,8 @@ export function requisitionScope(user: ScopeUser): Prisma.RequisitionWhereInput 
       or.push({ departmentId: user.departmentId });
     }
 
-    // 5. Explicitly assigned projects for this Manager / Director
-    if (p.includes(PERMISSIONS.REQ_VIEW_PROJECT) && user.projectScopes.length > 0) {
+    // 5. Explicitly assigned projects for this Checker / Manager / Director
+    if (user.projectScopes.length > 0) {
       or.push({ projectId: { in: user.projectScopes.map((x) => x.id) } });
     }
   }

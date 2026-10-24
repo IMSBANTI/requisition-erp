@@ -422,7 +422,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
           </div>
         )}
 
-        {canSwitchModeAndFilter && requisitionMode === "PROJECT" && projectBasedList.length > 1 && (
+        {requisitionMode === "PROJECT" && projectBasedList.length > 1 && (
           <div className="bg-slate-50/80 border border-slate-200 rounded-lg p-3 space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200/80 pb-2">
               <div className="flex items-center gap-2">
