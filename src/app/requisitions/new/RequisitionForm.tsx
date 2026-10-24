@@ -59,79 +59,6 @@ function inferCategoryFromDepartment(deptName: string): string {
 export default function RequisitionForm({ user, companies, departments = [], projects }: FormProps) {
   const router = useRouter();
 
-  // Resolve user's configured "Choose Requisition Type" mode
-  const userReqMode = useMemo<
-    "BOTH" | "OPERATIONS_EVENTS" | "COMPANY_ONLY" | "PROJECT_ONLY"
-  >(() => {
-    const perms = user.permissions || [];
-    if (perms.includes("req.mode.company")) return "COMPANY_ONLY";
-    if (perms.includes("req.mode.project")) return "PROJECT_ONLY";
-    if (perms.includes("req.mode.ops_events")) return "OPERATIONS_EVENTS";
-    if (perms.includes("req.mode.both")) return "BOTH";
-
-    const deptText = [user.departmentName || "", ...(user.secondaryDepartments || [])]
-      .join(" ")
-      .toLowerCase();
-    const hasAssignedClientProject = projects.some(
-      (p) => !COMPANY_DIVISION_CODES.has(p.code) && !p.code.endsWith("-CORP")
-    );
-
-    if (deptText.includes("operation") || deptText.includes("event")) {
-      return "OPERATIONS_EVENTS";
-    }
-    if ((user.priorityLevel ?? 2) >= 4) {
-      return "BOTH";
-    }
-    if (deptText.includes("project ")) {
-      return "PROJECT_ONLY";
-    }
-    if (user.isManager) {
-      return "BOTH";
-    }
-    if (hasAssignedClientProject) {
-      return "PROJECT_ONLY";
-    }
-    return "COMPANY_ONLY";
-  }, [
-    user.permissions,
-    user.departmentName,
-    user.secondaryDepartments,
-    user.priorityLevel,
-    user.isManager,
-    projects,
-  ]);
-
-  const canSwitchModeAndFilter =
-    userReqMode === "BOTH" || userReqMode === "OPERATIONS_EVENTS";
-
-  // Determine whether this user defaults to Project/Event Requisition or IMS Group Company Requisition
-  const defaultIsProjectUser = useMemo(() => {
-    if (userReqMode === "COMPANY_ONLY") return false;
-    if (userReqMode === "PROJECT_ONLY" || userReqMode === "OPERATIONS_EVENTS") return true;
-    const deptText = [user.departmentName || "", ...(user.secondaryDepartments || [])]
-      .join(" ")
-      .toLowerCase();
-    return (
-      deptText.includes("outsourcing") ||
-      deptText.includes("project ") ||
-      deptText.includes("operation") ||
-      deptText.includes("event")
-    );
-  }, [userReqMode, user.departmentName, user.secondaryDepartments]);
-
-  const [requisitionMode, setRequisitionMode] = useState<"COMPANY" | "PROJECT">(
-    defaultIsProjectUser ? "PROJECT" : "COMPANY"
-  );
-
-  // Project / Event filter for Project-Based mode: ALL | OUTSOURCING | OPERATIONS_EVENT
-  const [projectStream, setProjectStream] = useState<
-    "ALL" | "OUTSOURCING" | "OPERATIONS_EVENT"
-  >("ALL");
-
-  const [departmentId, setDepartmentId] = useState<string>(
-    user.departmentId || departments[0]?.id || ""
-  );
-
   // Separate client projects & events (excluding internal company division buckets)
   const projectBasedList = useMemo(() => {
     const list = projects.filter(
@@ -159,16 +86,96 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     [projectBasedList]
   );
 
-  const filteredProjects = useMemo(() => {
-    if (projectStream === "ALL") return projectBasedList;
-    if (projectStream === "OUTSOURCING") return onlyProjectsList;
-    if (projectStream === "OPERATIONS_EVENT") return onlyEventsList;
-    return projectBasedList;
-  }, [projectBasedList, onlyProjectsList, onlyEventsList, projectStream]);
+  // Resolve which of the 3 separate Requisition Types this user is allowed to use: COMPANY | PROJECT | EVENT
+  const allowedModes = useMemo<Array<"COMPANY" | "PROJECT" | "EVENT">>(() => {
+    const perms = user.permissions || [];
+    const hasGranularTypeFlags = perms.some((p) => p.startsWith("req.type."));
+    if (hasGranularTypeFlags) {
+      const modes: Array<"COMPANY" | "PROJECT" | "EVENT"> = [];
+      if (perms.includes("req.type.company")) modes.push("COMPANY");
+      if (perms.includes("req.type.project")) modes.push("PROJECT");
+      if (perms.includes("req.type.event")) modes.push("EVENT");
+      if (modes.length > 0) return modes;
+    }
 
-  const [projectId, setProjectId] = useState(
-    projectBasedList[0]?.id || projects[0]?.id || ""
+    if (perms.includes("req.mode.company")) return ["COMPANY"];
+    if (perms.includes("req.mode.project")) {
+      const modes: Array<"COMPANY" | "PROJECT" | "EVENT"> = [];
+      if (onlyProjectsList.length > 0) modes.push("PROJECT");
+      if (onlyEventsList.length > 0) modes.push("EVENT");
+      return modes.length > 0 ? modes : ["PROJECT"];
+    }
+    if (perms.includes("req.mode.ops_events")) return ["COMPANY", "PROJECT", "EVENT"];
+    if (perms.includes("req.mode.both")) return ["COMPANY", "PROJECT", "EVENT"];
+
+    const deptText = [user.departmentName || "", ...(user.secondaryDepartments || [])]
+      .join(" ")
+      .toLowerCase();
+
+    if ((user.priorityLevel ?? 2) >= 4) {
+      return ["COMPANY", "PROJECT", "EVENT"];
+    }
+    if (deptText.includes("operation") || deptText.includes("event")) {
+      return ["COMPANY", "PROJECT", "EVENT"];
+    }
+    if (deptText.includes("project ")) {
+      return ["PROJECT"];
+    }
+    if (user.isManager) {
+      return ["COMPANY", "PROJECT", "EVENT"];
+    }
+
+    const assignedModes: Array<"COMPANY" | "PROJECT" | "EVENT"> = [];
+    if (onlyProjectsList.length > 0) assignedModes.push("PROJECT");
+    if (onlyEventsList.length > 0) assignedModes.push("EVENT");
+    if (assignedModes.length > 0) return assignedModes;
+
+    return ["COMPANY"];
+  }, [
+    user.permissions,
+    user.departmentName,
+    user.secondaryDepartments,
+    user.priorityLevel,
+    user.isManager,
+    onlyProjectsList.length,
+    onlyEventsList.length,
+  ]);
+
+  const canSwitchModeAndFilter = allowedModes.length > 1;
+
+  // Determine initial mode among user's allowed modes
+  const initialMode = useMemo<"COMPANY" | "PROJECT" | "EVENT">(() => {
+    if (allowedModes.length === 1) return allowedModes[0];
+    const deptText = [user.departmentName || "", ...(user.secondaryDepartments || [])]
+      .join(" ")
+      .toLowerCase();
+    if (deptText.includes("event") && allowedModes.includes("EVENT")) return "EVENT";
+    if (
+      (deptText.includes("outsourcing") ||
+        deptText.includes("project ") ||
+        deptText.includes("operation")) &&
+      allowedModes.includes("PROJECT")
+    ) {
+      return "PROJECT";
+    }
+    if (allowedModes.includes("COMPANY")) return "COMPANY";
+    return allowedModes[0];
+  }, [allowedModes, user.departmentName, user.secondaryDepartments]);
+
+  const [requisitionMode, setRequisitionMode] = useState<"COMPANY" | "PROJECT" | "EVENT">(
+    initialMode
   );
+
+  const [departmentId, setDepartmentId] = useState<string>(
+    user.departmentId || departments[0]?.id || ""
+  );
+
+  const [projectId, setProjectId] = useState(() => {
+    if (initialMode === "EVENT") {
+      return onlyEventsList[0]?.id || projectBasedList[0]?.id || projects[0]?.id || "";
+    }
+    return onlyProjectsList[0]?.id || projectBasedList[0]?.id || projects[0]?.id || "";
+  });
   const selectedProject = useMemo(
     () => projects.find((p) => p.id === projectId),
     [projectId, projects]
@@ -187,8 +194,8 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     [companyId, companies]
   );
 
-  // Switch between IMS Group Company Requisition & Project/Event Requisition
-  function handleModeChange(mode: "COMPANY" | "PROJECT") {
+  // Switch between IMS Group Company, Project Requisition, & Event Requisition
+  function handleModeChange(mode: "COMPANY" | "PROJECT" | "EVENT") {
     setRequisitionMode(mode);
     if (mode === "COMPANY") {
       const compId =
@@ -203,11 +210,11 @@ export default function RequisitionForm({ user, companies, departments = [], pro
           : inferredCat === "STUDIO"
           ? "STUDIO"
           : inferredCat === "OPERATIONS_EVENT"
-          ? "EVENT"
+          ? "OPERATION"
           : "ADMIN"
       );
-    } else {
-      const firstProj = filteredProjects[0] || projectBasedList[0] || projects[0];
+    } else if (mode === "PROJECT") {
+      const firstProj = onlyProjectsList[0] || projectBasedList[0] || projects[0];
       if (firstProj) {
         setProjectId(firstProj.id);
         setCompanyId(firstProj.companyId);
@@ -218,26 +225,14 @@ export default function RequisitionForm({ user, companies, departments = [], pro
         );
         setType(firstProj.requisitionTypes?.[0] || "BPO");
       }
-    }
-  }
-
-  function handleStreamChange(stream: "ALL" | "OUTSOURCING" | "OPERATIONS_EVENT") {
-    setProjectStream(stream);
-    let list = projectBasedList;
-    if (stream === "OUTSOURCING") {
-      list = onlyProjectsList;
-    } else if (stream === "OPERATIONS_EVENT") {
-      list = onlyEventsList;
-    }
-    if (list.length > 0 && !list.some((p) => p.id === projectId)) {
-      const first = list[0];
-      setProjectId(first.id);
-      setCategory(
-        first.category === "IMS_OUTSOURCING_STUDIO"
-          ? "OUTSOURCING"
-          : first.category || "OUTSOURCING"
-      );
-      setType(first.requisitionTypes?.[0] || "BPO");
+    } else if (mode === "EVENT") {
+      const firstEvt = onlyEventsList[0] || projectBasedList[0] || projects[0];
+      if (firstEvt) {
+        setProjectId(firstEvt.id);
+        setCompanyId(firstEvt.companyId);
+        setCategory(firstEvt.category || "OPERATIONS_EVENT");
+        setType(firstEvt.requisitionTypes?.[0] || "EVENT");
+      }
     }
   }
 
@@ -266,21 +261,26 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     }
   }
 
-  const initialCat = defaultIsProjectUser
-    ? selectedProject?.category === "IMS_OUTSOURCING_STUDIO"
-      ? "OUTSOURCING"
-      : selectedProject?.category || (userReqMode === "OPERATIONS_EVENTS" ? "OPERATIONS_EVENT" : "OUTSOURCING")
-    : inferCategoryFromDepartment(user.departmentName || "");
+  const initialCat =
+    initialMode === "EVENT"
+      ? selectedProject?.category || "OPERATIONS_EVENT"
+      : initialMode === "PROJECT"
+      ? selectedProject?.category === "IMS_OUTSOURCING_STUDIO"
+        ? "OUTSOURCING"
+        : selectedProject?.category || "OUTSOURCING"
+      : inferCategoryFromDepartment(user.departmentName || "");
 
   const [type, setType] = useState(
-    defaultIsProjectUser
-      ? selectedProject?.requisitionTypes?.[0] || (userReqMode === "OPERATIONS_EVENTS" ? "EVENT" : "BPO")
+    initialMode === "EVENT"
+      ? selectedProject?.requisitionTypes?.[0] || "EVENT"
+      : initialMode === "PROJECT"
+      ? selectedProject?.requisitionTypes?.[0] || "BPO"
       : initialCat === "AI_IT"
       ? "IT"
       : initialCat === "STUDIO"
       ? "STUDIO"
       : initialCat === "OPERATIONS_EVENT"
-      ? "EVENT"
+      ? "OPERATION"
       : "ADMIN"
   );
   const [customType, setCustomType] = useState("");
@@ -430,7 +430,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
         </div>
       )}
 
-      {/* Requisition Type Selector: IMS Group Company (Permanent Employee) vs. Project-Based (Months/Years) */}
+      {/* Requisition Type Selector: IMS Group Company vs. Project Requisition vs. Event Requisition */}
       <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-6 space-y-4">
         {canSwitchModeAndFilter && (
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
@@ -439,32 +439,49 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                 1. Choose Requisition Type
               </span>
               <span className="text-[11px] text-gray-500">
-                Select whether this requisition is for an IMS Group Company (IMS, CLAN, SCL, TradePULSE) or for a specific Project / Event.
+                Select whether this requisition is for an IMS Group Company, a Project, or an Event.
               </span>
             </div>
-            <div className="inline-flex rounded-lg p-1 bg-gray-100 border border-gray-200">
-              <button
-                type="button"
-                onClick={() => handleModeChange("COMPANY")}
-                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
-                  requisitionMode === "COMPANY"
-                    ? "bg-[#E42528] text-white shadow-xs"
-                    : "text-gray-700 hover:text-gray-900"
-                }`}
-              >
-                🏢 IMS Group Company (IMS / CLAN / SCL / TradePULSE)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleModeChange("PROJECT")}
-                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
-                  requisitionMode === "PROJECT"
-                    ? "bg-gray-900 text-white shadow-xs"
-                    : "text-gray-700 hover:text-gray-900"
-                }`}
-              >
-                📁 Project / Event Requisition
-              </button>
+            <div className="inline-flex flex-wrap rounded-lg p-1 bg-gray-100 border border-gray-200 gap-1">
+              {allowedModes.includes("COMPANY") && (
+                <button
+                  type="button"
+                  onClick={() => handleModeChange("COMPANY")}
+                  className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                    requisitionMode === "COMPANY"
+                      ? "bg-[#E42528] text-white shadow-xs"
+                      : "text-gray-700 hover:text-gray-900"
+                  }`}
+                >
+                  🏢 IMS Group Company
+                </button>
+              )}
+              {allowedModes.includes("PROJECT") && (
+                <button
+                  type="button"
+                  onClick={() => handleModeChange("PROJECT")}
+                  className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                    requisitionMode === "PROJECT"
+                      ? "bg-gray-900 text-white shadow-xs"
+                      : "text-gray-700 hover:text-gray-900"
+                  }`}
+                >
+                  📁 Project Requisition
+                </button>
+              )}
+              {allowedModes.includes("EVENT") && (
+                <button
+                  type="button"
+                  onClick={() => handleModeChange("EVENT")}
+                  className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                    requisitionMode === "EVENT"
+                      ? "bg-blue-600 text-white shadow-xs"
+                      : "text-gray-700 hover:text-gray-900"
+                  }`}
+                >
+                  🎪 Event Requisition
+                </button>
+              )}
             </div>
           </div>
         )}
@@ -506,6 +523,42 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                 </select>
               </div>
             </>
+          ) : requisitionMode === "PROJECT" ? (
+            <>
+              <div className="min-w-0">
+                <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
+                  Sister Concern
+                </label>
+                <select
+                  value={companyId}
+                  onChange={(e) => setCompanyId(e.target.value)}
+                  className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold bg-white focus:ring-[#E42528] focus:border-[#E42528]"
+                >
+                  {companies.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.name} — {c.legalName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="min-w-0">
+                <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
+                  Select Project
+                </label>
+                <select
+                  value={projectId}
+                  onChange={(e) => handleProjectChange(e.target.value)}
+                  className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white focus:ring-[#E42528] focus:border-[#E42528]"
+                >
+                  {(onlyProjectsList.length > 0 ? onlyProjectsList : projectBasedList).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </>
           ) : (
             <>
               <div className="min-w-0">
@@ -527,39 +580,18 @@ export default function RequisitionForm({ user, companies, departments = [], pro
 
               <div className="min-w-0">
                 <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
-                  Select Project / Event
+                  Select Event
                 </label>
                 <select
                   value={projectId}
                   onChange={(e) => handleProjectChange(e.target.value)}
                   className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white focus:ring-[#E42528] focus:border-[#E42528]"
                 >
-                  {projectStream === "ALL" &&
-                  onlyProjectsList.length > 0 &&
-                  onlyEventsList.length > 0 ? (
-                    <>
-                      <optgroup label="Projects">
-                        {onlyProjectsList.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} ({p.code})
-                          </option>
-                        ))}
-                      </optgroup>
-                      <optgroup label="Events & Activations">
-                        {onlyEventsList.map((p) => (
-                          <option key={p.id} value={p.id}>
-                            {p.name} ({p.code})
-                          </option>
-                        ))}
-                      </optgroup>
-                    </>
-                  ) : (
-                    (filteredProjects.length > 0 ? filteredProjects : projects).map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.code})
-                      </option>
-                    ))
-                  )}
+                  {(onlyEventsList.length > 0 ? onlyEventsList : projectBasedList).map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
                 </select>
               </div>
             </>
@@ -576,8 +608,14 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                 className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white focus:ring-[#E42528] focus:border-[#E42528]"
               >
                 {(requisitionMode === "COMPANY"
-                  ? ["ADMIN", "CASH", "BPO", "EVENT", "OPERATION", "IT", "STUDIO"]
-                  : selectedProject?.requisitionTypes || ["BPO", "EVENT", "OPERATION", "ADMIN", "CASH"]
+                  ? ["ADMIN", "CASH", "BPO", "OPERATION", "IT", "STUDIO"]
+                  : requisitionMode === "EVENT"
+                  ? selectedProject?.requisitionTypes || ["EVENT", "CASH", "ADMIN"]
+                  : selectedProject?.requisitionTypes?.filter((t: string) => t !== "EVENT") || [
+                      "BPO",
+                      "ADMIN",
+                      "CASH",
+                    ]
                 ).map((t: string) => (
                   <option key={t} value={t}>
                     ({t})

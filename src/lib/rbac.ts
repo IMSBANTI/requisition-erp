@@ -121,6 +121,7 @@ export function projectScope(user: ScopeUser): Prisma.ProjectWhereInput {
     .join(" ")
     .toLowerCase();
   const isOpsOrEventsUser =
+    p.includes("req.type.event") ||
     p.includes("req.mode.ops_events") ||
     deptText.includes("operation") ||
     deptText.includes("event");

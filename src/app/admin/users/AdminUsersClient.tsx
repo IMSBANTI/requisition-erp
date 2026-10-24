@@ -68,9 +68,9 @@ export default function AdminUsersClient({
   const [projectScopeIds, setProjectScopeIds] = useState<string[]>([]);
   const [directorCategories, setDirectorCategories] = useState<string[]>([]);
   const [extraPermissions, setExtraPermissions] = useState<string[]>([]);
-  const [reqModePerm, setReqModePerm] = useState<
-    "req.mode.both" | "req.mode.ops_events" | "req.mode.company" | "req.mode.project"
-  >("req.mode.company");
+  const [reqTypesAllowed, setReqTypesAllowed] = useState<string[]>([
+    "req.type.company",
+  ]);
   const [active, setActive] = useState(true);
   const [projectSearchFilter, setProjectSearchFilter] = useState("");
 
@@ -126,32 +126,39 @@ export default function AdminUsersClient({
     [users]
   );
 
-  function inferReqModePermForUser(u: any): "req.mode.both" | "req.mode.ops_events" | "req.mode.company" | "req.mode.project" {
+  function inferReqTypesForUser(u: any): string[] {
     const ep: string[] = u.extraPermissions || [];
-    if (ep.includes("req.mode.company")) return "req.mode.company";
-    if (ep.includes("req.mode.project")) return "req.mode.project";
-    if (ep.includes("req.mode.ops_events")) return "req.mode.ops_events";
-    if (ep.includes("req.mode.both")) return "req.mode.both";
+    const granular = ep.filter((p) => p.startsWith("req.type."));
+    if (granular.length > 0) return granular;
+
+    if (ep.includes("req.mode.company")) return ["req.type.company"];
+    if (ep.includes("req.mode.project")) return ["req.type.project"];
+    if (ep.includes("req.mode.ops_events")) {
+      return ["req.type.company", "req.type.project", "req.type.event"];
+    }
+    if (ep.includes("req.mode.both")) {
+      return ["req.type.company", "req.type.project", "req.type.event"];
+    }
 
     const deptText = [u.departmentName || "", ...(u.secondaryDepartments || [])]
       .join(" ")
       .toLowerCase();
-    if (deptText.includes("operation") || deptText.includes("event")) {
-      return "req.mode.ops_events";
-    }
     if ((u.priorityLevel ?? 2) >= 4) {
-      return "req.mode.both";
+      return ["req.type.company", "req.type.project", "req.type.event"];
+    }
+    if (deptText.includes("operation") || deptText.includes("event")) {
+      return ["req.type.company", "req.type.project", "req.type.event"];
     }
     if (deptText.includes("project ")) {
-      return "req.mode.project";
+      return ["req.type.project"];
     }
     if (u.levelLabel === "Manager" || u.roleKey === "manager" || u.roleKey === "sr_manager") {
-      return "req.mode.both";
+      return ["req.type.company", "req.type.project", "req.type.event"];
     }
     if ((u.projectScopeIds?.length ?? 0) > 0) {
-      return "req.mode.project";
+      return ["req.type.project"];
     }
-    return "req.mode.company";
+    return ["req.type.company"];
   }
 
   function openCreateUserModal() {
@@ -176,7 +183,7 @@ export default function AdminUsersClient({
     setProjectScopeIds([]);
     setDirectorCategories([]);
     setExtraPermissions([]);
-    setReqModePerm("req.mode.company");
+    setReqTypesAllowed(["req.type.company"]);
     setActive(true);
     setMsg("");
     setErrorMsg("");
@@ -202,8 +209,12 @@ export default function AdminUsersClient({
     setCompanyScopeIds(u.companyScopeIds || []);
     setProjectScopeIds(u.projectScopeIds || []);
     setDirectorCategories(u.directorCategories || []);
-    setExtraPermissions((u.extraPermissions || []).filter((p: string) => !p.startsWith("req.mode.")));
-    setReqModePerm(inferReqModePermForUser(u));
+    setExtraPermissions(
+      (u.extraPermissions || []).filter(
+        (p: string) => !p.startsWith("req.mode.") && !p.startsWith("req.type.")
+      )
+    );
+    setReqTypesAllowed(inferReqTypesForUser(u));
     setActive(u.active ?? true);
     setMsg("");
     setErrorMsg("");
@@ -309,8 +320,10 @@ export default function AdminUsersClient({
         projectScopeIds,
         directorCategories,
         extraPermissions: [
-          ...extraPermissions.filter((p) => !p.startsWith("req.mode.")),
-          reqModePerm,
+          ...extraPermissions.filter(
+            (p) => !p.startsWith("req.mode.") && !p.startsWith("req.type.")
+          ),
+          ...(reqTypesAllowed.length > 0 ? reqTypesAllowed : ["req.type.company"]),
         ],
         active,
       };
@@ -949,11 +962,19 @@ export default function AdminUsersClient({
                       if (modalType === "CREATE_USER") {
                         const dName = (departments.find((d) => d.id === val)?.name || "").toLowerCase();
                         if (dName.includes("operation") || dName.includes("event")) {
-                          setReqModePerm("req.mode.ops_events");
+                          setReqTypesAllowed([
+                            "req.type.company",
+                            "req.type.project",
+                            "req.type.event",
+                          ]);
                         } else if (dName.includes("project ")) {
-                          setReqModePerm("req.mode.project");
+                          setReqTypesAllowed(["req.type.project"]);
                         } else if (priorityLevel >= 4 || levelLabel === "Manager") {
-                          setReqModePerm("req.mode.both");
+                          setReqTypesAllowed([
+                            "req.type.company",
+                            "req.type.project",
+                            "req.type.event",
+                          ]);
                         }
                       }
                     }}
@@ -990,40 +1011,35 @@ export default function AdminUsersClient({
                 </div>
               </div>
 
-              {/* Row 3B: Choose Requisition Type Access (New Requisition Form Options) */}
+              {/* Row 3B: Choose Requisition Type Access (3 Separate Options: Company, Project, Event) */}
               <div className="border border-slate-200 bg-slate-50/70 rounded-lg p-3.5">
                 <div className="mb-2">
                   <label className="font-bold text-gray-900 block">
                     Choose Requisition Type Access (On &ldquo;New Requisition&rdquo; Form) *
                   </label>
                   <p className="text-[10px] text-gray-500">
-                    Configure which requisition types and mode toggle this user will see when submitting a requisition.
+                    Select which of the 3 separate requisition types this user is allowed to submit (check one or more).
                   </p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                   {[
                     {
-                      key: "req.mode.both" as const,
-                      title: "🏢 + 📁 Both IMS Group Company & All Projects / Events",
-                      desc: "Shows 'Choose Requisition Type' toggle (Company + All Outsourcing & Event Projects).",
+                      key: "req.type.company",
+                      title: "🏢 IMS Group Company",
+                      desc: "Sister Concern (IMS / CLAN / SCL / TradePULSE) & Department requisitions.",
                     },
                     {
-                      key: "req.mode.ops_events" as const,
-                      title: "🎪 + 🏢 Operations & Event Requisitions + IMS Company",
-                      desc: "For Operation & Event Managers/Staff (e.g. Naimur Rahman Khan): shows toggle + all Event & Operations projects.",
+                      key: "req.type.project",
+                      title: "📁 Project Requisition",
+                      desc: "Projects only (Project Robi, GP, UPY, Singer, BAT CE, Unilever, BeHereNow, etc.).",
                     },
                     {
-                      key: "req.mode.company" as const,
-                      title: "🏢 IMS Group Company Requisition Only",
-                      desc: "Only shows Sister Concern (IMS / CLAN / SCL / TradePULSE) & Department. Hides Project/Event toggle.",
-                    },
-                    {
-                      key: "req.mode.project" as const,
-                      title: "📁 Dedicated Project / Event Requisition Only",
-                      desc: "For specific project executives (e.g. Ruhan Kabir on Project Robi): only shows their assigned project(s).",
+                      key: "req.type.event",
+                      title: "🎪 Event Requisition",
+                      desc: "Events only (Event — Banglalink, GP Events, Bkash, BAT Events, etc.).",
                     },
                   ].map((opt) => {
-                    const selected = reqModePerm === opt.key;
+                    const selected = reqTypesAllowed.includes(opt.key);
                     return (
                       <label
                         key={opt.key}
@@ -1034,10 +1050,11 @@ export default function AdminUsersClient({
                         }`}
                       >
                         <input
-                          type="radio"
-                          name="reqModePerm"
+                          type="checkbox"
                           checked={selected}
-                          onChange={() => setReqModePerm(opt.key)}
+                          onChange={() =>
+                            toggleArrayItem(reqTypesAllowed, opt.key, setReqTypesAllowed)
+                          }
                           className="mt-0.5 accent-[#E42528]"
                         />
                         <div>
@@ -1128,74 +1145,107 @@ export default function AdminUsersClient({
                 </div>
               </div>
 
-              {/* Row 6: Assigned Projects & Events */}
-              <div className="border border-gray-200 rounded-lg p-3.5">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
-                  <div>
-                    <label className="font-bold text-gray-800">
-                      Assigned Projects & Events ({projectScopeIds.length} selected)
-                    </label>
-                    <p className="text-[10px] text-gray-500">
-                      Assign specific projects (Robi, UPY, GP, Singer, BAT CE, Unilever, Outsourcing) or Events (Banglalink, GP, Bkash, BAT).
-                    </p>
+              {/* Row 6: Separate Assigned Projects vs. Assigned Events */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* 6A: Assigned Projects ONLY */}
+                <div className="border border-gray-200 rounded-lg p-3.5">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div>
+                      <label className="font-bold text-gray-800">
+                        📁 Assigned Projects
+                      </label>
+                      <p className="text-[10px] text-gray-500">
+                        Select specific Projects (Robi, UPY, GP, Singer, BAT CE, Unilever, BeHereNow, etc.)
+                      </p>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={projectSearchFilter}
-                      onChange={(e) => setProjectSearchFilter(e.target.value)}
-                      placeholder="Filter projects/events..."
-                      className="px-2 py-1 border border-gray-300 rounded text-[11px]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setProjectScopeIds(projects.map((p) => p.id))}
-                      className="text-[11px] text-blue-600 hover:underline font-semibold cursor-pointer whitespace-nowrap"
-                    >
-                      Select All
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setProjectScopeIds([])}
-                      className="text-[11px] text-gray-500 hover:underline cursor-pointer whitespace-nowrap"
-                    >
-                      Clear
-                    </button>
+                  <div className="grid grid-cols-1 gap-1.5 max-h-44 overflow-y-auto p-1 bg-gray-50 rounded border border-gray-200">
+                    {projects
+                      .filter(
+                        (p) =>
+                          p.kind !== "EVENT" &&
+                          !p.code?.toUpperCase().startsWith("EVT-") &&
+                          ![
+                            "IMS-HO",
+                            "IMS-IT",
+                            "IMS-STUDIO",
+                            "IMS-BD-BLUE",
+                            "IMS-BD-RED",
+                            "CLAN-MAIN",
+                            "SCL-MAIN",
+                            "TP-OPS",
+                          ].includes(p.code)
+                      )
+                      .map((p) => (
+                        <label
+                          key={p.id}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded border text-[11px] cursor-pointer ${
+                            projectScopeIds.includes(p.id)
+                              ? "bg-red-50 border-red-300 font-semibold text-gray-900"
+                              : "bg-white border-gray-200 text-gray-700"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={projectScopeIds.includes(p.id)}
+                            onChange={() =>
+                              toggleArrayItem(projectScopeIds, p.id, setProjectScopeIds)
+                            }
+                          />
+                          <span className="truncate">
+                            <span className="font-mono text-[10px] text-gray-400 mr-1">
+                              [{p.code}]
+                            </span>
+                            {p.name}
+                          </span>
+                        </label>
+                      ))}
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 max-h-44 overflow-y-auto p-1 bg-gray-50 rounded border border-gray-200">
-                  {projects
-                    .filter(
-                      (p) =>
-                        !projectSearchFilter ||
-                        p.name.toLowerCase().includes(projectSearchFilter.toLowerCase()) ||
-                        p.code.toLowerCase().includes(projectSearchFilter.toLowerCase())
-                    )
-                    .map((p) => (
-                      <label
-                        key={p.id}
-                        className={`flex items-center gap-2 px-2 py-1.5 rounded border text-[11px] cursor-pointer ${
-                          projectScopeIds.includes(p.id)
-                            ? "bg-blue-50 border-blue-300 font-semibold text-blue-900"
-                            : "bg-white border-gray-200 text-gray-700"
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={projectScopeIds.includes(p.id)}
-                          onChange={() =>
-                            toggleArrayItem(projectScopeIds, p.id, setProjectScopeIds)
-                          }
-                        />
-                        <span className="truncate">
-                          <span className="font-mono text-[10px] text-gray-400 mr-1">
-                            [{p.companyCode}]
-                          </span>
-                          {p.name}
-                        </span>
+                {/* 6B: Assigned Events ONLY */}
+                <div className="border border-gray-200 rounded-lg p-3.5">
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <div>
+                      <label className="font-bold text-gray-800">
+                        🎪 Assigned Events
                       </label>
-                    ))}
+                      <p className="text-[10px] text-gray-500">
+                        Select specific Events (Event — Banglalink, GP, Bkash, BAT, General Events, etc.)
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-1.5 max-h-44 overflow-y-auto p-1 bg-gray-50 rounded border border-gray-200">
+                    {projects
+                      .filter(
+                        (p) =>
+                          p.kind === "EVENT" || p.code?.toUpperCase().startsWith("EVT-")
+                      )
+                      .map((p) => (
+                        <label
+                          key={p.id}
+                          className={`flex items-center gap-2 px-2 py-1.5 rounded border text-[11px] cursor-pointer ${
+                            projectScopeIds.includes(p.id)
+                              ? "bg-blue-50 border-blue-300 font-semibold text-blue-900"
+                              : "bg-white border-gray-200 text-gray-700"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={projectScopeIds.includes(p.id)}
+                            onChange={() =>
+                              toggleArrayItem(projectScopeIds, p.id, setProjectScopeIds)
+                            }
+                          />
+                          <span className="truncate">
+                            <span className="font-mono text-[10px] text-gray-400 mr-1">
+                              [{p.code}]
+                            </span>
+                            {p.name}
+                          </span>
+                        </label>
+                      ))}
+                  </div>
                 </div>
               </div>
 
