@@ -13,6 +13,8 @@ interface FormProps {
     designation: string;
     signature: string | null;
     hasPin: boolean;
+    priorityLevel?: number;
+    isManager?: boolean;
     companyId?: string | null;
     departmentId?: string | null;
     departmentName?: string;
@@ -56,18 +58,24 @@ function inferCategoryFromDepartment(deptName: string): string {
 export default function RequisitionForm({ user, companies, departments = [], projects }: FormProps) {
   const router = useRouter();
 
+  const canSwitchModeAndFilter = (user.priorityLevel ?? 2) >= 4;
+
   // Determine whether this user defaults to Project/Event Requisition or IMS Group Company Requisition
   const defaultIsProjectUser = useMemo(() => {
     const deptText = [user.departmentName || "", ...(user.secondaryDepartments || [])]
       .join(" ")
       .toLowerCase();
+    const hasAssignedClientProject = projects.some(
+      (p) => !COMPANY_DIVISION_CODES.has(p.code) && !p.code.endsWith("-CORP")
+    );
     return (
       deptText.includes("outsourcing") ||
       deptText.includes("project ") ||
       deptText.includes("operation") ||
-      deptText.includes("event")
+      deptText.includes("event") ||
+      (!canSwitchModeAndFilter && hasAssignedClientProject)
     );
-  }, [user.departmentName, user.secondaryDepartments]);
+  }, [user.departmentName, user.secondaryDepartments, projects, canSwitchModeAndFilter]);
 
   const [requisitionMode, setRequisitionMode] = useState<"COMPANY" | "PROJECT">(
     defaultIsProjectUser ? "PROJECT" : "COMPANY"
@@ -371,42 +379,44 @@ export default function RequisitionForm({ user, companies, departments = [], pro
 
       {/* Requisition Type Selector: IMS Group Company (Permanent Employee) vs. Project-Based (Months/Years) */}
       <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm mb-6 space-y-4">
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
-          <div>
-            <span className="text-xs font-bold text-gray-900 block">
-              1. Choose Requisition Type
-            </span>
-            <span className="text-[11px] text-gray-500">
-              Select whether this requisition is for an IMS Group Company (IMS, CLAN, SCL, TradePULSE) or for a specific Project / Event.
-            </span>
+        {canSwitchModeAndFilter && (
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pb-3 border-b border-gray-100">
+            <div>
+              <span className="text-xs font-bold text-gray-900 block">
+                1. Choose Requisition Type
+              </span>
+              <span className="text-[11px] text-gray-500">
+                Select whether this requisition is for an IMS Group Company (IMS, CLAN, SCL, TradePULSE) or for a specific Project / Event.
+              </span>
+            </div>
+            <div className="inline-flex rounded-lg p-1 bg-gray-100 border border-gray-200">
+              <button
+                type="button"
+                onClick={() => handleModeChange("COMPANY")}
+                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                  requisitionMode === "COMPANY"
+                    ? "bg-[#E42528] text-white shadow-xs"
+                    : "text-gray-700 hover:text-gray-900"
+                }`}
+              >
+                🏢 IMS Group Company (IMS / CLAN / SCL / TradePULSE)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleModeChange("PROJECT")}
+                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
+                  requisitionMode === "PROJECT"
+                    ? "bg-gray-900 text-white shadow-xs"
+                    : "text-gray-700 hover:text-gray-900"
+                }`}
+              >
+                📁 Project / Event Requisition
+              </button>
+            </div>
           </div>
-          <div className="inline-flex rounded-lg p-1 bg-gray-100 border border-gray-200">
-            <button
-              type="button"
-              onClick={() => handleModeChange("COMPANY")}
-              className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
-                requisitionMode === "COMPANY"
-                  ? "bg-[#E42528] text-white shadow-xs"
-                  : "text-gray-700 hover:text-gray-900"
-              }`}
-            >
-              🏢 IMS Group Company (IMS / CLAN / SCL / TradePULSE)
-            </button>
-            <button
-              type="button"
-              onClick={() => handleModeChange("PROJECT")}
-              className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
-                requisitionMode === "PROJECT"
-                  ? "bg-gray-900 text-white shadow-xs"
-                  : "text-gray-700 hover:text-gray-900"
-              }`}
-            >
-              📁 Project / Event Requisition
-            </button>
-          </div>
-        </div>
+        )}
 
-        {requisitionMode === "PROJECT" && (
+        {canSwitchModeAndFilter && requisitionMode === "PROJECT" && projectBasedList.length > 1 && (
           <div className="flex flex-wrap items-center gap-1.5 pb-1">
             <span className="text-[11px] font-semibold text-gray-500 mr-1">Filter Projects & Events:</span>
             <button
