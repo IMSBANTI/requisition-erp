@@ -23,6 +23,18 @@ export async function POST(request: Request) {
       memberIds,
       requisitionTypes,
       budget,
+      billingProfile,
+      feeRate,
+      aitRate,
+      vatRate,
+      billCycleDays,
+      funding,
+      salaryMonthLag,
+      fixedMonthlyBill,
+      maintenanceBudget,
+      monthlyAmortization,
+      varianceThresholdPct,
+      costHeads,
     } = await request.json();
 
     if (!code || !name || !companyId) {
@@ -42,6 +54,18 @@ export async function POST(request: Request) {
         directorId: directorId || null,
         requisitionTypes: requisitionTypes?.length ? requisitionTypes : ["BPO", "ADMIN", "CASH"],
         budget: budget ? Number(budget) : null,
+        billingProfile: billingProfile || "COST_PLUS",
+        feeRate: feeRate !== undefined ? Number(feeRate) : 0.08,
+        aitRate: aitRate !== undefined ? Number(aitRate) : 0.012,
+        vatRate: vatRate !== undefined ? Number(vatRate) : 0.15,
+        billCycleDays: billCycleDays !== undefined ? Number(billCycleDays) : 30,
+        funding: funding || "POSTPAID",
+        salaryMonthLag: salaryMonthLag !== undefined ? Number(salaryMonthLag) : 1,
+        fixedMonthlyBill: fixedMonthlyBill ? Number(fixedMonthlyBill) : null,
+        maintenanceBudget: maintenanceBudget ? Number(maintenanceBudget) : 0,
+        monthlyAmortization: monthlyAmortization ? Number(monthlyAmortization) : 0,
+        varianceThresholdPct: varianceThresholdPct !== undefined ? Number(varianceThresholdPct) : 10,
+        ...(costHeads ? { costHeads } : {}),
         createdById: user.id,
         ...(Array.isArray(memberIds) && memberIds.length > 0
           ? { members: { connect: memberIds.map((id: string) => ({ id })) } }
@@ -87,6 +111,18 @@ export async function PATCH(request: Request) {
       requisitionTypes,
       budget,
       active,
+      billingProfile,
+      feeRate,
+      aitRate,
+      vatRate,
+      billCycleDays,
+      funding,
+      salaryMonthLag,
+      fixedMonthlyBill,
+      maintenanceBudget,
+      monthlyAmortization,
+      varianceThresholdPct,
+      costHeads,
     } = await request.json();
 
     if (!id) {
@@ -111,6 +147,26 @@ export async function PATCH(request: Request) {
         ...(requisitionTypes ? { requisitionTypes } : {}),
         ...(budget !== undefined ? { budget: budget ? Number(budget) : null } : {}),
         ...(active !== undefined ? { active: Boolean(active) } : {}),
+        ...(billingProfile ? { billingProfile } : {}),
+        ...(feeRate !== undefined ? { feeRate: Number(feeRate) } : {}),
+        ...(aitRate !== undefined ? { aitRate: Number(aitRate) } : {}),
+        ...(vatRate !== undefined ? { vatRate: Number(vatRate) } : {}),
+        ...(billCycleDays !== undefined ? { billCycleDays: Number(billCycleDays) } : {}),
+        ...(funding ? { funding } : {}),
+        ...(salaryMonthLag !== undefined ? { salaryMonthLag: Number(salaryMonthLag) } : {}),
+        ...(fixedMonthlyBill !== undefined
+          ? { fixedMonthlyBill: fixedMonthlyBill ? Number(fixedMonthlyBill) : null }
+          : {}),
+        ...(maintenanceBudget !== undefined
+          ? { maintenanceBudget: maintenanceBudget ? Number(maintenanceBudget) : 0 }
+          : {}),
+        ...(monthlyAmortization !== undefined
+          ? { monthlyAmortization: monthlyAmortization ? Number(monthlyAmortization) : 0 }
+          : {}),
+        ...(varianceThresholdPct !== undefined
+          ? { varianceThresholdPct: Number(varianceThresholdPct) }
+          : {}),
+        ...(costHeads !== undefined ? { costHeads } : {}),
       },
     });
 

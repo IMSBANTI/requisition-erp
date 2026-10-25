@@ -1,6 +1,11 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { projectScope } from "@/lib/rbac";
+import {
+  DEFAULT_PROJECT_COST_HEADS,
+  DEFAULT_EVENT_COST_HEADS,
+  getDefaultProjectTermsByCode,
+} from "@/lib/profitEngine";
 import AppShell from "@/components/AppShell";
 import RequisitionForm from "./RequisitionForm";
 
@@ -109,6 +114,16 @@ export default async function NewRequisitionPage() {
     where: projectScope(user),
     include: {
       company: true,
+      requisitions: {
+        where: {
+          status: { notIn: ["DRAFT", "REJECTED", "CANCELLED"] },
+        },
+        orderBy: { createdAt: "desc" },
+        take: 12,
+        include: {
+          items: { orderBy: { sl: "asc" } },
+        },
+      },
     },
     orderBy: { name: "asc" },
   });
@@ -195,18 +210,85 @@ export default async function NewRequisitionPage() {
           }}
           companies={companies}
           departments={departments}
-          projects={projects.map((p) => ({
-            id: p.id,
-            code: p.code,
-            name: p.name,
-            kind: p.kind,
-            companyId: p.companyId,
-            companyCode: p.company.code,
-            companyName: p.company.name,
-            category: p.category,
-            requisitionTypes: p.requisitionTypes,
-            allowOtherType: p.allowOtherType,
-          }))}
+          projects={projects.map((p: any) => {
+            const isEvent = p.kind === "EVENT" || p.code?.toUpperCase().startsWith("EVT-");
+            const fallbackTerms = getDefaultProjectTermsByCode(p.code, p.kind);
+            const recentReqs = p.requisitions || [];
+            const latestReq = recentReqs[0] || null;
+            const cumulativeSpend = recentReqs.reduce(
+              (sum: number, r: any) => sum + Number(r.total || 0),
+              0
+            );
+
+            return {
+              id: p.id,
+              code: p.code,
+              name: p.name,
+              kind: isEvent ? "EVENT" : "PERMANENT",
+              companyId: p.companyId,
+              companyCode: p.company.code,
+              companyName: p.company.name,
+              category: p.category,
+              requisitionTypes: p.requisitionTypes,
+              allowOtherType: p.allowOtherType,
+              budget: p.budget ? Number(p.budget) : 0,
+              billingProfile: p.billingProfile || fallbackTerms.billingProfile,
+              feeRate:
+                p.feeRate !== undefined && p.feeRate !== null
+                  ? Number(p.feeRate)
+                  : Number(fallbackTerms.feeRate),
+              aitRate:
+                p.aitRate !== undefined && p.aitRate !== null
+                  ? Number(p.aitRate)
+                  : Number(fallbackTerms.aitRate),
+              vatRate:
+                p.vatRate !== undefined && p.vatRate !== null
+                  ? Number(p.vatRate)
+                  : Number(fallbackTerms.vatRate ?? 0.15),
+              billCycleDays: p.billCycleDays ?? fallbackTerms.billCycleDays ?? 30,
+              funding: p.funding || fallbackTerms.funding || "POSTPAID",
+              salaryMonthLag:
+                p.salaryMonthLag ?? fallbackTerms.salaryMonthLag ?? (isEvent ? 0 : 1),
+              fixedMonthlyBill: p.fixedMonthlyBill
+                ? Number(p.fixedMonthlyBill)
+                : fallbackTerms.fixedMonthlyBill
+                ? Number(fallbackTerms.fixedMonthlyBill)
+                : 0,
+              maintenanceBudget: p.maintenanceBudget
+                ? Number(p.maintenanceBudget)
+                : Number(fallbackTerms.maintenanceBudget ?? 0),
+              monthlyAmortization: p.monthlyAmortization
+                ? Number(p.monthlyAmortization)
+                : Number(fallbackTerms.monthlyAmortization ?? 0),
+              varianceThresholdPct: p.varianceThresholdPct
+                ? Number(p.varianceThresholdPct)
+                : 10,
+              costHeads:
+                Array.isArray(p.costHeads) && p.costHeads.length > 0
+                  ? p.costHeads
+                  : isEvent
+                  ? DEFAULT_EVENT_COST_HEADS
+                  : DEFAULT_PROJECT_COST_HEADS,
+              lastRequisition: latestReq
+                ? {
+                    id: latestReq.id,
+                    number: latestReq.number,
+                    forMonth: latestReq.forMonth,
+                    total: Number(latestReq.total || 0),
+                    items: (latestReq.items || []).map((it: any) => ({
+                      costHead: it.costHead || it.particulars,
+                      costTag: it.costTag || "BILLABLE",
+                      particulars: it.particulars,
+                      purpose: it.purpose || "",
+                      qty: Number(it.qty || 1),
+                      unitPrice: Number(it.unitPrice || 0),
+                      amount: Number(it.amount || 0),
+                    })),
+                  }
+                : null,
+              cumulativeSpend,
+            };
+          })}
         />
       </div>
     </AppShell>

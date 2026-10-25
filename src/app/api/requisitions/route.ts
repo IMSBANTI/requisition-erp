@@ -27,6 +27,15 @@ export async function POST(request: Request) {
     const pinOrPassword = (formData.get("pinOrPassword") as string) || "";
     const itemsRaw = formData.get("items") as string;
 
+    const forMonth = (formData.get("forMonth") as string) || null;
+    const changeReason = (formData.get("changeReason") as string) || null;
+    const rawBillableTotal = formData.get("billableTotal") as string;
+    const rawImsInvestmentTotal = formData.get("imsInvestmentTotal") as string;
+    const rawLastMonthTotal = formData.get("lastMonthTotal") as string;
+    const rawVariancePct = formData.get("variancePct") as string;
+    const rawProjectedBillExVat = formData.get("projectedBillExVat") as string;
+    const rawProjectedNetProfit = formData.get("projectedNetProfit") as string;
+
     const items = JSON.parse(itemsRaw || "[]");
     if (!items.length) {
       return NextResponse.json({ error: "Requisition must contain at least one item" }, { status: 400 });
@@ -200,7 +209,15 @@ export async function POST(request: Request) {
         makerName: user.name,
         makerDesignation: user.designation,
         disburseOn: disburseOn ? new Date(disburseOn) : null,
+        forMonth: forMonth || null,
         total: total.toNumber(),
+        billableTotal: rawBillableTotal ? Number(rawBillableTotal) : total.toNumber(),
+        imsInvestmentTotal: rawImsInvestmentTotal ? Number(rawImsInvestmentTotal) : 0,
+        lastMonthTotal: rawLastMonthTotal ? Number(rawLastMonthTotal) : null,
+        variancePct: rawVariancePct ? Number(rawVariancePct) : null,
+        changeReason: changeReason || null,
+        projectedBillExVat: rawProjectedBillExVat ? Number(rawProjectedBillExVat) : null,
+        projectedNetProfit: rawProjectedNetProfit ? Number(rawProjectedNetProfit) : null,
         amountInWords: inWords,
         comments,
         paymentMode,
@@ -213,6 +230,13 @@ export async function POST(request: Request) {
         items: {
           create: items.map((it: any) => ({
             sl: it.sl,
+            costHead: it.costHead || null,
+            costTag: it.costTag || "BILLABLE",
+            forMonth: it.forMonth || forMonth || null,
+            lastMonthAmount:
+              it.lastMonthAmount !== undefined && it.lastMonthAmount !== null
+                ? Number(it.lastMonthAmount)
+                : null,
             particulars: it.particulars,
             purpose: it.purpose,
             qty: it.qty,

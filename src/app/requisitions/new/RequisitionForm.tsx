@@ -5,6 +5,13 @@ import { useRouter } from "next/navigation";
 import { amountInWords } from "@/lib/numberToWords";
 import { lineAmount, grandTotal, formatTaka } from "@/lib/money";
 import { CATEGORIES } from "@/lib/constants";
+import {
+  CostHeadConfig,
+  DEFAULT_PROJECT_COST_HEADS,
+  DEFAULT_EVENT_COST_HEADS,
+  calculateProfitSummary,
+  calculateVariance,
+} from "@/lib/profitEngine";
 
 interface FormProps {
   user: {
@@ -28,6 +35,10 @@ interface FormProps {
 
 interface ItemRow {
   sl: number;
+  costHead: string;
+  costTag: "BILLABLE" | "IMS_INVESTMENT";
+  forMonth: string;
+  lastMonthAmount: number;
   particulars: string;
   purpose: string;
   qty: string;
@@ -56,7 +67,31 @@ function inferCategoryFromDepartment(deptName: string): string {
   return "GENERAL";
 }
 
-export default function RequisitionForm({ user, companies, departments = [], projects }: FormProps) {
+function getCurrentYearMonth(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+function getPreviousYearMonth(ym: string): string {
+  const [yStr, mStr] = (ym || getCurrentYearMonth()).split("-");
+  let y = parseInt(yStr, 10) || new Date().getFullYear();
+  let m = parseInt(mStr, 10) || 1;
+  m -= 1;
+  if (m < 1) {
+    m = 12;
+    y -= 1;
+  }
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+
+export default function RequisitionForm({
+  user,
+  companies,
+  departments = [],
+  projects,
+}: FormProps) {
   const router = useRouter();
 
   // Separate client projects & events (excluding internal company division buckets)
@@ -194,9 +229,29 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     [companyId, companies]
   );
 
+  // Service Month for Project Requisitions
+  const [forMonth, setForMonth] = useState<string>(getCurrentYearMonth());
+  const [changeReason, setChangeReason] = useState<string>("");
+
+  // Active Cost Heads for the selected Project or Event
+  const activeCostHeads = useMemo<CostHeadConfig[]>(() => {
+    if (requisitionMode === "COMPANY") return [];
+    if (
+      selectedProject?.costHeads &&
+      Array.isArray(selectedProject.costHeads) &&
+      selectedProject.costHeads.length > 0
+    ) {
+      return selectedProject.costHeads;
+    }
+    return requisitionMode === "EVENT"
+      ? DEFAULT_EVENT_COST_HEADS
+      : DEFAULT_PROJECT_COST_HEADS;
+  }, [requisitionMode, selectedProject]);
+
   // Switch between IMS Group Company, Project Requisition, & Event Requisition
   function handleModeChange(mode: "COMPANY" | "PROJECT" | "EVENT") {
     setRequisitionMode(mode);
+    setChangeReason("");
     if (mode === "COMPANY") {
       const compId =
         user.companyId || companies.find((c) => c.code === "IMS")?.id || companies[0]?.id || "";
@@ -236,15 +291,15 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     }
   }
 
-  // When project changes in PROJECT mode, update default category and tag while keeping the selected Sister Concern
   function handleProjectChange(id: string) {
     setProjectId(id);
+    setChangeReason("");
     const p = projects.find((x) => x.id === id);
     if (p) {
       setCategory(
         p.category === "IMS_OUTSOURCING_STUDIO" ? "OUTSOURCING" : p.category || "OUTSOURCING"
       );
-      setType(p.requisitionTypes?.[0] || "BPO");
+      setType(p.requisitionTypes?.[0] || (requisitionMode === "EVENT" ? "EVENT" : "BPO"));
     }
   }
 
@@ -293,7 +348,20 @@ export default function RequisitionForm({ user, companies, departments = [], pro
   const [comments, setComments] = useState("");
 
   const [items, setItems] = useState<ItemRow[]>([
-    { sl: 1, particulars: "", purpose: "", qty: "1", unitPrice: "0" },
+    {
+      sl: 1,
+      costHead: activeCostHeads[0]?.name || "",
+      costTag: activeCostHeads[0]?.tag || "BILLABLE",
+      forMonth:
+        activeCostHeads[0]?.isSalary && (selectedProject?.salaryMonthLag ?? 1) === 1
+          ? getPreviousYearMonth(getCurrentYearMonth())
+          : getCurrentYearMonth(),
+      lastMonthAmount: 0,
+      particulars: activeCostHeads[0]?.name || "",
+      purpose: "",
+      qty: "1",
+      unitPrice: "0",
+    },
   ]);
 
   const [attachments, setAttachments] = useState<File[]>([]);
@@ -303,6 +371,60 @@ export default function RequisitionForm({ user, companies, departments = [], pro
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitAction, setSubmitAction] = useState<"SUBMIT" | "DRAFT">("SUBMIT");
   const [error, setError] = useState("");
+
+  // Pre-fill lines from Last Month Requisition or Configured Cost Heads
+  function handlePrefillCostHeads() {
+    const lastReq = selectedProject?.lastRequisition;
+    const lag = selectedProject?.salaryMonthLag ?? 1;
+    const prevMonth = getPreviousYearMonth(forMonth);
+
+    if (requisitionMode === "PROJECT" && lastReq && Array.isArray(lastReq.items) && lastReq.items.length > 0) {
+      const prefilled: ItemRow[] = lastReq.items.map((it: any, i: number) => {
+        const matchedHead = activeCostHeads.find(
+          (ch) => ch.name.toLowerCase() === (it.costHead || it.particulars || "").toLowerCase()
+        );
+        const isSal = matchedHead?.isSalary ?? false;
+        return {
+          sl: i + 1,
+          costHead: it.costHead || matchedHead?.name || it.particulars,
+          costTag: (it.costTag || matchedHead?.tag || "BILLABLE") as "BILLABLE" | "IMS_INVESTMENT",
+          forMonth: isSal && lag === 1 ? prevMonth : forMonth,
+          lastMonthAmount: Number(it.amount || 0),
+          particulars: it.particulars || it.costHead || "",
+          purpose: it.purpose || `For ${isSal && lag === 1 ? prevMonth : forMonth}`,
+          qty: String(it.qty || 1),
+          unitPrice: String(it.unitPrice || it.amount || 0),
+        };
+      });
+      setItems(prefilled);
+      return;
+    }
+
+    // Otherwise populate all standard Cost Heads for this Project or Event
+    const templateRows: ItemRow[] = activeCostHeads.map((ch, i) => {
+      const lineM =
+        requisitionMode === "PROJECT" && ch.isSalary && lag === 1 ? prevMonth : forMonth;
+      return {
+        sl: i + 1,
+        costHead: ch.name,
+        costTag: ch.tag,
+        forMonth: lineM,
+        lastMonthAmount: ch.defaultAmount || 0,
+        particulars: ch.name,
+        purpose:
+          requisitionMode === "PROJECT"
+            ? ch.isSalary && lag === 1
+              ? `Salary for ${lineM} (Lag 1m)`
+              : `Project expense for ${lineM}`
+            : `Event execution — ${ch.name}`,
+        qty: "1",
+        unitPrice: String(ch.defaultAmount || 0),
+      };
+    });
+    if (templateRows.length > 0) {
+      setItems(templateRows);
+    }
+  }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     setAttachmentError("");
@@ -330,7 +452,7 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     setAttachments((prev) => prev.filter((_, i) => i !== index));
   }
 
-  // Calculations
+  // Grand Total & Billable vs. IMS Investment Breakdown
   const calculatedTotal = useMemo(() => {
     return grandTotal(
       items.map((it) => ({
@@ -340,6 +462,97 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     );
   }, [items]);
 
+  const { billableTotal, imsInvestmentTotal } = useMemo(() => {
+    let billable = 0;
+    let imsInv = 0;
+    for (const it of items) {
+      const amt = (parseFloat(it.qty) || 0) * (parseFloat(it.unitPrice) || 0);
+      if (it.costTag === "IMS_INVESTMENT") {
+        imsInv += amt;
+      } else {
+        billable += amt;
+      }
+    }
+    return { billableTotal: billable, imsInvestmentTotal: imsInv };
+  }, [items]);
+
+  // Live Project / Event Profit & Billing Calculation
+  const profitSummary = useMemo(() => {
+    if (requisitionMode === "COMPANY" || !selectedProject) return null;
+
+    // For Event FIXED_QUOTE, if fixedMonthlyBill isn't set separately, fall back to project.budget
+    const effectiveFixedBill =
+      selectedProject.fixedMonthlyBill && selectedProject.fixedMonthlyBill > 0
+        ? selectedProject.fixedMonthlyBill
+        : selectedProject.billingProfile === "FIXED_QUOTE" && selectedProject.budget > 0
+        ? selectedProject.budget
+        : 0;
+
+    return calculateProfitSummary({
+      terms: {
+        billingProfile: selectedProject.billingProfile || "COST_PLUS",
+        feeRate: selectedProject.feeRate ?? 0.08,
+        aitRate: selectedProject.aitRate ?? 0.012,
+        vatRate: selectedProject.vatRate ?? 0.15,
+        billCycleDays: selectedProject.billCycleDays ?? 30,
+        funding: selectedProject.funding || "POSTPAID",
+        salaryMonthLag: selectedProject.salaryMonthLag ?? 1,
+        fixedMonthlyBill: effectiveFixedBill,
+        maintenanceBudget: selectedProject.maintenanceBudget ?? 0,
+        monthlyAmortization: selectedProject.monthlyAmortization ?? 0,
+        varianceThresholdPct: selectedProject.varianceThresholdPct ?? 10,
+      },
+      billableCost: billableTotal,
+      imsInvestment: imsInvestmentTotal,
+    });
+  }, [requisitionMode, selectedProject, billableTotal, imsInvestmentTotal]);
+
+  // Variance Calculation:
+  // - For PROJECT mode: compares against Last Month Requisition Total (or sum of lastMonthAmount)
+  // - For EVENT mode: compares Cumulative Event Spend (Prior Event Spend + Current Total) vs Approved Event Budget
+  const varianceSummary = useMemo(() => {
+    if (requisitionMode === "COMPANY" || !selectedProject) return null;
+
+    const rowLastMonthSum = items.reduce((s, it) => s + (Number(it.lastMonthAmount) || 0), 0);
+    if (requisitionMode === "PROJECT") {
+      const lastMonthBaseline =
+        rowLastMonthSum > 0
+          ? rowLastMonthSum
+          : selectedProject.lastRequisition?.total || selectedProject.budget || 0;
+      return {
+        baselineLabel: selectedProject.lastRequisition
+          ? `Last Month (${selectedProject.lastRequisition.forMonth || selectedProject.lastRequisition.number || "Prior"})`
+          : selectedProject.budget > 0
+          ? "Monthly Target Budget"
+          : "Last Month Baseline",
+        baselineTotal: lastMonthBaseline,
+        ...calculateVariance({
+          currentTotal: calculatedTotal.toNumber(),
+          baselineTotal: lastMonthBaseline,
+          thresholdPct: selectedProject.varianceThresholdPct ?? 10,
+          mode: "PROJECT",
+        }),
+      };
+    } else {
+      // EVENT mode
+      const priorSpend = Number(selectedProject.cumulativeSpend || 0);
+      const cumulativeEventTotal = priorSpend + calculatedTotal.toNumber();
+      const eventBudget = Number(selectedProject.budget || selectedProject.fixedMonthlyBill || 0);
+      return {
+        baselineLabel: "Approved Event Budget",
+        baselineTotal: eventBudget,
+        priorSpend,
+        cumulativeEventTotal,
+        ...calculateVariance({
+          currentTotal: cumulativeEventTotal,
+          baselineTotal: eventBudget,
+          thresholdPct: selectedProject.varianceThresholdPct ?? 10,
+          mode: "EVENT",
+        }),
+      };
+    }
+  }, [requisitionMode, selectedProject, items, calculatedTotal]);
+
   const words = useMemo(() => {
     try {
       return amountInWords(calculatedTotal);
@@ -348,16 +561,52 @@ export default function RequisitionForm({ user, companies, departments = [], pro
     }
   }, [calculatedTotal]);
 
-  function handleRowChange(index: number, field: keyof ItemRow, val: string) {
+  function handleRowChange(index: number, field: keyof ItemRow, val: string | number) {
     const updated = [...items];
     updated[index] = { ...updated[index], [field]: val };
+
+    // If costHead changed, auto-sync costTag, particulars (if empty or matching old costHead), and lagged month
+    if (field === "costHead" && typeof val === "string") {
+      const matched = activeCostHeads.find((ch) => ch.name === val);
+      if (matched) {
+        updated[index].costTag = matched.tag;
+        if (
+          !updated[index].particulars ||
+          activeCostHeads.some((ch) => ch.name === updated[index].particulars)
+        ) {
+          updated[index].particulars = matched.name;
+        }
+        if (requisitionMode === "PROJECT") {
+          const lag = selectedProject?.salaryMonthLag ?? 1;
+          updated[index].forMonth =
+            matched.isSalary && lag === 1 ? getPreviousYearMonth(forMonth) : forMonth;
+        }
+      }
+    }
+
     setItems(updated);
   }
 
   function addRow() {
+    const defaultCh = activeCostHeads[0];
     setItems((prev) => [
       ...prev,
-      { sl: prev.length + 1, particulars: "", purpose: "", qty: "1", unitPrice: "0" },
+      {
+        sl: prev.length + 1,
+        costHead: defaultCh?.name || "",
+        costTag: defaultCh?.tag || "BILLABLE",
+        forMonth:
+          requisitionMode === "PROJECT" &&
+          defaultCh?.isSalary &&
+          (selectedProject?.salaryMonthLag ?? 1) === 1
+            ? getPreviousYearMonth(forMonth)
+            : forMonth,
+        lastMonthAmount: 0,
+        particulars: "",
+        purpose: "",
+        qty: "1",
+        unitPrice: "0",
+      },
     ]);
   }
 
@@ -369,10 +618,21 @@ export default function RequisitionForm({ user, companies, departments = [], pro
 
   async function handleFinalSubmit() {
     setError("");
+
+    // Enforce mandatory reason when variance exceeds threshold on SUBMIT
+    if (
+      submitAction === "SUBMIT" &&
+      varianceSummary?.requiresReason &&
+      !changeReason.trim()
+    ) {
+      setError(varianceSummary.reasonPrompt);
+      setShowSignModal(false);
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      // Build FormData for multipart payload including files
       const formData = new FormData();
       formData.append("requisitionMode", requisitionMode);
       formData.append("projectId", projectId);
@@ -386,12 +646,35 @@ export default function RequisitionForm({ user, companies, departments = [], pro
       formData.append("comments", comments);
       formData.append("action", submitAction);
       formData.append("pinOrPassword", pinOrPassword);
+
+      if (requisitionMode !== "COMPANY") {
+        formData.append("forMonth", forMonth);
+        formData.append("changeReason", changeReason.trim());
+        formData.append("billableTotal", String(billableTotal));
+        formData.append("imsInvestmentTotal", String(imsInvestmentTotal));
+        if (varianceSummary?.baselineTotal !== undefined) {
+          formData.append("lastMonthTotal", String(varianceSummary.baselineTotal));
+        }
+        if (varianceSummary?.variancePct !== null && varianceSummary?.variancePct !== undefined) {
+          formData.append("variancePct", String(varianceSummary.variancePct));
+        }
+        if (profitSummary) {
+          formData.append("projectedBillExVat", String(profitSummary.billExVat));
+          formData.append("projectedNetProfit", String(profitSummary.netProfit));
+        }
+      }
+
       formData.append(
         "items",
         JSON.stringify(
           items.map((it) => ({
             sl: it.sl,
-            particulars: it.particulars,
+            costHead: requisitionMode === "COMPANY" ? null : it.costHead || it.particulars,
+            costTag: requisitionMode === "COMPANY" ? "BILLABLE" : it.costTag || "BILLABLE",
+            forMonth: requisitionMode === "PROJECT" ? it.forMonth || forMonth : null,
+            lastMonthAmount:
+              requisitionMode !== "COMPANY" && it.lastMonthAmount ? Number(it.lastMonthAmount) : null,
+            particulars: it.particulars || it.costHead,
             purpose: it.purpose,
             qty: parseFloat(it.qty) || 0,
             unitPrice: parseFloat(it.unitPrice) || 0,
@@ -425,8 +708,8 @@ export default function RequisitionForm({ user, companies, departments = [], pro
   return (
     <div className="mt-6">
       {error && (
-        <div className="mb-4 p-3 bg-red-50 border-l-4 border-[#E42528] text-xs text-red-700">
-          {error}
+        <div className="mb-4 p-3 bg-red-50 border-l-4 border-[#E42528] text-xs font-semibold text-red-700">
+          ⚠️ {error}
         </div>
       )}
 
@@ -652,7 +935,234 @@ export default function RequisitionForm({ user, companies, departments = [], pro
             </select>
           </div>
         </div>
+
+        {/* Project / Event Calculation Bar (Service Month, Pre-fill & Billing Profile Info) */}
+        {requisitionMode !== "COMPANY" && selectedProject && (
+          <div className="pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-3">
+              {requisitionMode === "PROJECT" && (
+                <div className="flex items-center space-x-2">
+                  <label className="text-xs font-bold text-gray-700">Service Month:</label>
+                  <input
+                    type="month"
+                    value={forMonth}
+                    onChange={(e) => setForMonth(e.target.value)}
+                    className="h-8 px-2.5 py-1 border border-gray-300 rounded-md text-xs font-bold bg-white"
+                  />
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handlePrefillCostHeads}
+                className="px-3 py-1.5 text-xs font-bold text-gray-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-md shadow-2xs cursor-pointer transition-colors"
+              >
+                {requisitionMode === "PROJECT"
+                  ? selectedProject.lastRequisition
+                    ? `↺ Pre-fill from Last Month (${selectedProject.lastRequisition.forMonth || "Prior"})`
+                    : "↺ Load Project Cost Head Lines"
+                  : "↺ Load Event Cost Head Lines"}
+              </button>
+            </div>
+
+            {profitSummary && (
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <span className="px-2 py-0.5 rounded font-bold bg-gray-900 text-white">
+                  {profitSummary.billingProfile}
+                </span>
+                {profitSummary.billingProfile !== "FIXED_FEE" &&
+                  profitSummary.billingProfile !== "FIXED_QUOTE" && (
+                    <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-800 border border-blue-200 font-mono font-semibold">
+                      Fee: {profitSummary.feeRatePct}%
+                    </span>
+                  )}
+                <span className="px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 font-mono font-semibold">
+                  AIT: {profitSummary.aitRatePct}%
+                </span>
+                <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200 font-mono font-semibold">
+                  VAT: {profitSummary.vatRatePct}%
+                </span>
+                <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-200 font-semibold">
+                  {selectedProject.funding || "POSTPAID"} ({selectedProject.billCycleDays ?? 30}d)
+                </span>
+              </div>
+            )}
+          </div>
+        )}
       </div>
+
+      {/* Live Project / Event Financial & Profit Summary Card (Shown for PROJECT & EVENT Requisitions) */}
+      {requisitionMode !== "COMPANY" && profitSummary && (
+        <div className="bg-white p-4 rounded-xl border-2 border-gray-900/10 shadow-sm mb-6 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-gray-100">
+            <div>
+              <h3 className="text-xs font-extrabold text-gray-900 uppercase tracking-wider flex items-center gap-1.5">
+                <span>{requisitionMode === "EVENT" ? "🎪" : "📊"}</span>
+                <span>
+                  {requisitionMode === "EVENT"
+                    ? `Event Budget, Client Billing & Profit Calculator — ${selectedProject?.name}`
+                    : `Project Monthly Requisition & Profit Calculator — ${selectedProject?.name} (${forMonth})`}
+                </span>
+              </h3>
+              <p className="text-[11px] text-gray-500">
+                Real-time breakdown of Billable vs. IMS Investment costs, Projected Client Bill, AIT/VAT, and Net Profit.
+              </p>
+            </div>
+            {varianceSummary && varianceSummary.variancePct !== null && (
+              <div
+                className={`px-2.5 py-1 rounded-md text-xs font-bold border ${
+                  varianceSummary.requiresReason
+                    ? "bg-red-50 text-red-700 border-red-200"
+                    : "bg-emerald-50 text-emerald-800 border-emerald-200"
+                }`}
+              >
+                {requisitionMode === "PROJECT" ? "vs. Last Month: " : "vs. Event Budget: "}
+                {varianceSummary.variancePct > 0 ? "+" : ""}
+                {varianceSummary.variancePct.toFixed(1)}%
+              </div>
+            )}
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2.5 text-xs">
+            <div className="p-2.5 rounded-lg bg-green-50/70 border border-green-200">
+              <span className="text-[10px] font-semibold text-green-800 uppercase block">
+                Billable Cost
+              </span>
+              <span className="font-mono font-bold text-gray-900 text-xs">
+                Tk {formatTaka(billableTotal)}
+              </span>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-amber-50/70 border border-amber-200">
+              <span className="text-[10px] font-semibold text-amber-800 uppercase block">
+                IMS Investment
+              </span>
+              <span className="font-mono font-bold text-gray-900 text-xs">
+                Tk {formatTaka(imsInvestmentTotal)}
+              </span>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-gray-100 border border-gray-300">
+              <span className="text-[10px] font-semibold text-gray-600 uppercase block">
+                Total Requested
+              </span>
+              <span className="font-mono font-extrabold text-[#E42528] text-xs">
+                Tk {formatTaka(calculatedTotal)}
+              </span>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-blue-50/60 border border-blue-200">
+              <span className="text-[10px] font-semibold text-blue-800 uppercase block">
+                Bill (Ex-VAT)
+              </span>
+              <span className="font-mono font-bold text-gray-900 text-xs">
+                Tk {formatTaka(profitSummary.billExVat)}
+              </span>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-200">
+              <span className="text-[10px] font-semibold text-gray-500 uppercase block">
+                VAT ({profitSummary.vatRatePct}%)
+              </span>
+              <span className="font-mono font-semibold text-gray-800 text-xs">
+                Tk {formatTaka(profitSummary.vatAmount)}
+              </span>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-indigo-50/60 border border-indigo-200">
+              <span className="text-[10px] font-semibold text-indigo-800 uppercase block">
+                Bill With VAT
+              </span>
+              <span className="font-mono font-bold text-indigo-900 text-xs">
+                Tk {formatTaka(profitSummary.billWithVat)}
+              </span>
+            </div>
+
+            <div className="p-2.5 rounded-lg bg-gray-50 border border-gray-200">
+              <span className="text-[10px] font-semibold text-gray-500 uppercase block">
+                Expected Inflow (-AIT)
+              </span>
+              <span className="font-mono font-bold text-gray-900 text-xs">
+                Tk {formatTaka(profitSummary.expectedInflow)}
+              </span>
+            </div>
+
+            <div
+              className={`p-2.5 rounded-lg border ${
+                profitSummary.netProfit >= 0
+                  ? "bg-emerald-50 border-emerald-300"
+                  : "bg-red-50 border-red-300"
+              }`}
+            >
+              <span className="text-[10px] font-bold text-gray-700 uppercase block">
+                Projected Net Profit
+              </span>
+              <span
+                className={`font-mono font-extrabold text-xs ${
+                  profitSummary.netProfit >= 0 ? "text-emerald-800" : "text-red-700"
+                }`}
+              >
+                Tk {formatTaka(profitSummary.netProfit)} ({profitSummary.netMarginPct}%)
+              </span>
+            </div>
+          </div>
+
+          {/* Baseline Comparison & Mandatory >10% Variance Reason Box */}
+          {varianceSummary && varianceSummary.baselineTotal > 0 && (
+            <div className="pt-2 border-t border-gray-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+              <div className="text-gray-600">
+                <span>
+                  {varianceSummary.baselineLabel}:{" "}
+                  <strong className="font-mono text-gray-900">
+                    Tk {formatTaka(varianceSummary.baselineTotal)}
+                  </strong>
+                </span>
+                {requisitionMode === "EVENT" &&
+                  (varianceSummary as any).priorSpend > 0 && (
+                    <span className="ml-3">
+                      &bull; Prior Event Requisitions:{" "}
+                      <strong className="font-mono text-gray-800">
+                        Tk {formatTaka((varianceSummary as any).priorSpend)}
+                      </strong>{" "}
+                      &bull; Cumulative Event Spend:{" "}
+                      <strong className="font-mono text-gray-900">
+                        Tk {formatTaka((varianceSummary as any).cumulativeEventTotal)}
+                      </strong>
+                    </span>
+                  )}
+                <span className="ml-3">
+                  &bull; Difference:{" "}
+                  <strong
+                    className={`font-mono ${
+                      varianceSummary.diffAmount > 0 ? "text-red-600" : "text-emerald-700"
+                    }`}
+                  >
+                    {varianceSummary.diffAmount > 0 ? "+" : ""}Tk{" "}
+                    {formatTaka(varianceSummary.diffAmount)}
+                  </strong>
+                </span>
+              </div>
+
+              {(varianceSummary.requiresReason || changeReason) && (
+                <div className="flex-1 max-w-xl">
+                  <input
+                    type="text"
+                    required={varianceSummary.requiresReason}
+                    value={changeReason}
+                    onChange={(e) => setChangeReason(e.target.value)}
+                    placeholder={
+                      requisitionMode === "PROJECT"
+                        ? "Mandatory: Explain reason for >10% change vs. last month (e.g. festival bonus, new headcount)..."
+                        : "Mandatory: Explain reason for exceeding approved Event Budget..."
+                    }
+                    className="w-full px-3 py-1.5 border-2 border-red-300 bg-red-50/40 rounded-md text-xs font-medium text-gray-900 focus:border-[#E42528]"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Actual Paper-Style Requisition Form Frame */}
       <div
@@ -752,13 +1262,28 @@ export default function RequisitionForm({ user, companies, departments = [], pro
         </div>
 
         {/* Line Items Table */}
-        <div className="mt-4 border border-gray-400 rounded overflow-hidden">
+        <div className="mt-4 border border-gray-400 rounded overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-gray-100 border-b border-gray-400 text-gray-700 font-bold uppercase text-[10px]">
-                <th className="py-1.5 px-2 w-10 text-center border-r border-gray-300">SL.</th>
+                <th className="py-1.5 px-2 w-9 text-center border-r border-gray-300">SL.</th>
+                {requisitionMode !== "COMPANY" && (
+                  <>
+                    <th className="py-1.5 px-2 border-r border-gray-300 w-44">
+                      {requisitionMode === "EVENT" ? "Event Cost Head" : "Project Cost Head"}
+                    </th>
+                    <th className="py-1.5 px-2 border-r border-gray-300 w-24 text-center">
+                      Cost Type
+                    </th>
+                  </>
+                )}
                 <th className="py-1.5 px-3 border-r border-gray-300">Particulars</th>
-                <th className="py-1.5 px-3 border-r border-gray-300 w-1/4">Purpose</th>
+                <th className="py-1.5 px-3 border-r border-gray-300 w-40">Purpose</th>
+                {requisitionMode === "PROJECT" && (
+                  <th className="py-1.5 px-2 border-r border-gray-300 w-24 text-right">
+                    Last Month
+                  </th>
+                )}
                 <th className="py-1.5 px-2 border-r border-gray-300 w-16 text-right">Qty.</th>
                 <th className="py-1.5 px-2 border-r border-gray-300 w-24 text-right">Unit Price</th>
                 <th className="py-1.5 px-3 border-r border-gray-300 w-28 text-right">Amount</th>
@@ -776,6 +1301,46 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                     <td className="py-1 px-2 text-center font-semibold text-gray-600 border-r border-gray-300">
                       {row.sl}
                     </td>
+
+                    {requisitionMode !== "COMPANY" && (
+                      <>
+                        <td className="py-1 px-1.5 border-r border-gray-300">
+                          <select
+                            value={row.costHead}
+                            onChange={(e) => handleRowChange(index, "costHead", e.target.value)}
+                            className="w-full px-1.5 py-0.5 border border-gray-200 rounded text-[11px] font-semibold bg-white"
+                          >
+                            <option value="">-- Custom Item --</option>
+                            {activeCostHeads.map((ch) => (
+                              <option key={ch.id} value={ch.name}>
+                                {ch.name}
+                              </option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="py-1 px-1.5 border-r border-gray-300 text-center">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleRowChange(
+                                index,
+                                "costTag",
+                                row.costTag === "BILLABLE" ? "IMS_INVESTMENT" : "BILLABLE"
+                              )
+                            }
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-bold border cursor-pointer ${
+                              row.costTag === "IMS_INVESTMENT"
+                                ? "bg-amber-50 text-amber-800 border-amber-300"
+                                : "bg-green-50 text-green-800 border-green-300"
+                            }`}
+                            title="Click to toggle between BILLABLE (Client Billed) and IMS_INVESTMENT (IMS Cost)"
+                          >
+                            {row.costTag === "IMS_INVESTMENT" ? "IMS INV." : "BILLABLE"}
+                          </button>
+                        </td>
+                      </>
+                    )}
+
                     <td className="py-1 px-2 border-r border-gray-300">
                       <input
                         type="text"
@@ -795,6 +1360,13 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                         className="w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E42528] rounded text-xs"
                       />
                     </td>
+
+                    {requisitionMode === "PROJECT" && (
+                      <td className="py-1 px-2 border-r border-gray-300 text-right font-mono text-[11px] text-gray-500">
+                        {row.lastMonthAmount > 0 ? formatTaka(row.lastMonthAmount) : "—"}
+                      </td>
+                    )}
+
                     <td className="py-1 px-1 border-r border-gray-300">
                       <input
                         type="number"
@@ -835,7 +1407,16 @@ export default function RequisitionForm({ user, companies, departments = [], pro
 
               {/* Total row matching paper layout */}
               <tr className="bg-gray-100 font-bold text-xs border-t-2 border-gray-400">
-                <td colSpan={5} className="py-2 px-4 text-right uppercase tracking-wider border-r border-gray-300">
+                <td
+                  colSpan={
+                    requisitionMode === "PROJECT"
+                      ? 8
+                      : requisitionMode === "EVENT"
+                      ? 7
+                      : 5
+                  }
+                  className="py-2 px-4 text-right uppercase tracking-wider border-r border-gray-300"
+                >
                   Total
                 </td>
                 <td className="py-2 px-3 text-right text-sm text-[#E42528] font-extrabold border-r border-gray-300">
@@ -907,7 +1488,25 @@ export default function RequisitionForm({ user, companies, departments = [], pro
               </span>
             </label>
             <span className="text-[11px] text-gray-400">
-              💡 Tip: Use <a href="https://tinyjpg.com" target="_blank" rel="noreferrer" className="underline text-blue-600">TinyJPG.com</a> or <a href="https://www.ilovepdf.com/compress_pdf" target="_blank" rel="noreferrer" className="underline text-blue-600">ILovePDF</a> to resize
+              💡 Tip: Use{" "}
+              <a
+                href="https://tinyjpg.com"
+                target="_blank"
+                rel="noreferrer"
+                className="underline text-blue-600"
+              >
+                TinyJPG.com
+              </a>{" "}
+              or{" "}
+              <a
+                href="https://www.ilovepdf.com/compress_pdf"
+                target="_blank"
+                rel="noreferrer"
+                className="underline text-blue-600"
+              >
+                ILovePDF
+              </a>{" "}
+              to resize
             </span>
           </div>
 
@@ -935,8 +1534,12 @@ export default function RequisitionForm({ user, companies, departments = [], pro
                   className="flex items-center space-x-1.5 px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-md text-xs"
                 >
                   <span className="text-gray-500">📎</span>
-                  <span className="font-semibold text-gray-800 max-w-[180px] truncate">{file.name}</span>
-                  <span className="text-[10px] font-mono text-gray-500">({(file.size / 1024).toFixed(0)} KB)</span>
+                  <span className="font-semibold text-gray-800 max-w-[180px] truncate">
+                    {file.name}
+                  </span>
+                  <span className="text-[10px] font-mono text-gray-500">
+                    ({(file.size / 1024).toFixed(0)} KB)
+                  </span>
                   <button
                     type="button"
                     onClick={() => removeAttachment(i)}
@@ -966,6 +1569,11 @@ export default function RequisitionForm({ user, companies, departments = [], pro
             type="button"
             onClick={() => {
               if (attachmentError) return;
+              if (varianceSummary?.requiresReason && !changeReason.trim()) {
+                setError(varianceSummary.reasonPrompt);
+                return;
+              }
+              setError("");
               setSubmitAction("SUBMIT");
               setShowSignModal(true);
             }}
@@ -983,7 +1591,9 @@ export default function RequisitionForm({ user, companies, departments = [], pro
             <h3 className="text-sm font-bold text-gray-900 flex items-center space-x-1.5">
               <span>✍️</span>
               <span>
-                {submitAction === "SUBMIT" ? "Digitally Sign & Submit" : "Save Requisition as Draft"}
+                {submitAction === "SUBMIT"
+                  ? "Digitally Sign & Submit"
+                  : "Save Requisition as Draft"}
               </span>
             </h3>
             <p className="text-xs text-gray-500 mt-1">
@@ -993,11 +1603,15 @@ export default function RequisitionForm({ user, companies, departments = [], pro
             {user.signature ? (
               <div className="mt-3 p-2 bg-gray-50 border border-gray-200 rounded text-center">
                 <span className="text-[10px] text-gray-500 block mb-0.5">Your Signature:</span>
-                <img src={user.signature} alt="Signature" className="h-12 w-auto mx-auto object-contain" />
+                <img
+                  src={user.signature}
+                  alt="Signature"
+                  className="h-12 w-auto mx-auto object-contain"
+                />
               </div>
             ) : (
               <div className="mt-3 p-2 bg-amber-50 border border-amber-200 rounded text-xs text-amber-800">
-                Notice: You haven't drawn a signature in your profile yet. Your digital identity stamp will be used.
+                Notice: You haven&apos;t drawn a signature in your profile yet. Your digital identity stamp will be used.
               </div>
             )}
 

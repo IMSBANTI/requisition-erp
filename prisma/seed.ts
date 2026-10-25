@@ -5,6 +5,11 @@
  */
 import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import {
+  DEFAULT_PROJECT_COST_HEADS,
+  DEFAULT_EVENT_COST_HEADS,
+  getDefaultProjectTermsByCode,
+} from "../src/lib/profitEngine";
 
 const prisma = new PrismaClient();
 const P = {
@@ -734,6 +739,8 @@ async function main() {
 
     const existingProj = await prisma.project.findUnique({ where: { code: p.code } });
     if (!existingProj) {
+      const isEvt = p.kind === "EVENT" || p.code.toUpperCase().startsWith("EVT-");
+      const defaultTerms = getDefaultProjectTermsByCode(p.code, p.kind);
       await prisma.project.create({
         data: {
           code: p.code,
@@ -746,6 +753,14 @@ async function main() {
           directorId: p.directorEmpId ? userByEmpId[p.directorEmpId] : null,
           mdApprovalMode: p.md ?? "INSTANT",
           requisitionTypes: p.types ?? ["BPO", "ADMIN", "CASH"],
+          billingProfile: String(defaultTerms.billingProfile || "COST_PLUS"),
+          feeRate: Number(defaultTerms.feeRate ?? 0.08),
+          aitRate: Number(defaultTerms.aitRate ?? 0.012),
+          vatRate: Number(defaultTerms.vatRate ?? 0.15),
+          billCycleDays: Number(defaultTerms.billCycleDays ?? 30),
+          funding: String(defaultTerms.funding || "POSTPAID"),
+          salaryMonthLag: Number(defaultTerms.salaryMonthLag ?? (isEvt ? 0 : 1)),
+          costHeads: (isEvt ? DEFAULT_EVENT_COST_HEADS : DEFAULT_PROJECT_COST_HEADS) as any,
           members: { connect: memberIds.map((id) => ({ id })) },
         },
       });

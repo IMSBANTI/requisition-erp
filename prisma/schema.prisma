@@ -72,6 +72,19 @@ model Project {
   mdApprovalMode   String        @default("INSTANT") // INSTANT | WEEKLY | MONTHLY
   releaseBeforeMd  Boolean       @default(true) // batch projects: Accounts may execute after Director
   budget           Decimal?      @db.Decimal(14, 2)
+  // Financial & Billing Calculation Profile (Projects & Events)
+  billingProfile       String    @default("COST_PLUS") // COST_PLUS | COST_PLUS_GROSSUP | COMMISSION | FIXED_FEE | FIXED_QUOTE
+  feeRate              Decimal   @default(0.08) @db.Decimal(6, 4) // e.g. 0.08 = 8%, 0.045 = 4.5%
+  aitRate              Decimal   @default(0.012) @db.Decimal(6, 4) // e.g. 0.012 = 1.2%, 0.02 = 2%
+  vatRate              Decimal   @default(0.15) @db.Decimal(6, 4) // 0.15 = 15%
+  billCycleDays        Int       @default(30) // 0 | 15 | 30 | 60
+  funding              String    @default("POSTPAID") // POSTPAID | PREPAID
+  salaryMonthLag       Int       @default(1) // 0 | 1 (for Projects)
+  fixedMonthlyBill     Decimal?  @db.Decimal(14, 2) // Fixed Monthly Bill (Project FIXED_FEE) or Fixed Event Quote Ex-VAT (Event FIXED_QUOTE)
+  maintenanceBudget    Decimal   @default(0) @db.Decimal(14, 2) // Monthly maintenance budget (FIXED_FEE)
+  monthlyAmortization  Decimal   @default(0) @db.Decimal(14, 2) // Monthly capex amortization + cost of fund
+  varianceThresholdPct Decimal   @default(10) @db.Decimal(5, 2) // Mandatory reason threshold (default 10%)
+  costHeads            Json?     // Array of { id, name, tag: "BILLABLE" | "IMS_INVESTMENT", isSalary?: boolean }
   active           Boolean       @default(true)
   createdById      String?
   createdAt        DateTime      @default(now())
@@ -157,7 +170,15 @@ model Requisition {
   makerDesignation String
   date            DateTime          @default(now())
   disburseOn      DateTime?
+  forMonth        String?           // Service Month (YYYY-MM) for Project Requisitions
   total           Decimal           @default(0) @db.Decimal(14, 2)
+  billableTotal   Decimal           @default(0) @db.Decimal(14, 2)
+  imsInvestmentTotal Decimal        @default(0) @db.Decimal(14, 2)
+  lastMonthTotal  Decimal?          @db.Decimal(14, 2) // Last month's total (Project) or prior event spend (Event)
+  variancePct     Decimal?          @db.Decimal(8, 2)  // % variance vs last month (Project) or vs budget (Event)
+  changeReason    String?           // Mandatory reason when variance > threshold (e.g. >10%)
+  projectedBillExVat Decimal?       @db.Decimal(14, 2)
+  projectedNetProfit Decimal?       @db.Decimal(14, 2)
   amountInWords   String            @default("")
   comments        String?
   paymentMode     String?           // CASH | CHEQUE | BANK | ADVANCE | BILL_ADJUSTMENT
@@ -189,15 +210,19 @@ model Requisition {
 }
 
 model RequisitionItem {
-  id            String      @id @default(cuid())
-  requisitionId String
-  requisition   Requisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
-  sl            Int
-  particulars   String
-  purpose       String?
-  qty           Decimal     @db.Decimal(14, 3)
-  unitPrice     Decimal     @db.Decimal(14, 2)
-  amount        Decimal     @db.Decimal(14, 2)
+  id              String      @id @default(cuid())
+  requisitionId   String
+  requisition     Requisition @relation(fields: [requisitionId], references: [id], onDelete: Cascade)
+  sl              Int
+  costHead        String?     // Cost Head name (Project or Event)
+  costTag         String      @default("BILLABLE") // BILLABLE | IMS_INVESTMENT
+  forMonth        String?     // Per-line service month (YYYY-MM), e.g. lagged salary
+  lastMonthAmount Decimal?    @db.Decimal(14, 2) // Previous month amount for comparison
+  particulars     String
+  purpose         String?
+  qty             Decimal     @db.Decimal(14, 3)
+  unitPrice       Decimal     @db.Decimal(14, 2)
+  amount          Decimal     @db.Decimal(14, 2)
 }
 
 /// One row per signature/action. step: MAKER | HEAD | CHECKER | ACCOUNTS | DIRECTOR | MD | FORWARD | EXECUTION

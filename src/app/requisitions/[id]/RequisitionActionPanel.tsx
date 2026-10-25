@@ -10,6 +10,17 @@ interface PersonOption {
   designation: string;
 }
 
+interface LineItemOption {
+  id: string;
+  sl: number;
+  particulars: string;
+  costHead?: string | null;
+  costTag?: string;
+  qty: number;
+  unitPrice: number;
+  amount: number;
+}
+
 interface PanelProps {
   requisitionId: string;
   number: string | null;
@@ -23,6 +34,7 @@ interface PanelProps {
   accountsExecutives: PersonOption[];
   directors: PersonOption[];
   defaultDirectorId?: string | null;
+  items?: LineItemOption[];
 }
 
 const ACTION_TITLES: Record<string, string> = {
@@ -49,6 +61,7 @@ export default function RequisitionActionPanel({
   accountsExecutives,
   directors,
   defaultDirectorId,
+  items = [],
 }: PanelProps) {
   const router = useRouter();
 
@@ -60,6 +73,8 @@ export default function RequisitionActionPanel({
     defaultDirectorId || directors[0]?.id || ""
   );
   const [showDrawPad, setShowDrawPad] = useState(!userSignature);
+  const [adjustLowerMode, setAdjustLowerMode] = useState(false);
+  const [adjustedPrices, setAdjustedPrices] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -92,6 +107,12 @@ export default function RequisitionActionPanel({
     setSelectedAction(act);
     setError("");
     setShowDrawPad(!userSignature);
+    setAdjustLowerMode(false);
+    const initialMap: Record<string, string> = {};
+    for (const it of items) {
+      initialMap[it.id] = String(it.unitPrice);
+    }
+    setAdjustedPrices(initialMap);
     // Pre-fill email if user doesn't have a 4-digit PIN set for faster 1-click signing
     if (!hasPin && userEmail) {
       setPinOrPassword(userEmail);
@@ -103,6 +124,20 @@ export default function RequisitionActionPanel({
   async function handleConfirmAction() {
     if (!selectedAction) return;
     setError("");
+
+    const hasReducedAnyLine =
+      adjustLowerMode &&
+      items.some(
+        (it) =>
+          adjustedPrices[it.id] !== undefined &&
+          parseFloat(adjustedPrices[it.id]) < it.unitPrice
+      );
+
+    if (hasReducedAnyLine && !comment.trim()) {
+      setError("Please enter a comment/reason when approving a lower amount.");
+      return;
+    }
+
     setLoading(true);
 
     try {
@@ -122,6 +157,15 @@ export default function RequisitionActionPanel({
           targetDirectorId:
             selectedAction === "APPROVE_TO_DIRECTOR" ? targetDirectorId : undefined,
           signatureDataUrl,
+          adjustedItems: hasReducedAnyLine
+            ? items.map((it) => ({
+                id: it.id,
+                unitPrice: Math.min(
+                  it.unitPrice,
+                  Math.max(0, parseFloat(adjustedPrices[it.id]) || 0)
+                ),
+              }))
+            : undefined,
         }),
       });
 
@@ -356,7 +400,58 @@ export default function RequisitionActionPanel({
 
             {/* Digital Signature Preview or Draw Pad */}
             {selectedAction !== "REJECT" && selectedAction !== "RETURN" && (
-              <div className="mt-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
+              <>
+                {items.length > 0 && selectedAction.startsWith("APPROVE") && (
+                  <div className="mt-4 p-3 rounded-lg border border-amber-200 bg-amber-50/50">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-gray-800">
+                        Approve Lower Amount (Optional)
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setAdjustLowerMode(!adjustLowerMode)}
+                        className="text-[11px] font-bold text-amber-800 hover:underline cursor-pointer"
+                      >
+                        {adjustLowerMode ? "Cancel Adjustment" : "✏️ Adjust Line Amounts Downward"}
+                      </button>
+                    </div>
+                    {adjustLowerMode && (
+                      <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                        {items.map((it) => (
+                          <div
+                            key={it.id}
+                            className="flex items-center justify-between gap-2 bg-white px-2.5 py-1.5 rounded border border-gray-200 text-xs"
+                          >
+                            <div className="truncate flex-1">
+                              <span className="font-semibold text-gray-800">
+                                {it.sl}. {it.particulars}
+                              </span>
+                              <span className="block text-[10px] text-gray-400">
+                                Requested Unit Price: Tk {it.unitPrice} (Qty: {it.qty})
+                              </span>
+                            </div>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              max={it.unitPrice}
+                              value={adjustedPrices[it.id] ?? String(it.unitPrice)}
+                              onChange={(e) =>
+                                setAdjustedPrices({
+                                  ...adjustedPrices,
+                                  [it.id]: e.target.value,
+                                })
+                              }
+                              className="w-28 px-2 py-1 border border-gray-300 rounded text-right font-mono font-bold text-xs"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-bold text-gray-800">
                     Your Digital Signature on Voucher
@@ -405,7 +500,8 @@ export default function RequisitionActionPanel({
                     </div>
                   </div>
                 )}
-              </div>
+                </div>
+              </>
             )}
 
             {/* Comments / Notes */}

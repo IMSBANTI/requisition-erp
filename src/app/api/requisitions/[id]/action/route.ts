@@ -3,6 +3,8 @@ import crypto from "crypto";
 import { requireUser, verifySecret, clientIp } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { stateAfter, STATUS_STEP, ChainStep } from "@/lib/workflow";
+import { amountInWords } from "@/lib/numberToWords";
+import { grandTotal } from "@/lib/money";
 import { createNotification, notifyUsers, findUsersWithPermission } from "@/lib/notifications";
 
 function resolveSignerBoxStep(user: { permissions: string[] }, currentStep?: string) {
@@ -27,6 +29,7 @@ export async function POST(
       forwardToId,
       targetDirectorId,
       signatureDataUrl,
+      adjustedItems,
     } = await request.json();
 
     // Authenticate user's PIN or password
@@ -64,7 +67,7 @@ export async function POST(
 
     const req = await prisma.requisition.findUnique({
       where: { id },
-      include: { project: true, company: true, approvals: true },
+      include: { project: true, company: true, approvals: true, items: true },
     });
 
     if (!req) {
@@ -75,6 +78,61 @@ export async function POST(
     const currentStep = STATUS_STEP[req.status];
     const chain = (req.chain as unknown as ChainStep[]) || [];
     const signerStep = resolveSignerBoxStep(user, currentStep);
+
+    // Handle "Approve Lower Amount" line adjustments if provided by Approver
+    let reductionSummary = "";
+    if (Array.isArray(adjustedItems) && adjustedItems.length > 0) {
+      if (!comment || !String(comment).trim()) {
+        return NextResponse.json(
+          { error: "A comment/reason is mandatory when approving a lower amount." },
+          { status: 400 }
+        );
+      }
+      let newBillable = 0;
+      let newImsInv = 0;
+      const updatedForTotal: Array<{ qty: number; unitPrice: number }> = [];
+
+      for (const existingItem of req.items) {
+        const adj = adjustedItems.find((a: any) => a.id === existingItem.id);
+        const newUnitPrice =
+          adj && adj.unitPrice !== undefined
+            ? Math.min(Number(existingItem.unitPrice), Math.max(0, Number(adj.unitPrice)))
+            : Number(existingItem.unitPrice);
+        const qtyNum = Number(existingItem.qty);
+        const lineAmt = qtyNum * newUnitPrice;
+        updatedForTotal.push({ qty: qtyNum, unitPrice: newUnitPrice });
+
+        if ((existingItem as any).costTag === "IMS_INVESTMENT") {
+          newImsInv += lineAmt;
+        } else {
+          newBillable += lineAmt;
+        }
+
+        if (newUnitPrice !== Number(existingItem.unitPrice)) {
+          await prisma.requisitionItem.update({
+            where: { id: existingItem.id },
+            data: {
+              unitPrice: newUnitPrice,
+              amount: lineAmt,
+            },
+          });
+        }
+      }
+
+      const newTotal = grandTotal(updatedForTotal);
+      if (newTotal.toNumber() < Number(req.total)) {
+        reductionSummary = ` [Approved Lower Amount: Tk ${newTotal.toFixed(2)} reduced from Tk ${Number(req.total).toFixed(2)}]`;
+        await prisma.requisition.update({
+          where: { id: req.id },
+          data: {
+            total: newTotal.toNumber(),
+            billableTotal: newBillable,
+            imsInvestmentTotal: newImsInv,
+            amountInWords: amountInWords(newTotal),
+          },
+        });
+      }
+    }
 
     // Document hash for digital signature audit
     const docHash = crypto
@@ -97,7 +155,7 @@ export async function POST(
             signerName: user.name,
             signerDesignation: user.designation,
             signature: activeSignature,
-            comment: comment || "Approved and digitally signed",
+            comment: (comment || "Approved and digitally signed") + reductionSummary,
             docHash,
             ip,
           },
@@ -181,7 +239,7 @@ export async function POST(
             signerName: user.name,
             signerDesignation: user.designation,
             signature: activeSignature,
-            comment: comment || "Approved and sent to Accounts",
+            comment: (comment || "Approved and sent to Accounts") + reductionSummary,
             docHash,
             ip,
           },
@@ -248,7 +306,7 @@ export async function POST(
             signerName: user.name,
             signerDesignation: user.designation,
             signature: activeSignature,
-            comment: comment || "Signed and forwarded to Director for approval",
+            comment: (comment || "Signed and forwarded to Director for approval") + reductionSummary,
             docHash,
             ip,
           },
@@ -301,7 +359,7 @@ export async function POST(
             signerName: user.name,
             signerDesignation: user.designation,
             signature: activeSignature,
-            comment: comment || "Signed and forwarded to Managing Director (MD) for further approval",
+            comment: (comment || "Signed and forwarded to Managing Director (MD) for further approval") + reductionSummary,
             docHash,
             ip,
           },
