@@ -251,6 +251,15 @@ export default async function FinancePnlPage() {
         billableCost: reqBillable,
         imsInvestment: reqIms,
         total: Number(r.total || 0),
+        remarks: r.remarks || "",
+        items: (r.items || []).map((it: any) => ({
+          id: it.id,
+          sl: it.sl,
+          particulars: it.particulars,
+          costHead: it.costHead || "Uncategorized",
+          costTag: it.costTag || "BILLABLE",
+          amount: Number(it.amount || 0),
+        })),
       };
     });
 

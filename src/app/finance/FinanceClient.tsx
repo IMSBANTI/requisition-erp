@@ -1,1208 +1,1567 @@
 "use client";
 
-import { useState, useMemo, Fragment } from "react";
-import Link from "next/link";
+import React, { useState, useMemo, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import { formatTaka } from "@/lib/money";
-import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
+import Link from "next/link";
 import { calculateProfitSummary } from "@/lib/profitEngine";
 
-interface Props {
-  projects: any[];
+function formatBDT(n: number) {
+  return Number(n || 0).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+  Legend,
+  PieChart,
+  Pie,
+  Cell,
+} from "recharts";
+
+type ClientBillItem = {
+  id: string;
+  projectId: string;
+  projectName: string;
+  projectCode: string;
+  kind: string;
+  forMonth: string;
+  billNumber: string;
+  poNumber: string;
+  status: string;
+  billableCost: number;
+  imsInvestment: number;
+  billExVat: number;
+  vatAmount: number;
+  billWithVat: number;
+  aitAmount: number;
+  expectedInflow: number;
+  receivedAmount: number;
+  accruedNetProfit: number;
+  realizedNetProfit: number;
+  submittedAt: string;
+  dueDate: string;
+  receivedAt: string;
+  deviationReason: string;
+  notes: string;
+};
+
+type RequisitionLineItem = {
+  id: string;
+  sl: number;
+  particulars: string;
+  costHead: string;
+  costTag: string;
+  amount: number;
+};
+
+type RequisitionSummaryItem = {
+  id: string;
+  number: string;
+  forMonth: string;
+  date: string;
+  makerName: string;
+  status: string;
+  billableCost: number;
+  imsInvestment: number;
+  total: number;
+  remarks?: string;
+  items?: RequisitionLineItem[];
+};
+
+type ProjectFinanceItem = {
+  id: string;
+  code: string;
+  name: string;
+  companyName: string;
+  kind: string;
+  headName: string;
+  directorName: string;
+  budget: number;
+  terms: {
+    billingProfile: any;
+    feeRate: number;
+    aitRate: number;
+    vatRate: number;
+    billCycleDays: number;
+    funding: any;
+    fixedMonthlyBill: number;
+    maintenanceBudget: number;
+    monthlyAmortization: number;
+  };
+  reqCount: number;
+  requisitionsList: RequisitionSummaryItem[];
+  totalBillableReq: number;
+  totalImsInvReq: number;
+  executedBillable: number;
+  executedImsInv: number;
+  overallCalc: any;
+  monthlyBreakdown: Array<{
+    forMonth: string;
+    billableCost: number;
+    imsInvestment: number;
+    executedBillable: number;
+    executedImsInv: number;
+    reqCount: number;
+  }>;
+  bills: ClientBillItem[];
+  totalReceivedFromBills: number;
+  totalExpectedFromBills: number;
+  totalBilledWithVat: number;
+};
+
+const BILLING_MODEL_LABELS: Record<string, string> = {
+  COST_PLUS: "Cost + Service Fee",
+  COST_PLUS_GROSSUP: "Cost + Fee (AIT Gross-Up)",
+  COMMISSION: "Direct Commission",
+  FIXED_FEE: "Fixed Retainer",
+  FIXED_QUOTE: "Fixed Event Quote",
+};
+
+const STATUS_BADGES: Record<string, { label: string; cls: string }> = {
+  UNBILLED: {
+    label: "Unbilled",
+    cls: "bg-gray-100 text-gray-700 border-gray-200",
+  },
+  SUBMITTED: {
+    label: "Bill Submitted",
+    cls: "bg-blue-50 text-blue-700 border-blue-200",
+  },
+  PARTIAL_PAID: {
+    label: "Partial Payment",
+    cls: "bg-amber-50 text-amber-800 border-amber-200",
+  },
+  PAID: {
+    label: "Full / Final Payment",
+    cls: "bg-emerald-50 text-emerald-800 border-emerald-200",
+  },
+};
+
+const PIE_COLORS = [
+  "#2563eb",
+  "#059669",
+  "#d97706",
+  "#7c3aed",
+  "#dc2626",
+  "#0891b2",
+  "#4f46e5",
+  "#ea580c",
+];
+
+export default function FinanceClient({
+  projects,
+  canEditFinance,
+}: {
+  projects: ProjectFinanceItem[];
   canEditFinance: boolean;
-}
-
-function getCurrentYearMonth(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
-
-export default function FinanceClient({ projects, canEditFinance }: Props) {
+}) {
   const router = useRouter();
 
-  // Strictly separate Projects P&L, Events P&L, and Client Bills Ledger
-  const [activeTab, setActiveTab] = useState<"PROJECT_PNL" | "EVENT_PNL" | "BILLS_LEDGER">(
-    "PROJECT_PNL"
-  );
-  const [selectedMonth, setSelectedMonth] = useState<string>("ALL");
-  const [search, setSearch] = useState("");
-  const [expandedProjectIds, setExpandedProjectIds] = useState<Record<string, boolean>>({});
-
-  // Modal state for Recording / Updating a Client Bill & Partial/Full Payment Received
-  const [showBillModal, setShowBillModal] = useState(false);
-  const [editBillId, setEditBillId] = useState<string | null>(null);
-  const [modalProjectId, setModalProjectId] = useState<string>(projects[0]?.id || "");
-  const [modalForMonth, setModalForMonth] = useState<string>(getCurrentYearMonth());
-  const [modalBillNo, setModalBillNo] = useState<string>("");
-  const [modalPoNo, setModalPoNo] = useState<string>("");
-  const [modalStatus, setModalStatus] = useState<string>("PARTIAL_PAID");
-  const [modalBillableCost, setModalBillableCost] = useState<string>("0");
-  const [modalImsInvCost, setModalImsInvCost] = useState<string>("0");
-  const [modalCustomBillExVat, setModalCustomBillExVat] = useState<string>("");
-  const [modalReceivedAmount, setModalReceivedAmount] = useState<string>("0");
-  const [modalSubmittedAt, setModalSubmittedAt] = useState<string>(
-    new Date().toISOString().slice(0, 10)
-  );
-  const [modalReceivedAt, setModalReceivedAt] = useState<string>(
-    new Date().toISOString().slice(0, 10)
-  );
-  const [modalDeviationReason, setModalDeviationReason] = useState<string>("");
-  const [modalNotes, setModalNotes] = useState<string>("");
-  const [saving, setSaving] = useState(false);
-  const [modalError, setModalError] = useState("");
-
-  const projectsOnly = useMemo(
-    () => projects.filter((p) => p.kind !== "EVENT"),
+  // Strictly separate Projects vs Events
+  const permanentProjects = useMemo(
+    () => projects.filter((p) => p.kind === "PERMANENT"),
     [projects]
   );
-  const eventsOnly = useMemo(
+  const eventProjects = useMemo(
     () => projects.filter((p) => p.kind === "EVENT"),
     [projects]
   );
 
-  // Collect all unique service months across requisitions and bills
+  const [activeType, setActiveType] = useState<"PERMANENT" | "EVENT">("PERMANENT");
+
+  // Pick default project/event (prefer first one with requisitions or payments)
+  const currentList = activeType === "PERMANENT" ? permanentProjects : eventProjects;
+
+  const [selectedId, setSelectedId] = useState<string>(() => {
+    const firstActive =
+      permanentProjects.find((p) => p.reqCount > 0 || p.bills.length > 0) ||
+      permanentProjects[0];
+    return firstActive ? firstActive.id : "";
+  });
+
+  // When switching between Projects and Events, select the first item in that list
+  useEffect(() => {
+    const list = activeType === "PERMANENT" ? permanentProjects : eventProjects;
+    if (!list.some((p) => p.id === selectedId)) {
+      const firstActive =
+        list.find((p) => p.reqCount > 0 || p.bills.length > 0) || list[0];
+      setSelectedId(firstActive ? firstActive.id : "");
+    }
+  }, [activeType, permanentProjects, eventProjects, selectedId]);
+
+  const selectedProject = useMemo(
+    () => currentList.find((p) => p.id === selectedId) || currentList[0] || null,
+    [currentList, selectedId]
+  );
+
+  const [selectedMonth, setSelectedMonth] = useState<string>("ALL");
+  const [expandedReqId, setExpandedReqId] = useState<string | null>(null);
+
+  // Reset month filter when switching project
+  useEffect(() => {
+    setSelectedMonth("ALL");
+    setExpandedReqId(null);
+  }, [selectedId]);
+
+  // Modal state for Recording / Editing a Partial or Full Client Payment
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editingBillId, setEditingBillId] = useState<string | null>(null);
+  const [formMonth, setFormMonth] = useState<string>(
+    new Date().toISOString().slice(0, 7)
+  );
+  const [formBillNo, setFormBillNo] = useState("");
+  const [formPoNo, setFormPoNo] = useState("");
+  const [formStatus, setFormStatus] = useState("PARTIAL_PAID");
+  const [formBillableCost, setFormBillableCost] = useState("");
+  const [formImsInv, setFormImsInv] = useState("");
+  const [formBillExVat, setFormBillExVat] = useState("");
+  const [formVatAmt, setFormVatAmt] = useState("");
+  const [formAitAmt, setFormAitAmt] = useState("");
+  const [formReceivedAmt, setFormReceivedAmt] = useState("");
+  const [formSubmittedAt, setFormSubmittedAt] = useState("");
+  const [formDueDate, setFormDueDate] = useState("");
+  const [formReceivedAt, setFormReceivedAt] = useState("");
+  const [formDeviation, setFormDeviation] = useState("");
+  const [formNotes, setFormNotes] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // Available months for the selected project
   const availableMonths = useMemo(() => {
+    if (!selectedProject) return [];
     const set = new Set<string>();
-    set.add(getCurrentYearMonth());
-    for (const p of projects) {
-      for (const m of p.monthlyBreakdown || []) {
-        if (m.forMonth) set.add(m.forMonth);
-      }
-      for (const b of p.bills || []) {
-        if (b.forMonth && b.forMonth !== "EVENT") set.add(b.forMonth);
-      }
+    for (const m of selectedProject.monthlyBreakdown) {
+      if (m.forMonth) set.add(m.forMonth);
+    }
+    for (const b of selectedProject.bills) {
+      if (b.forMonth && b.forMonth !== "ALL") set.add(b.forMonth);
     }
     return Array.from(set).sort((a, b) => b.localeCompare(a));
-  }, [projects]);
+  }, [selectedProject]);
 
-  // Compute P&L rows for the active list (Projects or Events)
-  const activePnlRows = useMemo(() => {
-    const baseList = activeTab === "EVENT_PNL" ? eventsOnly : projectsOnly;
-    return baseList
-      .filter(
-        (p) =>
-          !search ||
-          p.name.toLowerCase().includes(search.toLowerCase()) ||
-          p.code.toLowerCase().includes(search.toLowerCase())
-      )
-      .map((p) => {
-        const matchingReqs = (p.requisitionsList || []).filter((r: any) =>
-          activeTab === "PROJECT_PNL" && selectedMonth !== "ALL"
-            ? r.forMonth === selectedMonth
-            : true
-        );
+  // Filtered Requisitions & Payments for the selected project and month
+  const activeStats = useMemo(() => {
+    if (!selectedProject) return null;
 
-        const billableCost = matchingReqs.reduce(
-          (s: number, r: any) => s + r.billableCost,
-          0
-        );
-        const imsInvestment = matchingReqs.reduce(
-          (s: number, r: any) => s + r.imsInvestment,
-          0
-        );
-        const reqCount = matchingReqs.length;
+    const reqs =
+      selectedMonth === "ALL"
+        ? selectedProject.requisitionsList
+        : selectedProject.requisitionsList.filter(
+            (r) => r.forMonth === selectedMonth
+          );
 
-        // Check all partial/full ClientBill payment installments for this Project/Event (& Month)
-        const matchingBills = (p.bills || []).filter((b: any) =>
-          activeTab === "PROJECT_PNL" && selectedMonth !== "ALL"
-            ? b.forMonth === selectedMonth
-            : true
-        );
+    const bills =
+      selectedMonth === "ALL"
+        ? selectedProject.bills
+        : selectedProject.bills.filter((b) => b.forMonth === selectedMonth);
 
-        const calc = calculateProfitSummary({
-          terms: p.terms,
-          billableCost,
-          imsInvestment,
+    const billableSpend = reqs.reduce((sum, r) => sum + r.billableCost, 0);
+    const imsSpend = reqs.reduce((sum, r) => sum + r.imsInvestment, 0);
+    const totalSpend = billableSpend + imsSpend;
+
+    const calc = calculateProfitSummary({
+      terms: selectedProject.terms,
+      billableCost: billableSpend,
+      imsInvestment: imsSpend,
+    });
+
+    const latestBillWithInvoice = bills.find((b) => b.billExVat > 0);
+    const billedExVat = latestBillWithInvoice
+      ? latestBillWithInvoice.billExVat
+      : calc.billExVat;
+    const billedWithVat = latestBillWithInvoice
+      ? latestBillWithInvoice.billWithVat
+      : calc.billWithVat;
+    const expectedInflow = latestBillWithInvoice
+      ? latestBillWithInvoice.expectedInflow
+      : calc.expectedInflow;
+
+    const receivedAmount = bills.reduce((sum, b) => sum + b.receivedAmount, 0);
+    const remainingDue = Math.max(0, expectedInflow - receivedAmount);
+    const accruedProfit = expectedInflow - totalSpend;
+    const realizedProfit = receivedAmount - totalSpend;
+    const collectionPercent =
+      expectedInflow > 0
+        ? Math.min(100, Math.round((receivedAmount / expectedInflow) * 100))
+        : 0;
+
+    return {
+      reqs,
+      bills,
+      billableSpend,
+      imsSpend,
+      totalSpend,
+      calc,
+      billedExVat,
+      billedWithVat,
+      expectedInflow,
+      receivedAmount,
+      remainingDue,
+      accruedProfit,
+      realizedProfit,
+      collectionPercent,
+    };
+  }, [selectedProject, selectedMonth]);
+
+  // 1. Monthly Chart Data for Selected Project
+  const monthlyChartData = useMemo(() => {
+    if (!selectedProject) return [];
+    const map: Record<
+      string,
+      {
+        month: string;
+        billableCost: number;
+        imsInvestment: number;
+        totalCost: number;
+        receivedAmount: number;
+      }
+    > = {};
+
+    for (const r of selectedProject.requisitionsList) {
+      const m = r.forMonth || "Overall";
+      if (!map[m]) {
+        map[m] = {
+          month: m,
+          billableCost: 0,
+          imsInvestment: 0,
+          totalCost: 0,
+          receivedAmount: 0,
+        };
+      }
+      map[m].billableCost += r.billableCost;
+      map[m].imsInvestment += r.imsInvestment;
+      map[m].totalCost += r.billableCost + r.imsInvestment;
+    }
+
+    for (const b of selectedProject.bills) {
+      const m = b.forMonth || "Overall";
+      if (!map[m]) {
+        map[m] = {
+          month: m,
+          billableCost: 0,
+          imsInvestment: 0,
+          totalCost: 0,
+          receivedAmount: 0,
+        };
+      }
+      map[m].receivedAmount += b.receivedAmount;
+    }
+
+    return Object.values(map)
+      .sort((a, b) => a.month.localeCompare(b.month))
+      .map((row) => {
+        const c = calculateProfitSummary({
+          terms: selectedProject.terms,
+          billableCost: row.billableCost,
+          imsInvestment: row.imsInvestment,
         });
-
-        // Expected Bill is calculated once from the total requisition cost of the Project/Event (never multiplied by installment count)
-        const billedExVat = calc.billExVat;
-        const billedWithVat = calc.billWithVat;
-        const expectedInflow = calc.expectedInflow;
-
-        // Received Amount is the sum of all partial/full payment installments
-        const receivedAmount = matchingBills.reduce(
-          (s: number, b: any) => s + b.receivedAmount,
-          0
-        );
-        const outstandingAmount = Math.max(0, expectedInflow - receivedAmount);
-
-        const totalCostSpent =
-          billableCost +
-          imsInvestment +
-          (calc.maintenanceCost || 0) +
-          (calc.amortizationCost || 0);
-
-        const accruedNetProfit = expectedInflow - totalCostSpent;
-        const realizedCashProfit = receivedAmount - totalCostSpent;
-        const marginPct =
-          billedExVat > 0 ? Number(((accruedNetProfit / billedExVat) * 100).toFixed(1)) : 0;
-
         return {
-          ...p,
-          activeBillableCost: billableCost,
-          activeImsInvestment: imsInvestment,
-          activeTotalCost: totalCostSpent,
-          activeReqCount: reqCount,
-          matchingReqs,
-          billedExVat,
-          billedWithVat,
-          expectedInflow,
-          receivedAmount,
-          outstandingAmount,
-          accruedNetProfit,
-          realizedCashProfit,
-          marginPct,
-          matchingBills,
+          ...row,
+          expectedInflow: Math.round(c.expectedInflow),
+          accruedProfit: Math.round(c.expectedInflow - row.totalCost),
         };
       });
-  }, [activeTab, projectsOnly, eventsOnly, selectedMonth, search]);
+  }, [selectedProject]);
 
-  // Aggregate KPI Totals for top summary cards
-  const kpiTotals = useMemo(() => {
-    return activePnlRows.reduce(
-      (acc, r) => {
-        acc.billable += r.activeBillableCost;
-        acc.imsInv += r.activeImsInvestment;
-        acc.totalCost += r.activeTotalCost;
-        acc.billedWithVat += r.billedWithVat;
-        acc.expectedInflow += r.expectedInflow;
-        acc.receivedAmount += r.receivedAmount;
-        acc.outstanding += r.outstandingAmount;
-        acc.accruedProfit += r.accruedNetProfit;
-        acc.realizedProfit += r.realizedCashProfit;
-        return acc;
-      },
-      {
-        billable: 0,
-        imsInv: 0,
-        totalCost: 0,
-        billedWithVat: 0,
-        expectedInflow: 0,
-        receivedAmount: 0,
-        outstanding: 0,
-        accruedProfit: 0,
-        realizedProfit: 0,
-      }
-    );
-  }, [activePnlRows]);
-
-  // All Client Bills / Installments flattened for Ledger tab
-  const allBillsList = useMemo(() => {
-    const list: any[] = [];
-    for (const p of projects) {
-      for (const b of p.bills || []) {
-        if (
-          !search ||
-          p.name.toLowerCase().includes(search.toLowerCase()) ||
-          p.code.toLowerCase().includes(search.toLowerCase()) ||
-          (b.billNumber || "").toLowerCase().includes(search.toLowerCase())
-        ) {
-          list.push(b);
+  // 2. Cost Head Breakdown Pie Data for Selected Project
+  const costHeadPieData = useMemo(() => {
+    if (!activeStats) return [];
+    const map: Record<string, number> = {};
+    for (const r of activeStats.reqs) {
+      if (r.items && r.items.length > 0) {
+        for (const it of r.items) {
+          const head = it.costHead || "General Expense";
+          map[head] = (map[head] || 0) + it.amount;
+        }
+      } else {
+        if (r.billableCost > 0) {
+          map["Billable Requisition Spend"] =
+            (map["Billable Requisition Spend"] || 0) + r.billableCost;
+        }
+        if (r.imsInvestment > 0) {
+          map["IMS Own Investment"] =
+            (map["IMS Own Investment"] || 0) + r.imsInvestment;
         }
       }
     }
-    return list;
-  }, [projects, search]);
+    return Object.entries(map)
+      .map(([name, value]) => ({ name, value }))
+      .filter((d) => d.value > 0)
+      .sort((a, b) => b.value - a.value);
+  }, [activeStats]);
 
-  // Open Modal to Record a New Partial/Full Payment Installment (or Edit an existing one)
-  function openRecordPaymentModal(proj?: any, monthOverride?: string, existingBill?: any) {
-    const targetProj = proj || projects[0];
-    if (!targetProj) return;
+  // 3. Requisition-by-Requisition Bar Data
+  const reqBarData = useMemo(() => {
+    if (!activeStats) return [];
+    return activeStats.reqs
+      .slice()
+      .reverse()
+      .map((r) => ({
+        name: r.number,
+        date: r.date,
+        Billable: r.billableCost,
+        IMS_Investment: r.imsInvestment,
+        Total: r.total,
+      }));
+  }, [activeStats]);
 
-    setModalError("");
+  function openPaymentModal(existingBill?: ClientBillItem) {
+    if (!selectedProject || !activeStats) return;
+
     if (existingBill) {
-      setEditBillId(existingBill.id);
-      setModalProjectId(existingBill.projectId);
-      setModalForMonth(existingBill.forMonth || getCurrentYearMonth());
-      setModalBillNo(existingBill.billNumber || "");
-      setModalPoNo(existingBill.poNumber || "");
-      setModalStatus(existingBill.status || "PARTIAL_PAID");
-      setModalBillableCost(String(existingBill.billableCost || 0));
-      setModalImsInvCost(String(existingBill.imsInvestment || 0));
-      setModalCustomBillExVat("");
-      setModalReceivedAmount(String(existingBill.receivedAmount || 0));
-      setModalSubmittedAt(
-        existingBill.submittedAt || new Date().toISOString().slice(0, 10)
-      );
-      setModalReceivedAt(existingBill.receivedAt || "");
-      setModalDeviationReason(existingBill.deviationReason || "");
-      setModalNotes(existingBill.notes || "");
+      setEditingBillId(existingBill.id);
+      setFormMonth(existingBill.forMonth);
+      setFormBillNo(existingBill.billNumber || "");
+      setFormPoNo(existingBill.poNumber || "");
+      setFormStatus(existingBill.status || "PARTIAL_PAID");
+      setFormBillableCost(String(existingBill.billableCost));
+      setFormImsInv(String(existingBill.imsInvestment));
+      setFormBillExVat(String(existingBill.billExVat));
+      setFormVatAmt(String(existingBill.vatAmount));
+      setFormAitAmt(String(existingBill.aitAmount));
+      setFormReceivedAmt(String(existingBill.receivedAmount));
+      setFormSubmittedAt(existingBill.submittedAt || "");
+      setFormDueDate(existingBill.dueDate || "");
+      setFormReceivedAt(existingBill.receivedAt || "");
+      setFormDeviation(existingBill.deviationReason || "");
+      setFormNotes(existingBill.notes || "");
     } else {
-      // Creating a NEW Partial or Full Payment Installment
-      setEditBillId(null);
-      setModalProjectId(targetProj.id);
+      setEditingBillId(null);
       const m =
-        monthOverride && monthOverride !== "ALL"
-          ? monthOverride
-          : getCurrentYearMonth();
-      setModalForMonth(m);
-      const partNo = (proj?.matchingBills?.length || targetProj.bills?.length || 0) + 1;
-      setModalBillNo(`${m.replace("-", "/")}/${targetProj.code}-P${partNo}`);
-      setModalPoNo("");
-      setModalStatus("PARTIAL_PAID");
-
-      const bCost =
-        proj?.activeBillableCost !== undefined
-          ? proj.activeBillableCost
-          : targetProj.totalBillableReq || 0;
-      const iCost =
-        proj?.activeImsInvestment !== undefined
-          ? proj.activeImsInvestment
-          : targetProj.totalImsInvReq || 0;
-
-      setModalBillableCost(String(bCost));
-      setModalImsInvCost(String(iCost));
-      setModalCustomBillExVat("");
-
-      // Pre-fill remaining balance due so partial payments are effortless
-      const preview = calculateProfitSummary({
-        terms: targetProj.terms,
-        billableCost: bCost,
-        imsInvestment: iCost,
-      });
-      const alreadyReceived = proj?.receivedAmount || targetProj.totalReceivedFromBills || 0;
-      const remaining = Math.max(0, Number((preview.expectedInflow - alreadyReceived).toFixed(2)));
-      setModalReceivedAmount(String(remaining > 0 ? remaining : preview.expectedInflow));
-      setModalSubmittedAt(new Date().toISOString().slice(0, 10));
-      setModalReceivedAt(new Date().toISOString().slice(0, 10));
-      setModalDeviationReason(`Installment #${partNo}`);
-      setModalNotes("");
+        selectedMonth !== "ALL"
+          ? selectedMonth
+          : selectedProject.kind === "EVENT"
+          ? "EVENT-TOTAL"
+          : new Date().toISOString().slice(0, 7);
+      setFormMonth(m);
+      setFormBillNo("");
+      setFormPoNo("");
+      setFormStatus("PARTIAL_PAID");
+      setFormBillableCost(String(activeStats.billableSpend.toFixed(2)));
+      setFormImsInv(String(activeStats.imsSpend.toFixed(2)));
+      setFormBillExVat(String(activeStats.calc.billExVat.toFixed(2)));
+      setFormVatAmt(String(activeStats.calc.vatAmount.toFixed(2)));
+      setFormAitAmt(String(activeStats.calc.aitDeducted.toFixed(2)));
+      setFormReceivedAmt("");
+      setFormSubmittedAt(new Date().toISOString().slice(0, 10));
+      setFormDueDate("");
+      setFormReceivedAt(new Date().toISOString().slice(0, 10));
+      setFormDeviation("");
+      setFormNotes(
+        `Installment #${activeStats.bills.length + 1} for ${selectedProject.name}`
+      );
     }
-    setShowBillModal(true);
+    setModalOpen(true);
   }
 
-  const selectedModalProject = useMemo(
-    () => projects.find((p) => p.id === modalProjectId) || projects[0],
-    [projects, modalProjectId]
-  );
-
-  // Live P&L calculation inside the Modal
-  const modalLiveCalc = useMemo(() => {
-    if (!selectedModalProject) return null;
-    const bCost = parseFloat(modalBillableCost) || 0;
-    const iCost = parseFloat(modalImsInvCost) || 0;
-    const customBill = parseFloat(modalCustomBillExVat) || 0;
-
-    const calc = calculateProfitSummary({
-      terms: {
-        ...selectedModalProject.terms,
-        ...(customBill > 0
-          ? { billingProfile: "FIXED_QUOTE", fixedMonthlyBill: customBill }
-          : {}),
-      },
-      billableCost: bCost,
-      imsInvestment: iCost,
+  function handleAutoRecalculate(newBillableStr: string, newImsStr: string) {
+    setFormBillableCost(newBillableStr);
+    setFormImsInv(newImsStr);
+    if (!selectedProject) return;
+    const c = calculateProfitSummary({
+      terms: selectedProject.terms,
+      billableCost: Number(newBillableStr || 0),
+      imsInvestment: Number(newImsStr || 0),
     });
-
-    const priorReceived = editBillId
-      ? (selectedModalProject.bills || [])
-          .filter((b: any) => b.id !== editBillId)
-          .reduce((s: number, b: any) => s + b.receivedAmount, 0)
-      : selectedModalProject.totalReceivedFromBills || 0;
-
-    const thisInstallmentAmt = parseFloat(modalReceivedAmount) || 0;
-    const cumulativeReceived = priorReceived + thisInstallmentAmt;
-    const totalCosts =
-      calc.billableCost +
-      calc.imsInvestment +
-      calc.maintenanceCost +
-      calc.amortizationCost;
-    const realizedProfit = cumulativeReceived - totalCosts;
-    const outstanding = Math.max(0, calc.expectedInflow - cumulativeReceived);
-
-    return {
-      ...calc,
-      priorReceived,
-      thisInstallmentAmt,
-      cumulativeReceived,
-      totalCosts,
-      realizedProfit,
-      outstanding,
-    };
-  }, [
-    selectedModalProject,
-    modalBillableCost,
-    modalImsInvCost,
-    modalCustomBillExVat,
-    modalReceivedAmount,
-    editBillId,
-  ]);
+    setFormBillExVat(String(c.billExVat.toFixed(2)));
+    setFormVatAmt(String(c.vatAmount.toFixed(2)));
+    setFormAitAmt(String(c.aitDeducted.toFixed(2)));
+  }
 
   async function handleSaveBill(e: React.FormEvent) {
     e.preventDefault();
-    setModalError("");
+    if (!selectedProject) return;
     setSaving(true);
     try {
       const res = await fetch("/api/finance/bills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: editBillId,
-          projectId: modalProjectId,
-          forMonth: modalForMonth,
-          billNumber: modalBillNo,
-          poNumber: modalPoNo,
-          status: modalStatus,
-          billableCost: parseFloat(modalBillableCost) || 0,
-          imsInvestment: parseFloat(modalImsInvCost) || 0,
-          customBillExVat: modalCustomBillExVat ? parseFloat(modalCustomBillExVat) : undefined,
-          receivedAmount: parseFloat(modalReceivedAmount) || 0,
-          submittedAt: modalSubmittedAt || null,
-          receivedAt: modalReceivedAt || null,
-          deviationReason: modalDeviationReason,
-          notes: modalNotes,
+          id: editingBillId || undefined,
+          projectId: selectedProject.id,
+          forMonth: formMonth,
+          billNumber: formBillNo,
+          poNumber: formPoNo,
+          status: formStatus,
+          billableCost: Number(formBillableCost || 0),
+          imsInvestment: Number(formImsInv || 0),
+          billExVat: Number(formBillExVat || 0),
+          vatAmount: Number(formVatAmt || 0),
+          aitAmount: Number(formAitAmt || 0),
+          receivedAmount: Number(formReceivedAmt || 0),
+          submittedAt: formSubmittedAt || null,
+          dueDate: formDueDate || null,
+          receivedAt: formReceivedAt || null,
+          deviationReason: formDeviation,
+          notes: formNotes,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to save");
-      setShowBillModal(false);
-      setSaving(false);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Failed to save payment record");
+        return;
+      }
+      setModalOpen(false);
       router.refresh();
-    } catch (err: any) {
-      setModalError(err.message || "Error saving");
+    } finally {
       setSaving(false);
     }
   }
 
-  return (
-    <div className="mt-6 space-y-5">
-      {/* Top Navigation & Filter Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-gray-200 shadow-xs">
-        <div className="inline-flex flex-wrap rounded-lg p-1 bg-gray-100 border border-gray-200 gap-1">
-          <button
-            type="button"
-            onClick={() => setActiveTab("PROJECT_PNL")}
-            className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "PROJECT_PNL"
-                ? "bg-gray-900 text-white shadow-xs"
-                : "text-gray-700 hover:text-gray-900"
-            }`}
-          >
-            📁 Projects Profit & Loss ({projectsOnly.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("EVENT_PNL")}
-            className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "EVENT_PNL"
-                ? "bg-blue-600 text-white shadow-xs"
-                : "text-gray-700 hover:text-gray-900"
-            }`}
-          >
-            🎪 Events Profit & Loss ({eventsOnly.length})
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("BILLS_LEDGER")}
-            className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer ${
-              activeTab === "BILLS_LEDGER"
-                ? "bg-emerald-700 text-white shadow-xs"
-                : "text-gray-700 hover:text-gray-900"
-            }`}
-          >
-            🧾 All Partial & Full Payment Installments ({allBillsList.length})
-          </button>
-        </div>
+  async function handleDeleteBill(id: string) {
+    if (!confirm("Delete this payment / bill record?")) return;
+    const res = await fetch(`/api/finance/bills?id=${id}`, {
+      method: "DELETE",
+    });
+    if (res.ok) {
+      router.refresh();
+    } else {
+      alert("Failed to delete payment record.");
+    }
+  }
 
-        <div className="flex flex-wrap items-center gap-2">
-          {activeTab === "PROJECT_PNL" && (
-            <div className="flex items-center space-x-1.5">
-              <span className="text-xs font-semibold text-gray-600">Period:</span>
-              <select
-                value={selectedMonth}
-                onChange={(e) => setSelectedMonth(e.target.value)}
-                className="px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold bg-white"
+  const liveBillWithVat =
+    Number(formBillExVat || 0) + Number(formVatAmt || 0);
+  const liveExpectedInflow =
+    liveBillWithVat - Number(formAitAmt || 0);
+
+  return (
+    <div className="mt-5 space-y-6">
+      {/* STEP 1: CLEAN SELECTOR BAR (PROJECTS vs EVENTS + DROPDOWN LIST) */}
+      <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          {/* 1A. Toggle between Projects and Events */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="inline-flex bg-gray-100 p-1 rounded-xl border border-gray-200">
+              <button
+                type="button"
+                onClick={() => setActiveType("PERMANENT")}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  activeType === "PERMANENT"
+                    ? "bg-gray-900 text-white shadow-sm"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
               >
-                <option value="ALL">All Months (Cumulative)</option>
-                {availableMonths.map((m) => (
-                  <option key={m} value={m}>
-                    Service Month: {m}
+                📁 Projects ({permanentProjects.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveType("EVENT")}
+                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                  activeType === "EVENT"
+                    ? "bg-purple-700 text-white shadow-sm"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                🎪 Events ({eventProjects.length})
+              </button>
+            </div>
+
+            {/* 1B. Primary Dropdown Selector for Project or Event */}
+            <div className="flex items-center gap-2 flex-1 min-w-[280px] sm:min-w-[360px]">
+              <label className="text-xs font-bold text-gray-700 whitespace-nowrap">
+                {activeType === "PERMANENT"
+                  ? "Select Project:"
+                  : "Select Event:"}
+              </label>
+              <select
+                value={selectedProject?.id || ""}
+                onChange={(e) => setSelectedId(e.target.value)}
+                className="w-full rounded-lg border-2 border-gray-300 bg-white px-3 py-2 text-sm font-bold text-gray-900 shadow-sm focus:border-blue-600 focus:outline-none"
+              >
+                {currentList.length === 0 ? (
+                  <option value="">
+                    No {activeType === "PERMANENT" ? "Projects" : "Events"} Found
                   </option>
-                ))}
+                ) : (
+                  currentList.map((p) => {
+                    const totalSpend = p.totalBillableReq + p.totalImsInvReq;
+                    return (
+                      <option key={p.id} value={p.id}>
+                        {p.name} ({p.code}) — {p.reqCount} Req(s)
+                        {totalSpend > 0 ? ` • Tk ${formatBDT(totalSpend)}` : ""}
+                      </option>
+                    );
+                  })
+                )}
               </select>
+            </div>
+          </div>
+
+          {/* 1C. Period Filter & Add Payment Button */}
+          {selectedProject && (
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-semibold text-gray-500">
+                  Period:
+                </span>
+                <select
+                  value={selectedMonth}
+                  onChange={(e) => setSelectedMonth(e.target.value)}
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-800 shadow-sm"
+                >
+                  <option value="ALL">All Months (Cumulative)</option>
+                  {availableMonths.map((m) => (
+                    <option key={m} value={m}>
+                      {m}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {canEditFinance && (
+                <button
+                  type="button"
+                  onClick={() => openPaymentModal()}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 transition-colors"
+                >
+                  💰 + Add Partial / Full Payment
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* IF NO PROJECT OR EVENT EXISTS IN THIS TAB */}
+      {!selectedProject || !activeStats ? (
+        <div className="bg-white border border-gray-200 rounded-xl p-12 text-center shadow-sm">
+          <div className="text-base font-bold text-gray-800">
+            No {activeType === "PERMANENT" ? "Projects" : "Events"} Available
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Create {activeType === "PERMANENT" ? "a Project" : "an Event"} in{" "}
+            <Link href="/admin/projects" className="text-blue-600 underline font-semibold">
+              Projects & Events Setup
+            </Link>{" "}
+            to track its Requisitions, Client Bills, and Profit/Loss.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* STEP 2: SELECTED PROJECT / EVENT BANNER & COLLECTION PROGRESS */}
+          <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                      selectedProject.kind === "EVENT"
+                        ? "bg-purple-50 text-purple-800 border-purple-200"
+                        : "bg-blue-50 text-blue-800 border-blue-200"
+                    }`}
+                  >
+                    {selectedProject.kind === "EVENT" ? "🎪 EVENT" : "📁 PROJECT"}
+                  </span>
+                  <span className="text-xs font-mono font-bold text-gray-500">
+                    {selectedProject.code}
+                  </span>
+                  <span className="text-xs text-gray-400">•</span>
+                  <span className="text-xs font-semibold text-gray-600">
+                    {selectedProject.companyName}
+                  </span>
+                </div>
+                <h2 className="text-xl font-bold text-gray-900 mt-1">
+                  {selectedProject.name}
+                </h2>
+                <div className="flex flex-wrap items-center gap-4 mt-1.5 text-xs text-gray-600">
+                  <span>
+                    Billing Model:{" "}
+                    <strong className="text-gray-900">
+                      {BILLING_MODEL_LABELS[
+                        selectedProject.terms.billingProfile
+                      ] || selectedProject.terms.billingProfile}
+                    </strong>
+                  </span>
+                  <span>
+                    Fee/Markup:{" "}
+                    <strong className="text-gray-900">
+                      {(selectedProject.terms.feeRate * 100).toFixed(1)}%
+                    </strong>
+                  </span>
+                  <span>
+                    VAT:{" "}
+                    <strong className="text-gray-900">
+                      {(selectedProject.terms.vatRate * 100).toFixed(1)}%
+                    </strong>
+                  </span>
+                  <span>
+                    AIT:{" "}
+                    <strong className="text-gray-900">
+                      {(selectedProject.terms.aitRate * 100).toFixed(1)}%
+                    </strong>
+                  </span>
+                  <span>
+                    Head:{" "}
+                    <strong className="text-gray-900">
+                      {selectedProject.headName}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+
+              {/* Collection Progress Box */}
+              <div className="w-full md:w-80 bg-gray-50 border border-gray-200 rounded-xl p-3.5">
+                <div className="flex items-center justify-between text-xs mb-1.5">
+                  <span className="font-bold text-gray-700">
+                    Client Payment Collection
+                  </span>
+                  <span className="font-bold text-emerald-700">
+                    {activeStats.collectionPercent}% Collected
+                  </span>
+                </div>
+                <div className="w-full h-2.5 bg-gray-200 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-emerald-600 rounded-full transition-all"
+                    style={{ width: `${activeStats.collectionPercent}%` }}
+                  />
+                </div>
+                <div className="flex items-center justify-between text-[11px] text-gray-500 mt-1.5">
+                  <span>
+                    Received:{" "}
+                    <strong className="text-emerald-700">
+                      Tk {formatBDT(activeStats.receivedAmount)}
+                    </strong>
+                  </span>
+                  <span>
+                    Due:{" "}
+                    <strong className="text-amber-700">
+                      Tk {formatBDT(activeStats.remainingDue)}
+                    </strong>
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* STEP 3: 6 CLEAN KPI CARDS FOR THIS SELECTED PROJECT / EVENT */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+              <div className="text-[11px] font-bold text-gray-500 uppercase">
+                1. Total Requisitions Spend
+              </div>
+              <div className="text-base font-bold text-gray-900 mt-1">
+                Tk {formatBDT(activeStats.totalSpend)}
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">
+                Across <strong>{activeStats.reqs.length}</strong> Requisition(s)
+              </div>
+              <div className="text-[10px] text-gray-400 mt-0.5">
+                Billable: {formatBDT(activeStats.billableSpend)} • IMS:{" "}
+                {formatBDT(activeStats.imsSpend)}
+              </div>
+            </div>
+
+            <div className="bg-blue-50/50 border border-blue-200 rounded-xl p-4 shadow-sm">
+              <div className="text-[11px] font-bold text-blue-800 uppercase">
+                2. Client Bill (With 15% VAT)
+              </div>
+              <div className="text-base font-bold text-blue-950 mt-1">
+                Tk {formatBDT(activeStats.billedWithVat)}
+              </div>
+              <div className="text-[11px] text-blue-700 mt-1">
+                Ex-VAT Bill: Tk {formatBDT(activeStats.billedExVat)}
+              </div>
+            </div>
+
+            <div className="bg-indigo-50/50 border border-indigo-200 rounded-xl p-4 shadow-sm">
+              <div className="text-[11px] font-bold text-indigo-800 uppercase">
+                3. Expected Inflow (-AIT)
+              </div>
+              <div className="text-base font-bold text-indigo-950 mt-1">
+                Tk {formatBDT(activeStats.expectedInflow)}
+              </div>
+              <div className="text-[11px] text-indigo-700 mt-1">
+                AIT Deducted: Tk {formatBDT(activeStats.calc.aitDeducted)}
+              </div>
+            </div>
+
+            <div className="bg-emerald-50/50 border border-emerald-200 rounded-xl p-4 shadow-sm">
+              <div className="text-[11px] font-bold text-emerald-800 uppercase">
+                4. Payment Received
+              </div>
+              <div className="text-base font-bold text-emerald-900 mt-1">
+                Tk {formatBDT(activeStats.receivedAmount)}
+              </div>
+              <div className="text-[11px] text-amber-800 font-semibold mt-1">
+                Remaining Due: Tk {formatBDT(activeStats.remainingDue)} (
+                {activeStats.bills.length} Pay)
+              </div>
+            </div>
+
+            <div
+              className={`border rounded-xl p-4 shadow-sm ${
+                activeStats.accruedProfit >= 0
+                  ? "bg-emerald-50/80 border-emerald-300"
+                  : "bg-red-50 border-red-300"
+              }`}
+            >
+              <div
+                className={`text-[11px] font-bold uppercase ${
+                  activeStats.accruedProfit >= 0
+                    ? "text-emerald-800"
+                    : "text-red-800"
+                }`}
+              >
+                5. Accrued Profit / Loss
+              </div>
+              <div
+                className={`text-base font-bold mt-1 ${
+                  activeStats.accruedProfit >= 0
+                    ? "text-emerald-900"
+                    : "text-red-900"
+                }`}
+              >
+                {activeStats.accruedProfit >= 0 ? "+" : ""}Tk{" "}
+                {formatBDT(activeStats.accruedProfit)}
+              </div>
+              <div className="text-[11px] text-gray-600 mt-1">
+                Expected Inflow − Total Cost (
+                {activeStats.calc.netMarginPct.toFixed(1)}%)
+              </div>
+            </div>
+
+            <div
+              className={`border rounded-xl p-4 shadow-sm ${
+                activeStats.realizedProfit >= 0
+                  ? "bg-teal-50/80 border-teal-300"
+                  : "bg-amber-50/70 border-amber-300"
+              }`}
+            >
+              <div className="text-[11px] font-bold text-gray-700 uppercase">
+                6. Realized Cash P&L
+              </div>
+              <div
+                className={`text-base font-bold mt-1 ${
+                  activeStats.realizedProfit >= 0
+                    ? "text-teal-900"
+                    : "text-amber-900"
+                }`}
+              >
+                {activeStats.realizedProfit >= 0 ? "+" : ""}Tk{" "}
+                {formatBDT(activeStats.realizedProfit)}
+              </div>
+              <div className="text-[11px] text-gray-600 mt-1">
+                Cash Received − Total Cost
+              </div>
+            </div>
+          </div>
+
+          {/* STEP 4: VISUAL DATA ANALYSIS CHARTS FOR SELECTED PROJECT / EVENT */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            {/* Chart 1: Monthly Spend vs Expected Inflow vs Received Payment */}
+            <div className="lg:col-span-2 bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <div className="mb-3">
+                <h3 className="text-sm font-bold text-gray-900">
+                  📈 Spend vs. Expected Inflow vs. Received Payment ({selectedProject.name})
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Monthly comparison of Total Requisition Spend, Expected Net Client Inflow, Actual Cash Received, and Profit.
+                </p>
+              </div>
+
+              {monthlyChartData.length === 0 ? (
+                <div className="h-60 flex items-center justify-center text-xs text-gray-400">
+                  No requisitions or payments recorded for {selectedProject.name} yet.
+                </div>
+              ) : (
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={monthlyChartData}
+                      margin={{ top: 10, right: 20, left: 10, bottom: 5 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                      <XAxis dataKey="month" tick={{ fontSize: 11 }} />
+                      <YAxis
+                        tick={{ fontSize: 11 }}
+                        tickFormatter={(v) =>
+                          v >= 100000
+                            ? `${(v / 100000).toFixed(1)}L`
+                            : v >= 1000
+                            ? `${(v / 1000).toFixed(0)}k`
+                            : String(v)
+                        }
+                      />
+                      <Tooltip
+                        formatter={(val: any) => `Tk ${formatBDT(Number(val || 0))}`}
+                      />
+                      <Legend wrapperStyle={{ fontSize: 11 }} />
+                      <Bar
+                        dataKey="totalCost"
+                        name="Requisition Cost"
+                        fill="#4b5563"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="expectedInflow"
+                        name="Expected Inflow (-AIT)"
+                        fill="#4f46e5"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="receivedAmount"
+                        name="Payment Received"
+                        fill="#059669"
+                        radius={[4, 4, 0, 0]}
+                      />
+                      <Bar
+                        dataKey="accruedProfit"
+                        name="Accrued Profit/Loss"
+                        fill="#10b981"
+                        radius={[4, 4, 0, 0]}
+                      />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+
+            {/* Chart 2: Cost Head Breakdown (Donut Chart) */}
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <div className="mb-3">
+                <h3 className="text-sm font-bold text-gray-900">
+                  🍩 Cost Head Breakdown
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Distribution of requisition costs across cost heads.
+                </p>
+              </div>
+
+              {costHeadPieData.length === 0 ? (
+                <div className="h-60 flex items-center justify-center text-xs text-gray-400">
+                  No requisition line items to chart yet.
+                </div>
+              ) : (
+                <div className="h-64 w-full flex flex-col justify-between">
+                  <div className="h-44 w-full">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={costHeadPieData}
+                          dataKey="value"
+                          nameKey="name"
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={38}
+                          outerRadius={68}
+                          paddingAngle={2}
+                        >
+                          {costHeadPieData.map((_, idx) => (
+                            <Cell
+                              key={idx}
+                              fill={PIE_COLORS[idx % PIE_COLORS.length]}
+                            />
+                          ))}
+                        </Pie>
+                        <Tooltip
+                          formatter={(val: any) =>
+                            `Tk ${formatBDT(Number(val || 0))}`
+                          }
+                        />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+
+                  <div className="space-y-1 max-h-20 overflow-y-auto pr-1">
+                    {costHeadPieData.map((d, idx) => (
+                      <div
+                        key={d.name}
+                        className="flex items-center justify-between text-[11px]"
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span
+                            className="w-2.5 h-2.5 rounded-full shrink-0"
+                            style={{
+                              backgroundColor:
+                                PIE_COLORS[idx % PIE_COLORS.length],
+                            }}
+                          />
+                          <span className="text-gray-700 font-medium truncate">
+                            {d.name}
+                          </span>
+                        </div>
+                        <span className="font-mono font-bold text-gray-900 ml-2">
+                          Tk {formatBDT(d.value)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Chart 3: Individual Requisition Comparison Bar Chart (when 1+ requisitions exist) */}
+          {reqBarData.length > 0 && (
+            <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
+              <div className="mb-3">
+                <h3 className="text-sm font-bold text-gray-900">
+                  📊 Individual Requisition Cost Breakdown ({reqBarData.length} Requisition
+                  {reqBarData.length === 1 ? "" : "s"})
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Each requisition voucher of {selectedProject.name} split by Billable Client Spend vs. IMS Own Investment.
+                </p>
+              </div>
+              <div className="h-56 w-full">
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={reqBarData}
+                    margin={{ top: 10, right: 20, left: 10, bottom: 5 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                    <YAxis
+                      tick={{ fontSize: 11 }}
+                      tickFormatter={(v) =>
+                        v >= 100000
+                          ? `${(v / 100000).toFixed(1)}L`
+                          : v >= 1000
+                          ? `${(v / 1000).toFixed(0)}k`
+                          : String(v)
+                      }
+                    />
+                    <Tooltip
+                      formatter={(val: any) => `Tk ${formatBDT(Number(val || 0))}`}
+                    />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Bar
+                      dataKey="Billable"
+                      name="Billable Cost"
+                      stackId="a"
+                      fill="#2563eb"
+                      radius={[0, 0, 0, 0]}
+                    />
+                    <Bar
+                      dataKey="IMS_Investment"
+                      name="IMS Own Investment"
+                      stackId="a"
+                      fill="#d97706"
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
             </div>
           )}
 
-          <input
-            type="text"
-            placeholder="Search project, event, or bill..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="text-xs border border-gray-300 rounded-md px-2.5 py-1.5 w-48"
-          />
+          {/* STEP 5: TWO CLEAN TABLES FOR THE SELECTED PROJECT / EVENT */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* TABLE A: ALL REQUISITIONS OF THIS PROJECT / EVENT */}
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
+              <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/60">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">
+                    📋 Requisitions of {selectedProject.name} ({activeStats.reqs.length})
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Every requisition adds to total project spend. Click a row to view its line items.
+                  </p>
+                </div>
+              </div>
 
-          {canEditFinance && (
-            <button
-              type="button"
-              onClick={() => openRecordPaymentModal()}
-              className="px-3.5 py-1.5 text-xs font-bold text-white bg-[#E42528] hover:bg-[#B81D20] rounded-md shadow-xs cursor-pointer whitespace-nowrap"
-            >
-              💰 + Add Partial / Full Payment
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Executive Summary KPI Cards for Accounts, Directors & MD */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-        <div className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-2xs">
-          <span className="text-[10px] font-bold text-gray-500 uppercase block">
-            1. Total Requisitions Spend
-          </span>
-          <span className="text-sm font-mono font-extrabold text-gray-900 mt-1 block">
-            Tk {formatTaka(kpiTotals.totalCost)}
-          </span>
-          <span className="text-[10px] text-gray-500 block mt-0.5">
-            Billable: {formatTaka(kpiTotals.billable)} • IMS Inv: {formatTaka(kpiTotals.imsInv)}
-          </span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-blue-200 shadow-2xs">
-          <span className="text-[10px] font-bold text-blue-800 uppercase block">
-            2. Client Bill (With 15% VAT)
-          </span>
-          <span className="text-sm font-mono font-extrabold text-blue-900 mt-1 block">
-            Tk {formatTaka(kpiTotals.billedWithVat)}
-          </span>
-          <span className="text-[10px] text-gray-500 block mt-0.5">
-            Calculated from Billing Profile
-          </span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-indigo-200 shadow-2xs">
-          <span className="text-[10px] font-bold text-indigo-800 uppercase block">
-            3. Expected Inflow (-AIT)
-          </span>
-          <span className="text-sm font-mono font-extrabold text-indigo-900 mt-1 block">
-            Tk {formatTaka(kpiTotals.expectedInflow)}
-          </span>
-          <span className="text-[10px] text-gray-500 block mt-0.5">
-            Net receivable after AIT
-          </span>
-        </div>
-
-        <div className="bg-white p-3.5 rounded-xl border border-emerald-200 shadow-2xs">
-          <span className="text-[10px] font-bold text-emerald-800 uppercase block">
-            4. Total Payment Received
-          </span>
-          <span className="text-sm font-mono font-extrabold text-emerald-700 mt-1 block">
-            Tk {formatTaka(kpiTotals.receivedAmount)}
-          </span>
-          <span className="text-[10px] text-amber-700 font-semibold block mt-0.5">
-            Remaining Due: Tk {formatTaka(kpiTotals.outstanding)}
-          </span>
-        </div>
-
-        <div
-          className={`p-3.5 rounded-xl border shadow-2xs ${
-            kpiTotals.accruedProfit >= 0
-              ? "bg-emerald-50/70 border-emerald-300"
-              : "bg-red-50/70 border-red-300"
-          }`}
-        >
-          <span className="text-[10px] font-bold text-gray-700 uppercase block">
-            5. Accrued Profit / Loss
-          </span>
-          <span
-            className={`text-sm font-mono font-extrabold mt-1 block ${
-              kpiTotals.accruedProfit >= 0 ? "text-emerald-800" : "text-red-700"
-            }`}
-          >
-            {kpiTotals.accruedProfit >= 0 ? "+" : ""}Tk {formatTaka(kpiTotals.accruedProfit)}
-          </span>
-          <span className="text-[10px] font-semibold text-gray-600 block mt-0.5">
-            Expected Inflow − Total Cost
-          </span>
-        </div>
-
-        <div
-          className={`p-3.5 rounded-xl border shadow-2xs ${
-            kpiTotals.realizedProfit >= 0
-              ? "bg-emerald-100/60 border-emerald-400"
-              : "bg-amber-50/80 border-amber-300"
-          }`}
-        >
-          <span className="text-[10px] font-bold text-gray-800 uppercase block">
-            6. Realized Cash P&L
-          </span>
-          <span
-            className={`text-sm font-mono font-extrabold mt-1 block ${
-              kpiTotals.realizedProfit >= 0 ? "text-emerald-900" : "text-amber-900"
-            }`}
-          >
-            {kpiTotals.realizedProfit >= 0 ? "+" : ""}Tk {formatTaka(kpiTotals.realizedProfit)}
-          </span>
-          <span className="text-[10px] font-semibold text-gray-600 block mt-0.5">
-            Payment Received − Total Cost
-          </span>
-        </div>
-      </div>
-
-      {/* Tab 1 & 2: Projects Profit & Loss OR Events Profit & Loss Table */}
-      {activeTab !== "BILLS_LEDGER" ? (
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
-                  <th className="py-2.5 px-3">
-                    {activeTab === "EVENT_PNL" ? "Event & Requisitions" : "Project & Requisitions"}
-                  </th>
-                  <th className="py-2.5 px-3 text-right">Billable Spend</th>
-                  <th className="py-2.5 px-3 text-right">IMS Investment</th>
-                  <th className="py-2.5 px-3 text-right">Total Spend</th>
-                  <th className="py-2.5 px-3 text-right">Client Bill (With VAT)</th>
-                  <th className="py-2.5 px-3 text-right">Expected Inflow (-AIT)</th>
-                  <th className="py-2.5 px-3 text-right">Received (Installments)</th>
-                  <th className="py-2.5 px-3 text-right">Accrued Profit / Loss</th>
-                  <th className="py-2.5 px-3 text-right">Realized Cash P&L</th>
-                  <th className="py-2.5 px-3 text-center">Charts & Payment</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {activePnlRows.length === 0 ? (
-                  <tr>
-                    <td colSpan={10} className="p-8 text-center text-gray-400">
-                      No records found.
-                    </td>
-                  </tr>
-                ) : (
-                  activePnlRows.map((row) => {
-                    const isProfit = row.accruedNetProfit >= 0;
-                    const isRealizedProfit = row.realizedCashProfit >= 0;
-                    const isExpanded = !!expandedProjectIds[row.id];
-                    return (
-                      <Fragment key={row.id}>
-                        <tr className="hover:bg-gray-50/80 transition-colors">
-                          <td className="py-3 px-3">
-                            <Link
-                              href={`/finance/${row.id}`}
-                              className="font-bold text-gray-900 hover:text-[#E42528] block"
-                            >
-                              {row.name}
-                            </Link>
-                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
-                              <span className="text-[10px] font-mono text-gray-500">
-                                {row.code} &bull; {row.terms.billingProfile}
-                              </span>
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setExpandedProjectIds((prev) => ({
-                                    ...prev,
-                                    [row.id]: !prev[row.id],
-                                  }))
-                                }
-                                className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 cursor-pointer"
-                              >
-                                {isExpanded ? "▲ Hide" : "▼"} {row.activeReqCount} Req(s) &bull;{" "}
-                                {row.matchingBills.length} Pay(s)
-                              </button>
-                            </div>
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono text-gray-800">
-                            {formatTaka(row.activeBillableCost)}
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono text-amber-800">
-                            {formatTaka(row.activeImsInvestment)}
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono font-bold text-gray-900">
-                            {formatTaka(row.activeTotalCost)}
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono font-semibold text-blue-800">
-                            {formatTaka(row.billedWithVat)}
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono font-bold text-indigo-900">
-                            {formatTaka(row.expectedInflow)}
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono">
-                            <span className="font-bold text-emerald-700 block">
-                              {formatTaka(row.receivedAmount)}
-                            </span>
-                            <span className="text-[10px] text-gray-500 block">
-                              ({row.matchingBills.length} Installment
-                              {row.matchingBills.length === 1 ? "" : "s"})
-                            </span>
-                            {row.outstandingAmount > 0 && (
-                              <span className="text-[10px] text-amber-700 font-semibold block">
-                                Due: {formatTaka(row.outstandingAmount)}
-                              </span>
-                            )}
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono">
-                            <span
-                              className={`inline-block px-2 py-0.5 rounded font-bold ${
-                                isProfit
-                                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                                  : "bg-red-50 text-red-700 border border-red-200"
-                              }`}
-                            >
-                              {isProfit ? "PROFIT +" : "LOSS "}
-                              {formatTaka(row.accruedNetProfit)}
-                            </span>
-                            <span className="block text-[10px] text-gray-500 mt-0.5">
-                              Margin: {row.marginPct}%
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono">
-                            <span
-                              className={`font-bold ${
-                                row.receivedAmount === 0
-                                  ? "text-gray-400"
-                                  : isRealizedProfit
-                                  ? "text-emerald-700"
-                                  : "text-red-600"
-                              }`}
-                            >
-                              {row.receivedAmount === 0
-                                ? "Awaiting Payment"
-                                : `${isRealizedProfit ? "+" : ""}${formatTaka(
-                                    row.realizedCashProfit
-                                  )}`}
-                            </span>
-                          </td>
-                          <td className="py-3 px-3 text-center whitespace-nowrap space-x-1.5">
-                            <Link
-                              href={`/finance/${row.id}`}
-                              className="inline-block px-2.5 py-1 text-[11px] font-bold text-white bg-gray-900 hover:bg-gray-800 rounded shadow-2xs"
-                            >
-                              📊 Charts & Page &rarr;
-                            </Link>
-                            {canEditFinance && (
-                              <button
-                                type="button"
-                                onClick={() => openRecordPaymentModal(row, selectedMonth)}
-                                className="px-2.5 py-1 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-2xs cursor-pointer"
-                              >
-                                💰 + Payment
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-
-                        {/* Inline Expandable Multi-Requisition & Partial Payments Breakdown */}
-                        {isExpanded && (
-                          <tr className="bg-gray-50/90">
-                            <td colSpan={10} className="p-4">
-                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                                {/* Left: Multiple Requisitions List */}
-                                <div className="bg-white rounded-lg border border-gray-200 p-3">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <h4 className="text-[11px] font-bold text-gray-800 uppercase">
-                                      📋 Individual Requisitions ({row.matchingReqs.length})
-                                    </h4>
-                                    <Link
-                                      href={`/finance/${row.id}`}
-                                      className="text-[11px] font-bold text-[#E42528] hover:underline"
-                                    >
-                                      Open Full Charts & Breakdown &rarr;
-                                    </Link>
-                                  </div>
-                                  {row.matchingReqs.length === 0 ? (
-                                    <p className="text-xs text-gray-400 py-2">
-                                      No requisitions in this period.
-                                    </p>
-                                  ) : (
-                                    <table className="w-full text-[11px] border-collapse">
-                                      <thead>
-                                        <tr className="border-b border-gray-200 text-gray-500 text-left">
-                                          <th className="py-1">Voucher #</th>
-                                          <th className="py-1">Month</th>
-                                          <th className="py-1 text-right">Billable</th>
-                                          <th className="py-1 text-right">IMS Inv</th>
-                                          <th className="py-1 text-right">Total</th>
-                                          <th className="py-1 text-center">Status</th>
+              {activeStats.reqs.length === 0 ? (
+                <div className="p-8 text-center text-xs text-gray-500">
+                  No requisitions created for <strong>{selectedProject.name}</strong> in this period.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
+                      <tr>
+                        <th className="py-2.5 px-3">Voucher #</th>
+                        <th className="py-2.5 px-3">Date / Month</th>
+                        <th className="py-2.5 px-3 text-right">Billable</th>
+                        <th className="py-2.5 px-3 text-right">IMS Inv.</th>
+                        <th className="py-2.5 px-3 text-right">Total</th>
+                        <th className="py-2.5 px-3 text-center">Items</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {activeStats.reqs.map((r) => {
+                        const isExpanded = expandedReqId === r.id;
+                        return (
+                          <React.Fragment key={r.id}>
+                            <tr className="hover:bg-gray-50/80">
+                              <td className="py-3 px-3 font-bold text-blue-700">
+                                <Link
+                                  href={`/requisitions/${r.id}`}
+                                  className="hover:underline"
+                                >
+                                  {r.number}
+                                </Link>
+                                <div className="text-[10px] font-normal text-gray-500">
+                                  {r.makerName} • {r.status}
+                                </div>
+                              </td>
+                              <td className="py-3 px-3 text-gray-700">
+                                <div>{r.date}</div>
+                                <div className="font-mono text-[10px] text-gray-400">
+                                  {r.forMonth}
+                                </div>
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono text-gray-800">
+                                {formatBDT(r.billableCost)}
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono text-amber-800">
+                                {formatBDT(r.imsInvestment)}
+                              </td>
+                              <td className="py-3 px-3 text-right font-mono font-bold text-gray-900">
+                                {formatBDT(r.total)}
+                              </td>
+                              <td className="py-3 px-3 text-center">
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedReqId(isExpanded ? null : r.id)
+                                  }
+                                  className="px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 text-[11px] font-semibold text-gray-700"
+                                >
+                                  {isExpanded
+                                    ? "▲ Hide"
+                                    : `▼ ${r.items?.length || 0}`}
+                                </button>
+                              </td>
+                            </tr>
+                            {isExpanded && r.items && r.items.length > 0 && (
+                              <tr className="bg-slate-50">
+                                <td colSpan={6} className="p-3">
+                                  <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                                    <table className="w-full text-[11px]">
+                                      <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
+                                        <tr>
+                                          <th className="py-1.5 px-2.5 text-left">
+                                            SL
+                                          </th>
+                                          <th className="py-1.5 px-2.5 text-left">
+                                            Particulars
+                                          </th>
+                                          <th className="py-1.5 px-2.5 text-left">
+                                            Cost Head
+                                          </th>
+                                          <th className="py-1.5 px-2.5 text-center">
+                                            Tag
+                                          </th>
+                                          <th className="py-1.5 px-2.5 text-right">
+                                            Amount (Tk)
+                                          </th>
                                         </tr>
                                       </thead>
                                       <tbody className="divide-y divide-gray-100">
-                                        {row.matchingReqs.map((r: any) => (
-                                          <tr key={r.id}>
-                                            <td className="py-1.5 font-bold">
-                                              <Link
-                                                href={`/requisitions/${r.id}`}
-                                                className="text-gray-900 hover:text-[#E42528]"
-                                              >
-                                                {r.number}
-                                              </Link>
+                                        {r.items.map((it) => (
+                                          <tr key={it.id}>
+                                            <td className="py-1.5 px-2.5 text-gray-500">
+                                              {it.sl}
                                             </td>
-                                            <td className="py-1.5 font-mono text-gray-600">
-                                              {r.forMonth}
+                                            <td className="py-1.5 px-2.5 font-medium text-gray-800">
+                                              {it.particulars}
                                             </td>
-                                            <td className="py-1.5 text-right font-mono text-green-800">
-                                              {formatTaka(r.billableCost)}
+                                            <td className="py-1.5 px-2.5 text-gray-600">
+                                              {it.costHead}
                                             </td>
-                                            <td className="py-1.5 text-right font-mono text-amber-800">
-                                              {formatTaka(r.imsInvestment)}
-                                            </td>
-                                            <td className="py-1.5 text-right font-mono font-bold">
-                                              {formatTaka(r.total)}
-                                            </td>
-                                            <td className="py-1.5 text-center">
+                                            <td className="py-1.5 px-2.5 text-center">
                                               <span
-                                                className={`px-1.5 py-0.2 rounded text-[9px] font-semibold ${
-                                                  STATUS_COLORS[r.status] || "bg-gray-100"
+                                                className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
+                                                  it.costTag === "IMS_INVESTMENT"
+                                                    ? "bg-amber-100 text-amber-800"
+                                                    : "bg-blue-50 text-blue-700"
                                                 }`}
                                               >
-                                                {STATUS_LABELS[r.status] || r.status}
+                                                {it.costTag}
                                               </span>
+                                            </td>
+                                            <td className="py-1.5 px-2.5 text-right font-mono font-semibold text-gray-900">
+                                              {formatBDT(it.amount)}
                                             </td>
                                           </tr>
                                         ))}
                                       </tbody>
                                     </table>
-                                  )}
-                                </div>
-
-                                {/* Right: Partial Payment Installments List */}
-                                <div className="bg-white rounded-lg border border-gray-200 p-3">
-                                  <div className="flex items-center justify-between mb-2">
-                                    <h4 className="text-[11px] font-bold text-gray-800 uppercase">
-                                      💵 Partial / Full Payments Received ({row.matchingBills.length})
-                                    </h4>
-                                    {canEditFinance && (
-                                      <button
-                                        type="button"
-                                        onClick={() =>
-                                          openRecordPaymentModal(row, selectedMonth)
-                                        }
-                                        className="text-[11px] font-bold text-emerald-700 hover:underline cursor-pointer"
-                                      >
-                                        + Add Partial Payment
-                                      </button>
-                                    )}
                                   </div>
-                                  {row.matchingBills.length === 0 ? (
-                                    <p className="text-xs text-gray-400 py-2">
-                                      No payments recorded yet.
-                                    </p>
-                                  ) : (
-                                    <table className="w-full text-[11px] border-collapse">
-                                      <thead>
-                                        <tr className="border-b border-gray-200 text-gray-500 text-left">
-                                          <th className="py-1">Installment / Bill #</th>
-                                          <th className="py-1">Date</th>
-                                          <th className="py-1">Status</th>
-                                          <th className="py-1 text-right">Received (Tk)</th>
-                                          <th className="py-1 text-right">Edit</th>
-                                        </tr>
-                                      </thead>
-                                      <tbody className="divide-y divide-gray-100">
-                                        {row.matchingBills.map((b: any) => (
-                                          <tr key={b.id}>
-                                            <td className="py-1.5 font-mono font-bold text-gray-800">
-                                              {b.billNumber || b.forMonth}
-                                            </td>
-                                            <td className="py-1.5 text-gray-600">
-                                              {b.receivedAt || b.submittedAt || "—"}
-                                            </td>
-                                            <td className="py-1.5">
-                                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                                                {b.status}
-                                              </span>
-                                            </td>
-                                            <td className="py-1.5 text-right font-mono font-bold text-emerald-700">
-                                              Tk {formatTaka(b.receivedAmount)}
-                                            </td>
-                                            <td className="py-1.5 text-right">
-                                              {canEditFinance && (
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    openRecordPaymentModal(
-                                                      row,
-                                                      b.forMonth,
-                                                      b
-                                                    )
-                                                  }
-                                                  className="text-blue-600 hover:underline font-semibold cursor-pointer"
-                                                >
-                                                  Edit
-                                                </button>
-                                              )}
-                                            </td>
-                                          </tr>
-                                        ))}
-                                      </tbody>
-                                    </table>
-                                  )}
-                                </div>
+                                </td>
+                              </tr>
+                            )}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="bg-gray-50 border-t-2 border-gray-200 font-bold text-gray-900">
+                      <tr>
+                        <td colSpan={2} className="py-2.5 px-3">
+                          Total ({activeStats.reqs.length} Requisition
+                          {activeStats.reqs.length === 1 ? "" : "s"})
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono">
+                          Tk {formatBDT(activeStats.billableSpend)}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono text-amber-900">
+                          Tk {formatBDT(activeStats.imsSpend)}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono">
+                          Tk {formatBDT(activeStats.totalSpend)}
+                        </td>
+                        <td></td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            {/* TABLE B: PARTIAL & FULL PAYMENT INSTALLMENTS FOR THIS PROJECT / EVENT */}
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
+              <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/60">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">
+                    💵 Partial & Full Payments Received ({activeStats.bills.length})
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Each partial payment installment adds to Total Received and reduces Remaining Due.
+                  </p>
+                </div>
+                {canEditFinance && (
+                  <button
+                    type="button"
+                    onClick={() => openPaymentModal()}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 shrink-0"
+                  >
+                    + Add Payment
+                  </button>
+                )}
+              </div>
+
+              {activeStats.bills.length === 0 ? (
+                <div className="p-8 text-center text-xs text-gray-500">
+                  No partial or full payments recorded for{" "}
+                  <strong>{selectedProject.name}</strong> yet.
+                  {canEditFinance && (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        onClick={() => openPaymentModal()}
+                        className="text-emerald-700 font-bold underline"
+                      >
+                        + Record First Payment / Installment
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs text-left">
+                    <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
+                      <tr>
+                        <th className="py-2.5 px-3"># / Period</th>
+                        <th className="py-2.5 px-3">Invoice / Ref</th>
+                        <th className="py-2.5 px-3">Status & Date</th>
+                        <th className="py-2.5 px-3 text-right">
+                          Received (Tk)
+                        </th>
+                        {canEditFinance && (
+                          <th className="py-2.5 px-3 text-right">Action</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-200">
+                      {activeStats.bills.map((b, idx) => {
+                        const badge =
+                          STATUS_BADGES[b.status] || STATUS_BADGES.UNBILLED;
+                        return (
+                          <tr key={b.id} className="hover:bg-gray-50/80">
+                            <td className="py-3 px-3">
+                              <div className="font-bold text-gray-800">
+                                #{activeStats.bills.length - idx}
+                              </div>
+                              <div className="font-mono text-[10px] text-gray-500">
+                                {b.forMonth}
                               </div>
                             </td>
+                            <td className="py-3 px-3">
+                              <div className="font-semibold text-gray-800">
+                                {b.billNumber || "—"}
+                              </div>
+                              {b.notes && (
+                                <div className="text-[10px] text-gray-500 truncate max-w-[160px]">
+                                  {b.notes}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-3 px-3">
+                              <span
+                                className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${badge.cls}`}
+                              >
+                                {badge.label}
+                              </span>
+                              <div className="text-[10px] text-gray-500 mt-0.5">
+                                {b.receivedAt || b.submittedAt || "—"}
+                              </div>
+                            </td>
+                            <td className="py-3 px-3 text-right font-mono font-bold text-emerald-800">
+                              Tk {formatBDT(b.receivedAmount)}
+                            </td>
+                            {canEditFinance && (
+                              <td className="py-3 px-3 text-right whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  onClick={() => openPaymentModal(b)}
+                                  className="px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 text-[11px] font-semibold text-gray-700 mr-1"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteBill(b.id)}
+                                  className="px-2 py-1 rounded border border-red-200 bg-red-50 hover:bg-red-100 text-[11px] font-semibold text-red-700"
+                                >
+                                  🗑️
+                                </button>
+                              </td>
+                            )}
                           </tr>
-                        )}
-                      </Fragment>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      ) : (
-        /* Tab 3: Client Bills & Payment Collections Ledger */
-        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-xs">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
-                  <th className="py-2.5 px-3">Project / Event</th>
-                  <th className="py-2.5 px-3">Month / Installment Bill No.</th>
-                  <th className="py-2.5 px-3 text-right">Expected Bill Inflow (-AIT)</th>
-                  <th className="py-2.5 px-3 text-right">Installment Received (Tk)</th>
-                  <th className="py-2.5 px-3">Date & Status</th>
-                  <th className="py-2.5 px-3">Notes</th>
-                  {canEditFinance && <th className="py-2.5 px-3 text-center">Edit</th>}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {allBillsList.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-8 text-center text-gray-400">
-                      No client bills or payment installments recorded yet. Click{" "}
-                      <strong>&ldquo;+ Add Partial / Full Payment&rdquo;</strong> to log a payment.
-                    </td>
-                  </tr>
-                ) : (
-                  allBillsList.map((b) => {
-                    const parentProj = projects.find((p) => p.id === b.projectId);
-                    return (
-                      <tr key={b.id} className="hover:bg-gray-50/80">
-                        <td className="py-3 px-3">
-                          <Link
-                            href={`/finance/${b.projectId}`}
-                            className="font-bold text-gray-900 hover:text-[#E42528] block"
-                          >
-                            {b.projectName}
-                          </Link>
-                          <span className="text-[10px] font-mono text-gray-500">
-                            {b.projectCode}
-                          </span>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot className="bg-gray-50 border-t-2 border-gray-200 font-bold text-gray-900">
+                      <tr>
+                        <td colSpan={3} className="py-2.5 px-3">
+                          Total Received ({activeStats.bills.length} Installment
+                          {activeStats.bills.length === 1 ? "" : "s"})
                         </td>
-                        <td className="py-3 px-3">
-                          <span className="font-bold text-gray-800 block">{b.forMonth}</span>
-                          <span className="text-[10px] font-mono text-gray-500">
-                            {b.billNumber || "Installment"}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-indigo-900">
-                          {formatTaka(b.expectedInflow)}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-extrabold text-emerald-700">
-                          Tk {formatTaka(b.receivedAmount)}
-                        </td>
-                        <td className="py-3 px-3 text-[11px]">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                            {b.status}
-                          </span>
-                          {b.receivedAt ? (
-                            <span className="block text-[10px] text-emerald-700 mt-0.5">
-                              Paid: {b.receivedAt}
-                            </span>
-                          ) : b.dueDate ? (
-                            <span className="block text-[10px] text-amber-700 mt-0.5">
-                              Due: {b.dueDate}
-                            </span>
-                          ) : null}
-                        </td>
-                        <td className="py-3 px-3 text-gray-600">
-                          {b.deviationReason || b.notes || "—"}
+                        <td className="py-2.5 px-3 text-right font-mono text-emerald-800">
+                          Tk {formatBDT(activeStats.receivedAmount)}
                         </td>
                         {canEditFinance && (
-                          <td className="py-3 px-3 text-center">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                openRecordPaymentModal(parentProj, b.forMonth, b)
-                              }
-                              className="px-2.5 py-1 text-[11px] font-semibold bg-gray-100 hover:bg-gray-200 rounded border border-gray-300 cursor-pointer"
-                            >
-                              ✏️ Edit
-                            </button>
+                          <td className="py-2.5 px-3 text-right text-[11px] text-amber-800">
+                            Due: Tk {formatBDT(activeStats.remainingDue)}
                           </td>
                         )}
                       </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
+        </>
       )}
 
-      {/* Record Client Bill & Partial/Full Payment Received Modal */}
-      {showBillModal && selectedModalProject && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 border border-gray-200 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-200">
+      {/* MODAL: RECORD / UPDATE PARTIAL OR FULL PAYMENT */}
+      {modalOpen && selectedProject && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-xl border border-gray-200 my-8">
+            <div className="flex items-start justify-between border-b border-gray-200 pb-3">
               <div>
-                <h3 className="text-sm font-bold text-gray-900">
-                  💰 {editBillId ? "Edit Payment Installment" : "Record Partial or Full Client Payment"}
-                </h3>
+                <h2 className="text-base font-bold text-gray-900">
+                  {editingBillId
+                    ? "✏️ Edit Payment / Client Bill Record"
+                    : "💰 Record Partial or Full Client Payment"}
+                </h2>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Supports multiple partial payment installments. Each installment adds to the total payment received for the Project or Event.
+                  {selectedProject.kind === "EVENT" ? "🎪 Event: " : "📁 Project: "}
+                  <strong>{selectedProject.name}</strong> ({selectedProject.code}) • Model:{" "}
+                  <strong>
+                    {BILLING_MODEL_LABELS[selectedProject.terms.billingProfile] ||
+                      selectedProject.terms.billingProfile}
+                  </strong>
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setShowBillModal(false)}
-                className="text-gray-400 hover:text-black font-bold text-lg"
+                onClick={() => setModalOpen(false)}
+                className="text-gray-400 hover:text-gray-700 text-lg font-bold"
               >
-                &times;
+                ✕
               </button>
             </div>
 
-            {modalError && (
-              <div className="mt-3 p-2.5 bg-red-50 border border-red-200 text-xs text-red-700 rounded">
-                {modalError}
-              </div>
-            )}
-
-            <form onSubmit={handleSaveBill} className="mt-4 space-y-4">
+            <form onSubmit={handleSaveBill} className="mt-4 space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Select Project or Event
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Period / Service Month
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formMonth}
+                    onChange={(e) => setFormMonth(e.target.value)}
+                    placeholder="e.g. 2026-10"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Payment Status
                   </label>
                   <select
-                    value={modalProjectId}
-                    onChange={(e) => {
-                      const p = projects.find((x) => x.id === e.target.value);
-                      setModalProjectId(e.target.value);
-                      if (p) {
-                        setModalBillableCost(String(p.totalBillableReq || 0));
-                        setModalImsInvCost(String(p.totalImsInvReq || 0));
+                    value={formStatus}
+                    onChange={(e) => setFormStatus(e.target.value)}
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2 font-semibold"
+                  >
+                    <option value="PARTIAL_PAID">Partial Payment Received</option>
+                    <option value="PAID">Full / Final Payment Received</option>
+                    <option value="SUBMITTED">Bill Submitted (Unpaid)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Invoice / Cheque / Ref #
+                  </label>
+                  <input
+                    type="text"
+                    value={formBillNo}
+                    onChange={(e) => setFormBillNo(e.target.value)}
+                    placeholder="e.g. INV-2026-042"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 space-y-3">
+                <div className="font-bold text-gray-800">
+                  1. Requisition Cost & Expected Client Bill Snapshot (Tk)
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-gray-600 mb-1">
+                      Billable Requisition Cost (Tk)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formBillableCost}
+                      onChange={(e) =>
+                        handleAutoRecalculate(e.target.value, formImsInv)
                       }
-                    }}
-                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-bold"
-                  >
-                    <optgroup label="📁 Projects">
-                      {projectsOnly.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.code})
-                        </option>
-                      ))}
-                    </optgroup>
-                    <optgroup label="🎪 Events">
-                      {eventsOnly.map((p) => (
-                        <option key={p.id} value={p.id}>
-                          {p.name} ({p.code})
-                        </option>
-                      ))}
-                    </optgroup>
-                  </select>
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-gray-600 mb-1">
+                      IMS Own Investment Cost (Tk)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formImsInv}
+                      onChange={(e) =>
+                        handleAutoRecalculate(formBillableCost, e.target.value)
+                      }
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 font-mono"
+                    />
+                  </div>
                 </div>
-
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Service Month
-                  </label>
-                  <input
-                    type="month"
-                    value={modalForMonth}
-                    onChange={(e) => setModalForMonth(e.target.value)}
-                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-bold"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                  <div>
+                    <label className="block text-blue-800 mb-1">
+                      Client Bill Ex-VAT (Tk)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formBillExVat}
+                      onChange={(e) => setFormBillExVat(e.target.value)}
+                      className="w-full rounded-lg border border-blue-300 bg-white px-3 py-1.5 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-blue-800 mb-1">
+                      15% VAT Amount (Tk)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formVatAmt}
+                      onChange={(e) => setFormVatAmt(e.target.value)}
+                      className="w-full rounded-lg border border-blue-300 bg-white px-3 py-1.5 font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-blue-800 mb-1">
+                      AIT Deducted by Client (Tk)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formAitAmt}
+                      onChange={(e) => setFormAitAmt(e.target.value)}
+                      className="w-full rounded-lg border border-blue-300 bg-white px-3 py-1.5 font-mono"
+                    />
+                  </div>
+                </div>
+                <div className="text-[11px] text-blue-900 pt-1">
+                  Bill With VAT: <strong>Tk {formatBDT(liveBillWithVat)}</strong> • Expected Net Inflow (-AIT):{" "}
+                  <strong>Tk {formatBDT(liveExpectedInflow)}</strong>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Partial / Full Payment Amount */}
+              <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 space-y-3">
+                <div className="font-bold text-emerald-950">
+                  2. Payment Received in This Installment
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-bold text-emerald-900 mb-1">
+                      Received Payment Amount (Tk) *
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      required
+                      value={formReceivedAmt}
+                      onChange={(e) => setFormReceivedAmt(e.target.value)}
+                      placeholder="Enter installment amount received"
+                      className="w-full rounded-lg border-2 border-emerald-500 bg-white px-3 py-2 font-mono font-bold text-sm text-emerald-950"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-emerald-900 font-semibold mb-1">
+                      Payment Received Date
+                    </label>
+                    <input
+                      type="date"
+                      value={formReceivedAt}
+                      onChange={(e) => setFormReceivedAt(e.target.value)}
+                      className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2"
+                    />
+                  </div>
+                </div>
+
                 <div>
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Installment / Bill No.
+                  <label className="block text-gray-700 font-semibold mb-1">
+                    Installment Description / Bank Reference / Notes
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. 2026/10/ROBI-P1"
-                    value={modalBillNo}
-                    onChange={(e) => setModalBillNo(e.target.value)}
-                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Client PO / Cheque / BEFTN Ref
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Optional PO/Ref #"
-                    value={modalPoNo}
-                    onChange={(e) => setModalPoNo(e.target.value)}
-                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Payment Type / Status
-                  </label>
-                  <select
-                    value={modalStatus}
-                    onChange={(e) => setModalStatus(e.target.value)}
-                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-bold"
-                  >
-                    <option value="PARTIAL_PAID">Partial Payment (Installment)</option>
-                    <option value="PAID">Full / Final Payment</option>
-                    <option value="BILL_SUBMITTED">Bill Submitted (Awaiting Payment)</option>
-                  </select>
-                </div>
-              </div>
-
-              {/* Costs & Received Payment Inputs */}
-              <div className="p-3.5 bg-gray-50 rounded-lg border border-gray-200 grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Total Billable Cost (All Reqs)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={modalBillableCost}
-                    onChange={(e) => setModalBillableCost(e.target.value)}
-                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono font-bold bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Total IMS Investment (All Reqs)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={modalImsInvCost}
-                    onChange={(e) => setModalImsInvCost(e.target.value)}
-                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono font-bold bg-white"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-emerald-800">
-                    💵 This Partial / Full Payment (Tk)
-                  </label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={modalReceivedAmount}
-                    onChange={(e) => setModalReceivedAmount(e.target.value)}
-                    className="mt-1 block w-full px-3 py-1.5 border-2 border-emerald-400 rounded-md text-xs font-mono font-extrabold bg-emerald-50/40 text-emerald-900"
+                    value={formNotes}
+                    onChange={(e) => setFormNotes(e.target.value)}
+                    placeholder="e.g. 1st Partial Payment (40% Advance via Bank Transfer)"
+                    className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5"
                   />
                 </div>
               </div>
 
-              {/* Live Profit / Loss Breakdown Card inside Modal */}
-              {modalLiveCalc && (
-                <div className="p-3.5 bg-blue-50/40 rounded-lg border border-blue-200 space-y-2 text-xs">
-                  <div className="flex items-center justify-between font-bold text-gray-800 border-b border-blue-100 pb-1.5">
-                    <span>
-                      Cumulative P&L ({modalLiveCalc.billingProfile} • Fee {modalLiveCalc.feeRatePct}% • AIT{" "}
-                      {modalLiveCalc.aitRatePct}%)
-                    </span>
-                    <span className="text-[11px] text-gray-600">
-                      Prior Received: <strong>Tk {formatTaka(modalLiveCalc.priorReceived)}</strong>
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 font-mono text-[11px]">
-                    <div>
-                      <span className="text-gray-500 block">Expected Inflow (-AIT):</span>
-                      <strong className="text-indigo-900">
-                        Tk {formatTaka(modalLiveCalc.expectedInflow)}
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 block">Cumulative Received:</span>
-                      <strong className="text-emerald-700">
-                        Tk {formatTaka(modalLiveCalc.cumulativeReceived)}
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 block">Remaining Due:</span>
-                      <strong className="text-amber-800">
-                        Tk {formatTaka(modalLiveCalc.outstanding)}
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 block">Total Requisition Cost:</span>
-                      <strong>Tk {formatTaka(modalLiveCalc.totalCosts)}</strong>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 block">Accrued Profit/Loss:</span>
-                      <strong
-                        className={
-                          modalLiveCalc.netProfit >= 0 ? "text-emerald-700" : "text-red-600"
-                        }
-                      >
-                        {modalLiveCalc.netProfit >= 0 ? "PROFIT +" : "LOSS "}Tk{" "}
-                        {formatTaka(modalLiveCalc.netProfit)}
-                      </strong>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 block">Realized Cash P&L:</span>
-                      <strong
-                        className={
-                          modalLiveCalc.realizedProfit >= 0
-                            ? "text-emerald-800"
-                            : "text-red-600"
-                        }
-                      >
-                        {modalLiveCalc.realizedProfit >= 0 ? "PROFIT +" : "LOSS "}Tk{" "}
-                        {formatTaka(modalLiveCalc.realizedProfit)}
-                      </strong>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Bill Submitted Date
-                  </label>
-                  <input
-                    type="date"
-                    value={modalSubmittedAt}
-                    onChange={(e) => setModalSubmittedAt(e.target.value)}
-                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-700">
-                    Payment Received Date
-                  </label>
-                  <input
-                    type="date"
-                    value={modalReceivedAt}
-                    onChange={(e) => setModalReceivedAt(e.target.value)}
-                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-700">
-                  Installment Note (e.g., &ldquo;1st Partial Payment 40%&rdquo;, &ldquo;2nd Tranche&rdquo;, or Deduction Reason)
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Installment #1 received via BEFTN..."
-                  value={modalDeviationReason}
-                  onChange={(e) => setModalDeviationReason(e.target.value)}
-                  className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs"
-                />
-              </div>
-
-              <div className="flex justify-end space-x-2 pt-3 border-t">
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-200">
                 <button
                   type="button"
-                  onClick={() => setShowBillModal(false)}
-                  className="px-3.5 py-1.5 text-xs font-semibold text-gray-600 bg-gray-100 rounded-md cursor-pointer"
+                  onClick={() => setModalOpen(false)}
+                  className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 font-semibold hover:bg-gray-50"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md shadow cursor-pointer"
+                  className="px-5 py-2 rounded-lg bg-gray-900 text-white font-bold hover:bg-gray-800 disabled:opacity-50"
                 >
-                  {saving ? "Saving..." : "✓ Save Payment Installment"}
+                  {saving ? "Saving..." : "Save Payment"}
                 </button>
               </div>
             </form>
