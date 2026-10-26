@@ -223,6 +223,37 @@ export default async function FinancePnlPage() {
       0
     );
 
+    const requisitionsList = (p.requisitions || []).map((r: any) => {
+      let reqBillable = 0;
+      let reqIms = 0;
+      if (Array.isArray(r.items) && r.items.length > 0) {
+        for (const it of r.items) {
+          const amt = Number(it.amount || 0);
+          if (it.costTag === "IMS_INVESTMENT") {
+            reqIms += amt;
+          } else {
+            reqBillable += amt;
+          }
+        }
+      } else {
+        reqBillable = Number(r.billableTotal || r.total || 0);
+        reqIms = Number(r.imsInvestmentTotal || 0);
+      }
+      const mKey =
+        r.forMonth || new Date(r.date || r.createdAt).toISOString().slice(0, 7);
+      return {
+        id: r.id,
+        number: r.number || "Voucher",
+        forMonth: mKey,
+        date: new Date(r.date || r.createdAt).toISOString().slice(0, 10),
+        makerName: r.makerName,
+        status: r.status,
+        billableCost: reqBillable,
+        imsInvestment: reqIms,
+        total: Number(r.total || 0),
+      };
+    });
+
     return {
       id: p.id,
       code: p.code,
@@ -234,6 +265,7 @@ export default async function FinancePnlPage() {
       budget: p.budget ? Number(p.budget) : 0,
       terms,
       reqCount: (p.requisitions || []).length,
+      requisitionsList,
       totalBillableReq,
       totalImsInvReq,
       executedBillable,

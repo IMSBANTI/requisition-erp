@@ -1,8 +1,10 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, Fragment } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { formatTaka } from "@/lib/money";
+import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
 import { calculateProfitSummary } from "@/lib/profitEngine";
 
 interface Props {
@@ -24,15 +26,16 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
   );
   const [selectedMonth, setSelectedMonth] = useState<string>("ALL");
   const [search, setSearch] = useState("");
+  const [expandedProjectIds, setExpandedProjectIds] = useState<Record<string, boolean>>({});
 
-  // Modal state for Recording / Updating a Client Bill & Payment Received
+  // Modal state for Recording / Updating a Client Bill & Partial/Full Payment Received
   const [showBillModal, setShowBillModal] = useState(false);
   const [editBillId, setEditBillId] = useState<string | null>(null);
   const [modalProjectId, setModalProjectId] = useState<string>(projects[0]?.id || "");
   const [modalForMonth, setModalForMonth] = useState<string>(getCurrentYearMonth());
   const [modalBillNo, setModalBillNo] = useState<string>("");
   const [modalPoNo, setModalPoNo] = useState<string>("");
-  const [modalStatus, setModalStatus] = useState<string>("BILL_SUBMITTED");
+  const [modalStatus, setModalStatus] = useState<string>("PARTIAL_PAID");
   const [modalBillableCost, setModalBillableCost] = useState<string>("0");
   const [modalImsInvCost, setModalImsInvCost] = useState<string>("0");
   const [modalCustomBillExVat, setModalCustomBillExVat] = useState<string>("");
@@ -40,7 +43,9 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
   const [modalSubmittedAt, setModalSubmittedAt] = useState<string>(
     new Date().toISOString().slice(0, 10)
   );
-  const [modalReceivedAt, setModalReceivedAt] = useState<string>("");
+  const [modalReceivedAt, setModalReceivedAt] = useState<string>(
+    new Date().toISOString().slice(0, 10)
+  );
   const [modalDeviationReason, setModalDeviationReason] = useState<string>("");
   const [modalNotes, setModalNotes] = useState<string>("");
   const [saving, setSaving] = useState(false);
@@ -81,20 +86,23 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
           p.code.toLowerCase().includes(search.toLowerCase())
       )
       .map((p) => {
-        let billableCost = p.totalBillableReq;
-        let imsInvestment = p.totalImsInvReq;
-        let reqCount = p.reqCount;
+        const matchingReqs = (p.requisitionsList || []).filter((r: any) =>
+          activeTab === "PROJECT_PNL" && selectedMonth !== "ALL"
+            ? r.forMonth === selectedMonth
+            : true
+        );
 
-        if (activeTab === "PROJECT_PNL" && selectedMonth !== "ALL") {
-          const mRow = (p.monthlyBreakdown || []).find(
-            (m: any) => m.forMonth === selectedMonth
-          );
-          billableCost = mRow ? mRow.billableCost : 0;
-          imsInvestment = mRow ? mRow.imsInvestment : 0;
-          reqCount = mRow ? mRow.reqCount : 0;
-        }
+        const billableCost = matchingReqs.reduce(
+          (s: number, r: any) => s + r.billableCost,
+          0
+        );
+        const imsInvestment = matchingReqs.reduce(
+          (s: number, r: any) => s + r.imsInvestment,
+          0
+        );
+        const reqCount = matchingReqs.length;
 
-        // Check if there are recorded ClientBills for this Project/Event (& Month)
+        // Check all partial/full ClientBill payment installments for this Project/Event (& Month)
         const matchingBills = (p.bills || []).filter((b: any) =>
           activeTab === "PROJECT_PNL" && selectedMonth !== "ALL"
             ? b.forMonth === selectedMonth
@@ -107,18 +115,12 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
           imsInvestment,
         });
 
-        const billedExVat =
-          matchingBills.length > 0
-            ? matchingBills.reduce((s: number, b: any) => s + b.billExVat, 0)
-            : calc.billExVat;
-        const billedWithVat =
-          matchingBills.length > 0
-            ? matchingBills.reduce((s: number, b: any) => s + b.billWithVat, 0)
-            : calc.billWithVat;
-        const expectedInflow =
-          matchingBills.length > 0
-            ? matchingBills.reduce((s: number, b: any) => s + b.expectedInflow, 0)
-            : calc.expectedInflow;
+        // Expected Bill is calculated once from the total requisition cost of the Project/Event (never multiplied by installment count)
+        const billedExVat = calc.billExVat;
+        const billedWithVat = calc.billWithVat;
+        const expectedInflow = calc.expectedInflow;
+
+        // Received Amount is the sum of all partial/full payment installments
         const receivedAmount = matchingBills.reduce(
           (s: number, b: any) => s + b.receivedAmount,
           0
@@ -142,6 +144,7 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
           activeImsInvestment: imsInvestment,
           activeTotalCost: totalCostSpent,
           activeReqCount: reqCount,
+          matchingReqs,
           billedExVat,
           billedWithVat,
           expectedInflow,
@@ -184,7 +187,7 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
     );
   }, [activePnlRows]);
 
-  // All Client Bills flattened for Ledger tab
+  // All Client Bills / Installments flattened for Ledger tab
   const allBillsList = useMemo(() => {
     const list: any[] = [];
     for (const p of projects) {
@@ -202,7 +205,7 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
     return list;
   }, [projects, search]);
 
-  // Open Modal to Record a New Bill / Payment for a specific Project or Event
+  // Open Modal to Record a New Partial/Full Payment Installment (or Edit an existing one)
   function openRecordPaymentModal(proj?: any, monthOverride?: string, existingBill?: any) {
     const targetProj = proj || projects[0];
     if (!targetProj) return;
@@ -214,7 +217,7 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
       setModalForMonth(existingBill.forMonth || getCurrentYearMonth());
       setModalBillNo(existingBill.billNumber || "");
       setModalPoNo(existingBill.poNumber || "");
-      setModalStatus(existingBill.status || "BILL_SUBMITTED");
+      setModalStatus(existingBill.status || "PARTIAL_PAID");
       setModalBillableCost(String(existingBill.billableCost || 0));
       setModalImsInvCost(String(existingBill.imsInvestment || 0));
       setModalCustomBillExVat("");
@@ -226,6 +229,7 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
       setModalDeviationReason(existingBill.deviationReason || "");
       setModalNotes(existingBill.notes || "");
     } else {
+      // Creating a NEW Partial or Full Payment Installment
       setEditBillId(null);
       setModalProjectId(targetProj.id);
       const m =
@@ -233,11 +237,11 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
           ? monthOverride
           : getCurrentYearMonth();
       setModalForMonth(m);
-      setModalBillNo(`${m.replace("-", "/")}/${targetProj.code}`);
+      const partNo = (proj?.matchingBills?.length || targetProj.bills?.length || 0) + 1;
+      setModalBillNo(`${m.replace("-", "/")}/${targetProj.code}-P${partNo}`);
       setModalPoNo("");
-      setModalStatus("PAID");
+      setModalStatus("PARTIAL_PAID");
 
-      // Pre-fill Billable & IMS Investment from requisitions
       const bCost =
         proj?.activeBillableCost !== undefined
           ? proj.activeBillableCost
@@ -251,16 +255,18 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
       setModalImsInvCost(String(iCost));
       setModalCustomBillExVat("");
 
-      // Pre-calculate expected inflow so user can 1-click record full payment
+      // Pre-fill remaining balance due so partial payments are effortless
       const preview = calculateProfitSummary({
         terms: targetProj.terms,
         billableCost: bCost,
         imsInvestment: iCost,
       });
-      setModalReceivedAmount(String(preview.expectedInflow));
+      const alreadyReceived = proj?.receivedAmount || targetProj.totalReceivedFromBills || 0;
+      const remaining = Math.max(0, Number((preview.expectedInflow - alreadyReceived).toFixed(2)));
+      setModalReceivedAmount(String(remaining > 0 ? remaining : preview.expectedInflow));
       setModalSubmittedAt(new Date().toISOString().slice(0, 10));
       setModalReceivedAt(new Date().toISOString().slice(0, 10));
-      setModalDeviationReason("");
+      setModalDeviationReason(`Installment #${partNo}`);
       setModalNotes("");
     }
     setShowBillModal(true);
@@ -289,18 +295,27 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
       imsInvestment: iCost,
     });
 
-    const recAmt = parseFloat(modalReceivedAmount) || 0;
+    const priorReceived = editBillId
+      ? (selectedModalProject.bills || [])
+          .filter((b: any) => b.id !== editBillId)
+          .reduce((s: number, b: any) => s + b.receivedAmount, 0)
+      : selectedModalProject.totalReceivedFromBills || 0;
+
+    const thisInstallmentAmt = parseFloat(modalReceivedAmount) || 0;
+    const cumulativeReceived = priorReceived + thisInstallmentAmt;
     const totalCosts =
       calc.billableCost +
       calc.imsInvestment +
       calc.maintenanceCost +
       calc.amortizationCost;
-    const realizedProfit = recAmt - totalCosts;
-    const outstanding = Math.max(0, calc.expectedInflow - recAmt);
+    const realizedProfit = cumulativeReceived - totalCosts;
+    const outstanding = Math.max(0, calc.expectedInflow - cumulativeReceived);
 
     return {
       ...calc,
-      receivedAmount: recAmt,
+      priorReceived,
+      thisInstallmentAmt,
+      cumulativeReceived,
       totalCosts,
       realizedProfit,
       outstanding,
@@ -311,6 +326,7 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
     modalImsInvCost,
     modalCustomBillExVat,
     modalReceivedAmount,
+    editBillId,
   ]);
 
   async function handleSaveBill(e: React.FormEvent) {
@@ -385,7 +401,7 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
                 : "text-gray-700 hover:text-gray-900"
             }`}
           >
-            🧾 Client Bills & Received Payments ({allBillsList.length})
+            🧾 All Partial & Full Payment Installments ({allBillsList.length})
           </button>
         </div>
 
@@ -422,7 +438,7 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
               onClick={() => openRecordPaymentModal()}
               className="px-3.5 py-1.5 text-xs font-bold text-white bg-[#E42528] hover:bg-[#B81D20] rounded-md shadow-xs cursor-pointer whitespace-nowrap"
             >
-              💰 + Record Client Bill / Payment Received
+              💰 + Add Partial / Full Payment
             </button>
           )}
         </div>
@@ -432,7 +448,7 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
         <div className="bg-white p-3.5 rounded-xl border border-gray-200 shadow-2xs">
           <span className="text-[10px] font-bold text-gray-500 uppercase block">
-            1. Requisition Spend
+            1. Total Requisitions Spend
           </span>
           <span className="text-sm font-mono font-extrabold text-gray-900 mt-1 block">
             Tk {formatTaka(kpiTotals.totalCost)}
@@ -468,13 +484,13 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
 
         <div className="bg-white p-3.5 rounded-xl border border-emerald-200 shadow-2xs">
           <span className="text-[10px] font-bold text-emerald-800 uppercase block">
-            4. Payment Received
+            4. Total Payment Received
           </span>
           <span className="text-sm font-mono font-extrabold text-emerald-700 mt-1 block">
             Tk {formatTaka(kpiTotals.receivedAmount)}
           </span>
           <span className="text-[10px] text-amber-700 font-semibold block mt-0.5">
-            Due/Outstanding: Tk {formatTaka(kpiTotals.outstanding)}
+            Remaining Due: Tk {formatTaka(kpiTotals.outstanding)}
           </span>
         </div>
 
@@ -531,17 +547,17 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
                   <th className="py-2.5 px-3">
-                    {activeTab === "EVENT_PNL" ? "Event & Terms" : "Project & Terms"}
+                    {activeTab === "EVENT_PNL" ? "Event & Requisitions" : "Project & Requisitions"}
                   </th>
                   <th className="py-2.5 px-3 text-right">Billable Spend</th>
                   <th className="py-2.5 px-3 text-right">IMS Investment</th>
                   <th className="py-2.5 px-3 text-right">Total Spend</th>
                   <th className="py-2.5 px-3 text-right">Client Bill (With VAT)</th>
                   <th className="py-2.5 px-3 text-right">Expected Inflow (-AIT)</th>
-                  <th className="py-2.5 px-3 text-right">Payment Received</th>
+                  <th className="py-2.5 px-3 text-right">Received (Installments)</th>
                   <th className="py-2.5 px-3 text-right">Accrued Profit / Loss</th>
                   <th className="py-2.5 px-3 text-right">Realized Cash P&L</th>
-                  {canEditFinance && <th className="py-2.5 px-3 text-center">Action</th>}
+                  <th className="py-2.5 px-3 text-center">Charts & Payment</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -555,90 +571,267 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
                   activePnlRows.map((row) => {
                     const isProfit = row.accruedNetProfit >= 0;
                     const isRealizedProfit = row.realizedCashProfit >= 0;
+                    const isExpanded = !!expandedProjectIds[row.id];
                     return (
-                      <tr key={row.id} className="hover:bg-gray-50/80 transition-colors">
-                        <td className="py-3 px-3">
-                          <span className="font-bold text-gray-900 block">{row.name}</span>
-                          <span className="text-[10px] font-mono text-gray-500">
-                            {row.code} &bull; {row.terms.billingProfile} &bull;{" "}
-                            {row.activeReqCount} Req(s)
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-gray-800">
-                          {formatTaka(row.activeBillableCost)}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-amber-800">
-                          {formatTaka(row.activeImsInvestment)}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-gray-900">
-                          {formatTaka(row.activeTotalCost)}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-semibold text-blue-800">
-                          {formatTaka(row.billedWithVat)}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-indigo-900">
-                          {formatTaka(row.expectedInflow)}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono">
-                          <span className="font-bold text-emerald-700 block">
-                            {formatTaka(row.receivedAmount)}
-                          </span>
-                          {row.outstandingAmount > 0 && (
-                            <span className="text-[10px] text-amber-700">
-                              Due: {formatTaka(row.outstandingAmount)}
-                            </span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono">
-                          <span
-                            className={`inline-block px-2 py-0.5 rounded font-bold ${
-                              isProfit
-                                ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                                : "bg-red-50 text-red-700 border border-red-200"
-                            }`}
-                          >
-                            {isProfit ? "PROFIT +" : "LOSS "}
-                            {formatTaka(row.accruedNetProfit)}
-                          </span>
-                          <span className="block text-[10px] text-gray-500 mt-0.5">
-                            Margin: {row.marginPct}%
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono">
-                          <span
-                            className={`font-bold ${
-                              row.receivedAmount === 0
-                                ? "text-gray-400"
-                                : isRealizedProfit
-                                ? "text-emerald-700"
-                                : "text-red-600"
-                            }`}
-                          >
-                            {row.receivedAmount === 0
-                              ? "Awaiting Payment"
-                              : `${isRealizedProfit ? "+" : ""}${formatTaka(
-                                  row.realizedCashProfit
-                                )}`}
-                          </span>
-                        </td>
-                        {canEditFinance && (
-                          <td className="py-3 px-3 text-center whitespace-nowrap">
-                            <button
-                              type="button"
-                              onClick={() =>
-                                openRecordPaymentModal(
-                                  row,
-                                  selectedMonth,
-                                  row.matchingBills?.[0]
-                                )
-                              }
-                              className="px-2.5 py-1 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-2xs cursor-pointer"
+                      <Fragment key={row.id}>
+                        <tr className="hover:bg-gray-50/80 transition-colors">
+                          <td className="py-3 px-3">
+                            <Link
+                              href={`/finance/${row.id}`}
+                              className="font-bold text-gray-900 hover:text-[#E42528] block"
                             >
-                              💰 {row.matchingBills?.length > 0 ? "Update Payment" : "Receive Payment"}
-                            </button>
+                              {row.name}
+                            </Link>
+                            <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                              <span className="text-[10px] font-mono text-gray-500">
+                                {row.code} &bull; {row.terms.billingProfile}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedProjectIds((prev) => ({
+                                    ...prev,
+                                    [row.id]: !prev[row.id],
+                                  }))
+                                }
+                                className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 cursor-pointer"
+                              >
+                                {isExpanded ? "▲ Hide" : "▼"} {row.activeReqCount} Req(s) &bull;{" "}
+                                {row.matchingBills.length} Pay(s)
+                              </button>
+                            </div>
                           </td>
+                          <td className="py-3 px-3 text-right font-mono text-gray-800">
+                            {formatTaka(row.activeBillableCost)}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono text-amber-800">
+                            {formatTaka(row.activeImsInvestment)}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono font-bold text-gray-900">
+                            {formatTaka(row.activeTotalCost)}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono font-semibold text-blue-800">
+                            {formatTaka(row.billedWithVat)}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono font-bold text-indigo-900">
+                            {formatTaka(row.expectedInflow)}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono">
+                            <span className="font-bold text-emerald-700 block">
+                              {formatTaka(row.receivedAmount)}
+                            </span>
+                            <span className="text-[10px] text-gray-500 block">
+                              ({row.matchingBills.length} Installment
+                              {row.matchingBills.length === 1 ? "" : "s"})
+                            </span>
+                            {row.outstandingAmount > 0 && (
+                              <span className="text-[10px] text-amber-700 font-semibold block">
+                                Due: {formatTaka(row.outstandingAmount)}
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono">
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded font-bold ${
+                                isProfit
+                                  ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+                                  : "bg-red-50 text-red-700 border border-red-200"
+                              }`}
+                            >
+                              {isProfit ? "PROFIT +" : "LOSS "}
+                              {formatTaka(row.accruedNetProfit)}
+                            </span>
+                            <span className="block text-[10px] text-gray-500 mt-0.5">
+                              Margin: {row.marginPct}%
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono">
+                            <span
+                              className={`font-bold ${
+                                row.receivedAmount === 0
+                                  ? "text-gray-400"
+                                  : isRealizedProfit
+                                  ? "text-emerald-700"
+                                  : "text-red-600"
+                              }`}
+                            >
+                              {row.receivedAmount === 0
+                                ? "Awaiting Payment"
+                                : `${isRealizedProfit ? "+" : ""}${formatTaka(
+                                    row.realizedCashProfit
+                                  )}`}
+                            </span>
+                          </td>
+                          <td className="py-3 px-3 text-center whitespace-nowrap space-x-1.5">
+                            <Link
+                              href={`/finance/${row.id}`}
+                              className="inline-block px-2.5 py-1 text-[11px] font-bold text-white bg-gray-900 hover:bg-gray-800 rounded shadow-2xs"
+                            >
+                              📊 Charts & Page &rarr;
+                            </Link>
+                            {canEditFinance && (
+                              <button
+                                type="button"
+                                onClick={() => openRecordPaymentModal(row, selectedMonth)}
+                                className="px-2.5 py-1 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded shadow-2xs cursor-pointer"
+                              >
+                                💰 + Payment
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+
+                        {/* Inline Expandable Multi-Requisition & Partial Payments Breakdown */}
+                        {isExpanded && (
+                          <tr className="bg-gray-50/90">
+                            <td colSpan={10} className="p-4">
+                              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                {/* Left: Multiple Requisitions List */}
+                                <div className="bg-white rounded-lg border border-gray-200 p-3">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <h4 className="text-[11px] font-bold text-gray-800 uppercase">
+                                      📋 Individual Requisitions ({row.matchingReqs.length})
+                                    </h4>
+                                    <Link
+                                      href={`/finance/${row.id}`}
+                                      className="text-[11px] font-bold text-[#E42528] hover:underline"
+                                    >
+                                      Open Full Charts & Breakdown &rarr;
+                                    </Link>
+                                  </div>
+                                  {row.matchingReqs.length === 0 ? (
+                                    <p className="text-xs text-gray-400 py-2">
+                                      No requisitions in this period.
+                                    </p>
+                                  ) : (
+                                    <table className="w-full text-[11px] border-collapse">
+                                      <thead>
+                                        <tr className="border-b border-gray-200 text-gray-500 text-left">
+                                          <th className="py-1">Voucher #</th>
+                                          <th className="py-1">Month</th>
+                                          <th className="py-1 text-right">Billable</th>
+                                          <th className="py-1 text-right">IMS Inv</th>
+                                          <th className="py-1 text-right">Total</th>
+                                          <th className="py-1 text-center">Status</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-gray-100">
+                                        {row.matchingReqs.map((r: any) => (
+                                          <tr key={r.id}>
+                                            <td className="py-1.5 font-bold">
+                                              <Link
+                                                href={`/requisitions/${r.id}`}
+                                                className="text-gray-900 hover:text-[#E42528]"
+                                              >
+                                                {r.number}
+                                              </Link>
+                                            </td>
+                                            <td className="py-1.5 font-mono text-gray-600">
+                                              {r.forMonth}
+                                            </td>
+                                            <td className="py-1.5 text-right font-mono text-green-800">
+                                              {formatTaka(r.billableCost)}
+                                            </td>
+                                            <td className="py-1.5 text-right font-mono text-amber-800">
+                                              {formatTaka(r.imsInvestment)}
+                                            </td>
+                                            <td className="py-1.5 text-right font-mono font-bold">
+                                              {formatTaka(r.total)}
+                                            </td>
+                                            <td className="py-1.5 text-center">
+                                              <span
+                                                className={`px-1.5 py-0.2 rounded text-[9px] font-semibold ${
+                                                  STATUS_COLORS[r.status] || "bg-gray-100"
+                                                }`}
+                                              >
+                                                {STATUS_LABELS[r.status] || r.status}
+                                              </span>
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                </div>
+
+                                {/* Right: Partial Payment Installments List */}
+                                <div className="bg-white rounded-lg border border-gray-200 p-3">
+                                  <div className="flex items-center justify-between mb-2">
+                                    <h4 className="text-[11px] font-bold text-gray-800 uppercase">
+                                      💵 Partial / Full Payments Received ({row.matchingBills.length})
+                                    </h4>
+                                    {canEditFinance && (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          openRecordPaymentModal(row, selectedMonth)
+                                        }
+                                        className="text-[11px] font-bold text-emerald-700 hover:underline cursor-pointer"
+                                      >
+                                        + Add Partial Payment
+                                      </button>
+                                    )}
+                                  </div>
+                                  {row.matchingBills.length === 0 ? (
+                                    <p className="text-xs text-gray-400 py-2">
+                                      No payments recorded yet.
+                                    </p>
+                                  ) : (
+                                    <table className="w-full text-[11px] border-collapse">
+                                      <thead>
+                                        <tr className="border-b border-gray-200 text-gray-500 text-left">
+                                          <th className="py-1">Installment / Bill #</th>
+                                          <th className="py-1">Date</th>
+                                          <th className="py-1">Status</th>
+                                          <th className="py-1 text-right">Received (Tk)</th>
+                                          <th className="py-1 text-right">Edit</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-gray-100">
+                                        {row.matchingBills.map((b: any) => (
+                                          <tr key={b.id}>
+                                            <td className="py-1.5 font-mono font-bold text-gray-800">
+                                              {b.billNumber || b.forMonth}
+                                            </td>
+                                            <td className="py-1.5 text-gray-600">
+                                              {b.receivedAt || b.submittedAt || "—"}
+                                            </td>
+                                            <td className="py-1.5">
+                                              <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                                                {b.status}
+                                              </span>
+                                            </td>
+                                            <td className="py-1.5 text-right font-mono font-bold text-emerald-700">
+                                              Tk {formatTaka(b.receivedAmount)}
+                                            </td>
+                                            <td className="py-1.5 text-right">
+                                              {canEditFinance && (
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    openRecordPaymentModal(
+                                                      row,
+                                                      b.forMonth,
+                                                      b
+                                                    )
+                                                  }
+                                                  className="text-blue-600 hover:underline font-semibold cursor-pointer"
+                                                >
+                                                  Edit
+                                                </button>
+                                              )}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+                          </tr>
                         )}
-                      </tr>
+                      </Fragment>
                     );
                   })
                 )}
@@ -654,32 +847,34 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
               <thead>
                 <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
                   <th className="py-2.5 px-3">Project / Event</th>
-                  <th className="py-2.5 px-3">Month / Bill No.</th>
-                  <th className="py-2.5 px-3 text-right">Total Cost Spent</th>
-                  <th className="py-2.5 px-3 text-right">Bill With VAT</th>
-                  <th className="py-2.5 px-3 text-right">Expected (-AIT)</th>
-                  <th className="py-2.5 px-3 text-right">Payment Received</th>
-                  <th className="py-2.5 px-3 text-right">Realized P&L</th>
-                  <th className="py-2.5 px-3">Dates & Status</th>
+                  <th className="py-2.5 px-3">Month / Installment Bill No.</th>
+                  <th className="py-2.5 px-3 text-right">Expected Bill Inflow (-AIT)</th>
+                  <th className="py-2.5 px-3 text-right">Installment Received (Tk)</th>
+                  <th className="py-2.5 px-3">Date & Status</th>
+                  <th className="py-2.5 px-3">Notes</th>
                   {canEditFinance && <th className="py-2.5 px-3 text-center">Edit</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {allBillsList.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="p-8 text-center text-gray-400">
-                      No client bills or payment receipts recorded yet. Click{" "}
-                      <strong>&ldquo;+ Record Client Bill / Payment Received&rdquo;</strong> to log a bill or payment.
+                    <td colSpan={7} className="p-8 text-center text-gray-400">
+                      No client bills or payment installments recorded yet. Click{" "}
+                      <strong>&ldquo;+ Add Partial / Full Payment&rdquo;</strong> to log a payment.
                     </td>
                   </tr>
                 ) : (
                   allBillsList.map((b) => {
                     const parentProj = projects.find((p) => p.id === b.projectId);
-                    const totalCost = b.billableCost + b.imsInvestment;
                     return (
                       <tr key={b.id} className="hover:bg-gray-50/80">
                         <td className="py-3 px-3">
-                          <span className="font-bold text-gray-900 block">{b.projectName}</span>
+                          <Link
+                            href={`/finance/${b.projectId}`}
+                            className="font-bold text-gray-900 hover:text-[#E42528] block"
+                          >
+                            {b.projectName}
+                          </Link>
                           <span className="text-[10px] font-mono text-gray-500">
                             {b.projectCode}
                           </span>
@@ -687,32 +882,14 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
                         <td className="py-3 px-3">
                           <span className="font-bold text-gray-800 block">{b.forMonth}</span>
                           <span className="text-[10px] font-mono text-gray-500">
-                            {b.billNumber || "No Bill #"}
+                            {b.billNumber || "Installment"}
                           </span>
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono text-gray-800">
-                          {formatTaka(totalCost)}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono font-semibold text-blue-800">
-                          {formatTaka(b.billWithVat)}
                         </td>
                         <td className="py-3 px-3 text-right font-mono font-bold text-indigo-900">
                           {formatTaka(b.expectedInflow)}
                         </td>
-                        <td className="py-3 px-3 text-right font-mono font-bold text-emerald-700">
-                          {formatTaka(b.receivedAmount)}
-                        </td>
-                        <td className="py-3 px-3 text-right font-mono">
-                          <span
-                            className={`px-2 py-0.5 rounded font-bold ${
-                              b.realizedNetProfit >= 0
-                                ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
-                                : "bg-red-50 text-red-700 border border-red-200"
-                            }`}
-                          >
-                            {b.realizedNetProfit >= 0 ? "PROFIT +" : "LOSS "}
-                            {formatTaka(b.realizedNetProfit)}
-                          </span>
+                        <td className="py-3 px-3 text-right font-mono font-extrabold text-emerald-700">
+                          Tk {formatTaka(b.receivedAmount)}
                         </td>
                         <td className="py-3 px-3 text-[11px]">
                           <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
@@ -727,6 +904,9 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
                               Due: {b.dueDate}
                             </span>
                           ) : null}
+                        </td>
+                        <td className="py-3 px-3 text-gray-600">
+                          {b.deviationReason || b.notes || "—"}
                         </td>
                         {canEditFinance && (
                           <td className="py-3 px-3 text-center">
@@ -751,17 +931,17 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
         </div>
       )}
 
-      {/* Record Client Bill & Payment Received Modal */}
+      {/* Record Client Bill & Partial/Full Payment Received Modal */}
       {showBillModal && selectedModalProject && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-2xl max-w-2xl w-full p-6 border border-gray-200 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-gray-200">
               <div>
                 <h3 className="text-sm font-bold text-gray-900">
-                  💰 Record Client Bill & Payment Received
+                  💰 {editBillId ? "Edit Payment Installment" : "Record Partial or Full Client Payment"}
                 </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Automatically calculates Client Bill (Ex-VAT & With VAT), AIT deduction, Expected Inflow, and Profit or Loss.
+                  Supports multiple partial payment installments. Each installment adds to the total payment received for the Project or Event.
                 </p>
               </div>
               <button
@@ -830,11 +1010,11 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700">
-                    Invoice / Bill No.
+                    Installment / Bill No.
                   </label>
                   <input
                     type="text"
-                    placeholder="e.g. 2026/10/491"
+                    placeholder="e.g. 2026/10/ROBI-P1"
                     value={modalBillNo}
                     onChange={(e) => setModalBillNo(e.target.value)}
                     className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono"
@@ -842,11 +1022,11 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700">
-                    Client PO / Reference
+                    Client PO / Cheque / BEFTN Ref
                   </label>
                   <input
                     type="text"
-                    placeholder="Optional PO #"
+                    placeholder="Optional PO/Ref #"
                     value={modalPoNo}
                     onChange={(e) => setModalPoNo(e.target.value)}
                     className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono"
@@ -854,18 +1034,16 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700">
-                    Collection Status
+                    Payment Type / Status
                   </label>
                   <select
                     value={modalStatus}
                     onChange={(e) => setModalStatus(e.target.value)}
                     className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-bold"
                   >
-                    <option value="PO_RECEIVED">PO Received</option>
-                    <option value="GR_RECEIVED">GR Received</option>
+                    <option value="PARTIAL_PAID">Partial Payment (Installment)</option>
+                    <option value="PAID">Full / Final Payment</option>
                     <option value="BILL_SUBMITTED">Bill Submitted (Awaiting Payment)</option>
-                    <option value="PARTIAL_PAID">Partial Payment Received</option>
-                    <option value="PAID">Paid / Collected</option>
                   </select>
                 </div>
               </div>
@@ -874,7 +1052,7 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
               <div className="p-3.5 bg-gray-50 rounded-lg border border-gray-200 grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-gray-700">
-                    Billable Requisition Cost (Tk)
+                    Total Billable Cost (All Reqs)
                   </label>
                   <input
                     type="number"
@@ -886,7 +1064,7 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-700">
-                    IMS Investment Cost (Tk)
+                    Total IMS Investment (All Reqs)
                   </label>
                   <input
                     type="number"
@@ -898,7 +1076,7 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-emerald-800">
-                    💵 Payment Received from Client (Tk)
+                    💵 This Partial / Full Payment (Tk)
                   </label>
                   <input
                     type="number"
@@ -915,39 +1093,35 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
                 <div className="p-3.5 bg-blue-50/40 rounded-lg border border-blue-200 space-y-2 text-xs">
                   <div className="flex items-center justify-between font-bold text-gray-800 border-b border-blue-100 pb-1.5">
                     <span>
-                      Calculated P&L ({modalLiveCalc.billingProfile} • Fee {modalLiveCalc.feeRatePct}% • AIT{" "}
+                      Cumulative P&L ({modalLiveCalc.billingProfile} • Fee {modalLiveCalc.feeRatePct}% • AIT{" "}
                       {modalLiveCalc.aitRatePct}%)
                     </span>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setModalReceivedAmount(String(modalLiveCalc.expectedInflow))
-                      }
-                      className="text-[11px] text-blue-700 hover:underline cursor-pointer"
-                    >
-                      Set Received = Expected Inflow (Tk {formatTaka(modalLiveCalc.expectedInflow)})
-                    </button>
+                    <span className="text-[11px] text-gray-600">
+                      Prior Received: <strong>Tk {formatTaka(modalLiveCalc.priorReceived)}</strong>
+                    </span>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 font-mono text-[11px]">
-                    <div>
-                      <span className="text-gray-500 block">Bill Ex-VAT:</span>
-                      <strong>Tk {formatTaka(modalLiveCalc.billExVat)}</strong>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 block">VAT (15%):</span>
-                      <strong>Tk {formatTaka(modalLiveCalc.vatAmount)}</strong>
-                    </div>
-                    <div>
-                      <span className="text-gray-500 block">Bill With VAT:</span>
-                      <strong className="text-blue-800">
-                        Tk {formatTaka(modalLiveCalc.billWithVat)}
-                      </strong>
-                    </div>
                     <div>
                       <span className="text-gray-500 block">Expected Inflow (-AIT):</span>
                       <strong className="text-indigo-900">
                         Tk {formatTaka(modalLiveCalc.expectedInflow)}
                       </strong>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Cumulative Received:</span>
+                      <strong className="text-emerald-700">
+                        Tk {formatTaka(modalLiveCalc.cumulativeReceived)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Remaining Due:</span>
+                      <strong className="text-amber-800">
+                        Tk {formatTaka(modalLiveCalc.outstanding)}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-gray-500 block">Total Requisition Cost:</span>
+                      <strong>Tk {formatTaka(modalLiveCalc.totalCosts)}</strong>
                     </div>
                     <div>
                       <span className="text-gray-500 block">Accrued Profit/Loss:</span>
@@ -1004,11 +1178,11 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
 
               <div>
                 <label className="block text-xs font-semibold text-gray-700">
-                  Payment Notes / Deduction Reason (if any)
+                  Installment Note (e.g., &ldquo;1st Partial Payment 40%&rdquo;, &ldquo;2nd Tranche&rdquo;, or Deduction Reason)
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. Full payment received via BEFTN / Client deducted penalty..."
+                  placeholder="e.g. Installment #1 received via BEFTN..."
                   value={modalDeviationReason}
                   onChange={(e) => setModalDeviationReason(e.target.value)}
                   className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs"
@@ -1028,7 +1202,7 @@ export default function FinanceClient({ projects, canEditFinance }: Props) {
                   disabled={saving}
                   className="px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md shadow cursor-pointer"
                 >
-                  {saving ? "Saving..." : "✓ Save Bill & Payment Record"}
+                  {saving ? "Saving..." : "✓ Save Payment Installment"}
                 </button>
               </div>
             </form>
