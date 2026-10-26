@@ -141,6 +141,12 @@ export default async function RequisitionDetailPage({ params }: Props) {
     : null;
 
   const reqAny = req as any;
+  const canDelete =
+    (req.makerId === user.id && req.status !== "EXECUTED") ||
+    user.permissions.includes("admin.users") ||
+    user.permissions.includes("req.md") ||
+    user.permissions.includes("req.director") ||
+    user.permissions.includes("req.accounts.check");
 
   return (
     <AppShell>
@@ -219,6 +225,7 @@ export default async function RequisitionDetailPage({ params }: Props) {
           accountsExecutives={accountsExecutives}
           directors={directors}
           defaultDirectorId={req.project.directorId}
+          canDelete={canDelete}
           items={req.items.map((it: any) => ({
             id: it.id,
             sl: it.sl,

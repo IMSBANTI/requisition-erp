@@ -639,6 +639,45 @@ export async function POST(
       return NextResponse.json({ success: true, status: "REJECTED" });
     }
 
+    if (action === "DELETE") {
+      const isAdminOrHighLevel =
+        user.permissions.includes("admin.users") ||
+        user.permissions.includes("req.md") ||
+        user.permissions.includes("req.director") ||
+        user.permissions.includes("req.accounts.check");
+      const isMakerBeforeExecution = req.makerId === user.id && req.status !== "EXECUTED";
+
+      if (!isAdminOrHighLevel && !isMakerBeforeExecution) {
+        return NextResponse.json(
+          { error: "Only the creator (before payment) or Admin/Management can delete a requisition." },
+          { status: 403 }
+        );
+      }
+
+      const deletedNumber = req.number || "Draft";
+      const deletedTotal = req.total.toString();
+      const deletedProject = req.project.name;
+
+      await prisma.auditLog.create({
+        data: {
+          userId: user.id,
+          action: "REQUISITION_DELETED",
+          details: `Requisition ${deletedNumber} (${deletedProject}, Tk ${deletedTotal}) created by ${req.makerName} was permanently deleted by ${user.name}${comment ? `: "${comment}"` : ""}`,
+          ip,
+        },
+      });
+
+      await prisma.requisition.delete({
+        where: { id: req.id },
+      });
+
+      return NextResponse.json({
+        success: true,
+        deleted: true,
+        message: `Requisition ${deletedNumber} has been permanently deleted.`,
+      });
+    }
+
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   } catch (err: any) {
     console.error("Action error:", err);

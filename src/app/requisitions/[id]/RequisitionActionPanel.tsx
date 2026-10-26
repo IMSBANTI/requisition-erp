@@ -35,6 +35,7 @@ interface PanelProps {
   directors: PersonOption[];
   defaultDirectorId?: string | null;
   items?: LineItemOption[];
+  canDelete?: boolean;
 }
 
 const ACTION_TITLES: Record<string, string> = {
@@ -46,6 +47,7 @@ const ACTION_TITLES: Record<string, string> = {
   EXECUTE: "Sign by Accounts & Pay Money (Mark Disbursed)",
   RETURN: "Return Requisition for Correction",
   REJECT: "Reject Requisition",
+  DELETE: "Permanently Delete Requisition",
 };
 
 export default function RequisitionActionPanel({
@@ -62,6 +64,7 @@ export default function RequisitionActionPanel({
   directors,
   defaultDirectorId,
   items = [],
+  canDelete = false,
 }: PanelProps) {
   const router = useRouter();
 
@@ -174,6 +177,12 @@ export default function RequisitionActionPanel({
         throw new Error(data.error || "Action failed");
       }
 
+      if (data.deleted) {
+        router.push("/requisitions");
+        router.refresh();
+        return;
+      }
+
       setSelectedAction(null);
       setComment("");
       setPinOrPassword("");
@@ -185,7 +194,7 @@ export default function RequisitionActionPanel({
     }
   }
 
-  if (actions.length === 0) {
+  if (actions.length === 0 && !canDelete) {
     return (
       <div className="mt-4 bg-gray-50 p-3.5 rounded-xl border border-gray-200 flex items-center justify-between text-xs text-gray-600">
         <div>
@@ -195,6 +204,30 @@ export default function RequisitionActionPanel({
           </span>
         </div>
       </div>
+    );
+  }
+
+  if (actions.length === 0 && canDelete) {
+    return (
+      <>
+        <div className="mt-4 bg-gray-50 p-3.5 rounded-xl border border-gray-200 flex flex-wrap items-center justify-between gap-3 text-xs text-gray-600">
+          <div>
+            <span className="font-bold text-gray-800">Current Stage: {status}</span>
+            <span className="ml-2 text-gray-500">
+              (Created by mistake? You can permanently delete this requisition below.)
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => openActionModal("DELETE")}
+            className="px-3.5 py-1.5 text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 rounded-lg border border-red-200 transition-colors cursor-pointer flex items-center gap-1.5"
+          >
+            <span>🗑️</span>
+            <span>Delete Requisition</span>
+          </button>
+        </div>
+        {selectedAction && renderModal()}
+      </>
     );
   }
 
@@ -326,11 +359,30 @@ export default function RequisitionActionPanel({
               ✕ Reject
             </button>
           )}
+
+          {/* 8. Delete Requisition (Created by Mistake) */}
+          {canDelete && (
+            <button
+              type="button"
+              onClick={() => openActionModal("DELETE")}
+              className="px-3 py-2 text-xs font-bold text-red-700 hover:text-white bg-red-50 hover:bg-red-600 rounded-lg border border-red-300 transition-colors cursor-pointer flex items-center gap-1"
+              title="Permanently delete this requisition if created by mistake"
+            >
+              <span>🗑️</span>
+              <span>Delete</span>
+            </button>
+          )}
         </div>
       </div>
 
       {/* Confirmation & Digital Signature Modal */}
-      {selectedAction && (
+      {selectedAction && renderModal()}
+    </div>
+  );
+
+  function renderModal() {
+    if (!selectedAction) return null;
+    return (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-gray-200 my-8">
             <div className="flex items-center justify-between pb-3 border-b border-gray-200">
@@ -355,6 +407,13 @@ export default function RequisitionActionPanel({
             {error && (
               <div className="mt-3 p-2.5 bg-red-50 border border-red-200 text-xs text-red-700 font-semibold rounded">
                 {error}
+              </div>
+            )}
+
+            {selectedAction === "DELETE" && (
+              <div className="mt-3 p-3 bg-red-50 border border-red-200 rounded-lg text-xs text-red-800">
+                <strong>Warning:</strong> This will permanently delete voucher{" "}
+                <strong>{number || "Draft"}</strong> and remove it from all approval queues.
               </div>
             )}
 
@@ -399,7 +458,9 @@ export default function RequisitionActionPanel({
             )}
 
             {/* Digital Signature Preview or Draw Pad */}
-            {selectedAction !== "REJECT" && selectedAction !== "RETURN" && (
+            {selectedAction !== "REJECT" &&
+              selectedAction !== "RETURN" &&
+              selectedAction !== "DELETE" && (
               <>
                 {items.length > 0 && selectedAction.startsWith("APPROVE") && (
                   <div className="mt-4 p-3 rounded-lg border border-amber-200 bg-amber-50/50">
@@ -558,19 +619,20 @@ export default function RequisitionActionPanel({
                 disabled={loading || !pinOrPassword}
                 onClick={handleConfirmAction}
                 className={`px-4 py-2 text-xs font-bold text-white rounded-lg shadow cursor-pointer disabled:opacity-50 ${
-                  selectedAction === "REJECT"
+                  selectedAction === "REJECT" || selectedAction === "DELETE"
                     ? "bg-red-600 hover:bg-red-700"
                     : "bg-green-600 hover:bg-green-700"
                 }`}
               >
                 {loading
-                  ? "Signing & Processing..."
+                  ? "Processing..."
+                  : selectedAction === "DELETE"
+                  ? "🗑️ Confirm Permanent Delete"
                   : `✓ Confirm & Sign (${ACTION_TITLES[selectedAction] || selectedAction})`}
               </button>
             </div>
           </div>
         </div>
-      )}
-    </div>
-  );
+    );
+  }
 }
