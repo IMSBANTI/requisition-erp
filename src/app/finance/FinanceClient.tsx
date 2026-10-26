@@ -532,97 +532,83 @@ export default function FinanceClient({
 
   return (
     <div className="mt-5 space-y-6">
-      {/* STEP 1: CLEAN SELECTOR BAR (PROJECTS vs EVENTS + DROPDOWN LIST) */}
+      {/* STEP 1: CLEAN SELECTOR BAR (PROJECTS vs EVENTS + DROPDOWN LIST + PERIOD) */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+        <div className="flex flex-col md:flex-row md:items-center gap-4">
           {/* 1A. Toggle between Projects and Events */}
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="inline-flex bg-gray-100 p-1 rounded-xl border border-gray-200">
-              <button
-                type="button"
-                onClick={() => setActiveType("PERMANENT")}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                  activeType === "PERMANENT"
-                    ? "bg-gray-900 text-white shadow-sm"
-                    : "text-gray-600 hover:text-gray-900"
-                }`}
-              >
-                📁 Projects ({permanentProjects.length})
-              </button>
-              <button
-                type="button"
-                onClick={() => setActiveType("EVENT")}
-                className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
-                  activeType === "EVENT"
-                    ? "bg-purple-700 text-white shadow-sm"
-                    : "text-gray-600 hover:text-gray-900"
-                }`}
-              >
-                🎪 Events ({eventProjects.length})
-              </button>
-            </div>
-
-            {/* 1B. Primary Dropdown Selector for Project or Event */}
-            <div className="flex items-center gap-2 flex-1 min-w-[280px] sm:min-w-[360px]">
-              <label className="text-xs font-bold text-gray-700 whitespace-nowrap">
-                {activeType === "PERMANENT"
-                  ? "Select Project:"
-                  : "Select Event:"}
-              </label>
-              <select
-                value={selectedProject?.id || ""}
-                onChange={(e) => setSelectedId(e.target.value)}
-                className="w-full rounded-lg border-2 border-gray-300 bg-white px-3 py-2 text-sm font-bold text-gray-900 shadow-sm focus:border-blue-600 focus:outline-none"
-              >
-                {currentList.length === 0 ? (
-                  <option value="">
-                    No {activeType === "PERMANENT" ? "Projects" : "Events"} Found
-                  </option>
-                ) : (
-                  currentList.map((p) => {
-                    const totalSpend = p.totalBillableReq + p.totalImsInvReq;
-                    return (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.code}) — {p.reqCount} Req(s)
-                        {totalSpend > 0 ? ` • Tk ${formatBDT(totalSpend)}` : ""}
-                      </option>
-                    );
-                  })
-                )}
-              </select>
-            </div>
+          <div className="inline-flex bg-gray-100 p-1 rounded-xl border border-gray-200 shrink-0 self-start md:self-auto">
+            <button
+              type="button"
+              onClick={() => setActiveType("PERMANENT")}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                activeType === "PERMANENT"
+                  ? "bg-gray-900 text-white shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              📁 Projects ({permanentProjects.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveType("EVENT")}
+              className={`px-4 py-2 rounded-lg text-xs font-bold transition-all ${
+                activeType === "EVENT"
+                  ? "bg-purple-700 text-white shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              🎪 Events ({eventProjects.length})
+            </button>
           </div>
 
-          {/* 1C. Period Filter & Add Payment Button */}
-          {selectedProject && (
-            <div className="flex flex-wrap items-center gap-2.5">
-              <div className="flex items-center gap-1.5">
-                <span className="text-xs font-semibold text-gray-500">
-                  Period:
-                </span>
-                <select
-                  value={selectedMonth}
-                  onChange={(e) => setSelectedMonth(e.target.value)}
-                  className="rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-800 shadow-sm"
-                >
-                  <option value="ALL">All Months (Cumulative)</option>
-                  {availableMonths.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
+          {/* 1B. Primary Dropdown Selector for Project or Event */}
+          <div className="flex items-center gap-2.5 flex-1 min-w-0">
+            <label className="text-xs font-bold text-gray-700 whitespace-nowrap shrink-0">
+              {activeType === "PERMANENT"
+                ? "Select Project:"
+                : "Select Event:"}
+            </label>
+            <select
+              value={selectedProject?.id || ""}
+              onChange={(e) => setSelectedId(e.target.value)}
+              className="h-10 w-full rounded-lg border-2 border-gray-300 bg-white px-3 text-sm font-bold text-gray-900 shadow-sm focus:border-blue-600 focus:outline-none"
+            >
+              {currentList.length === 0 ? (
+                <option value="">
+                  No {activeType === "PERMANENT" ? "Projects" : "Events"} Found
+                </option>
+              ) : (
+                currentList.map((p) => {
+                  const totalSpend = p.totalBillableReq + p.totalImsInvReq;
+                  return (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.code}) — {p.reqCount} Req(s)
+                      {totalSpend > 0 ? ` • Tk ${formatBDT(totalSpend)}` : ""}
                     </option>
-                  ))}
-                </select>
-              </div>
-
-              {canEditFinance && (
-                <button
-                  type="button"
-                  onClick={() => openPaymentModal()}
-                  className="rounded-lg bg-emerald-600 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 transition-colors"
-                >
-                  💰 + Add Partial / Full Payment
-                </button>
+                  );
+                })
               )}
+            </select>
+          </div>
+
+          {/* 1C. Period Filter Aligned Inline */}
+          {selectedProject && (
+            <div className="flex items-center gap-2 shrink-0">
+              <label className="text-xs font-bold text-gray-700 whitespace-nowrap">
+                Period:
+              </label>
+              <select
+                value={selectedMonth}
+                onChange={(e) => setSelectedMonth(e.target.value)}
+                className="h-10 rounded-lg border-2 border-gray-300 bg-white px-3 text-xs font-bold text-gray-800 shadow-sm focus:border-blue-600 focus:outline-none"
+              >
+                <option value="ALL">All Months (Cumulative)</option>
+                {availableMonths.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
             </div>
           )}
         </div>
