@@ -63,6 +63,11 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
 
   if (canViewReports) {
     links.push({
+      href: "/finance",
+      label: "Project & Event P&L",
+      icon: "💹",
+    });
+    links.push({
       href: "/reports",
       label: "Query & Custom Reports",
       icon: "📈",

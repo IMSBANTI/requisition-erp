@@ -90,6 +90,7 @@ model Project {
   createdAt        DateTime      @default(now())
   members          User[]        @relation("UserProjectScope")
   requisitions     Requisition[]
+  clientBills      ClientBill[]
 }
 
 // ───────────────────────── Users & roles ─────────────────────────
@@ -291,4 +292,37 @@ model AuditLog {
 model Counter {
   key   String @id
   value Int    @default(0)
+}
+
+/// Client Billing, Payment Collection & Realized Profit/Loss Tracker per Project (Monthly) or Event
+model ClientBill {
+  id                 String    @id @default(cuid())
+  projectId          String
+  project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  forMonth           String    // e.g. "2026-10" for Projects, or "EVENT" / "2026-10" for Events
+  billNumber         String?   // e.g. "2026/10/491"
+  poNumber           String?   // Client PO / Work Order reference
+  status             String    @default("BILL_SUBMITTED") // DRAFT | PO_RECEIVED | GR_RECEIVED | BILL_SUBMITTED | PARTIAL_PAID | PAID
+  billableCost       Decimal   @default(0) @db.Decimal(14, 2)
+  imsInvestment      Decimal   @default(0) @db.Decimal(14, 2)
+  billExVat          Decimal   @default(0) @db.Decimal(14, 2)
+  vatAmount          Decimal   @default(0) @db.Decimal(14, 2)
+  billWithVat        Decimal   @default(0) @db.Decimal(14, 2)
+  aitAmount          Decimal   @default(0) @db.Decimal(14, 2)
+  expectedInflow     Decimal   @default(0) @db.Decimal(14, 2) // Bill Ex-VAT - AIT
+  receivedAmount     Decimal   @default(0) @db.Decimal(14, 2) // Actual payment received from client
+  accruedNetProfit   Decimal   @default(0) @db.Decimal(14, 2) // Expected Inflow - Total Costs
+  realizedNetProfit  Decimal   @default(0) @db.Decimal(14, 2) // Received Amount - Total Costs
+  poReceivedAt       DateTime?
+  grReceivedAt       DateTime?
+  submittedAt        DateTime?
+  dueDate            DateTime?
+  receivedAt         DateTime?
+  deviationReason    String?   // Reason if receivedAmount != expectedInflow
+  notes              String?
+  updatedById        String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([projectId, forMonth])
 }
