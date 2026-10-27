@@ -116,11 +116,12 @@ export async function POST(request: Request) {
       resolvedDueDate = new Date(subDate.getTime() + cycleDays * 24 * 60 * 60 * 1000);
     }
 
-    // Resolve status automatically if payment received
-    let resolvedStatus = status || "BILL_SUBMITTED";
-    if (recAmt > 0 && resolvedStatus !== "PAID" && resolvedStatus !== "PARTIAL_PAID") {
-      resolvedStatus =
-        recAmt >= calc.expectedInflow - 1 ? "PAID" : "PARTIAL_PAID";
+    // Resolve status automatically if payment received (with ±10 BDT rounding tolerance per §4.4)
+    let resolvedStatus = status || "SUBMITTED";
+    if (recAmt > 0 && calc.expectedInflow > 0 && recAmt >= calc.expectedInflow - 10) {
+      resolvedStatus = "PAID";
+    } else if (recAmt > 0 && resolvedStatus !== "PAID" && resolvedStatus !== "PARTIAL_PAID") {
+      resolvedStatus = "PARTIAL_PAID";
     }
 
     const payload = {
