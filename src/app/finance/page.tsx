@@ -72,16 +72,19 @@ export default async function FinancePnlPage() {
     orderBy: { name: "asc" },
   });
 
-  // Filter out internal company division buckets so only real Projects & Events appear
-  const projectAndEventList = projects.filter(
-    (p) =>
-      !COMPANY_DIVISION_CODES.has(p.code) &&
-      !p.code.endsWith("-CORP") &&
-      p.name.toLowerCase() !== "tradepulse"
-  );
-
-  const formattedProjects = projectAndEventList.map((p: any) => {
-    const isEvent = p.kind === "EVENT" || p.code?.toUpperCase().startsWith("EVT-");
+  const formattedProjects = projects.map((p: any) => {
+    const isCompanyDivision =
+      COMPANY_DIVISION_CODES.has(p.code) ||
+      p.code?.endsWith("-CORP") ||
+      p.name?.toLowerCase() === "tradepulse";
+    const isEvent =
+      !isCompanyDivision &&
+      (p.kind === "EVENT" || p.code?.toUpperCase().startsWith("EVT-"));
+    const entityKind = isCompanyDivision
+      ? "COMPANY"
+      : isEvent
+      ? "EVENT"
+      : "PERMANENT";
     const fallbackTerms = getDefaultProjectTermsByCode(p.code, p.kind);
 
     // Aggregate requisition costs (All Active/Approved vs Disbursed/Executed)
@@ -188,7 +191,7 @@ export default async function FinancePnlPage() {
       projectId: b.projectId,
       projectName: p.name,
       projectCode: p.code,
-      kind: isEvent ? "EVENT" : "PERMANENT",
+      kind: entityKind,
       forMonth: b.forMonth,
       billNumber: b.billNumber || "",
       poNumber: b.poNumber || "",
@@ -268,7 +271,7 @@ export default async function FinancePnlPage() {
       code: p.code,
       name: p.name,
       companyName: p.company.name,
-      kind: isEvent ? "EVENT" : "PERMANENT",
+      kind: entityKind,
       headName: p.head?.name || "—",
       directorName: p.director?.name || "—",
       budget: p.budget ? Number(p.budget) : 0,
@@ -295,10 +298,10 @@ export default async function FinancePnlPage() {
       <div className="p-6 max-w-7xl mx-auto w-full">
         <div className="pb-4 border-b border-gray-200">
           <h1 className="text-xl font-bold text-gray-900 tracking-tight">
-            Project & Event Profit / Loss (P&L) & Client Collections
+            Projects, Events & IMS Group Expenses — P&L & Client Collections
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            Track requisition spending (Billable vs. IMS Investment), Client Bills (Ex-VAT, 15% VAT, AIT), Received Client Payments, and Accrued vs. Realized Profit or Loss for Accounts, Directors & MD.
+            Track Client Projects, Events, and IMS Group Internal Overhead Expenses (Head Office, IT, Studio, BD, CLAN, SCL, TradePULSE) along with Consolidated Group Net Profit for Accounts, Directors & MD.
           </p>
         </div>
 

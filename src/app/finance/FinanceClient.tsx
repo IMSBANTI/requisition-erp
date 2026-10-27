@@ -82,6 +82,7 @@ type RequisitionSummaryItem = {
   total: number;
   remarks?: string;
   items?: RequisitionLineItem[];
+  divisionName?: string;
 };
 
 type ProjectFinanceItem = {
@@ -174,7 +175,6 @@ function deriveBillStatus(bill: {
   const received = Number(bill.receivedAmount || 0);
   const outstanding = Math.max(0, expected - received);
 
-  // Paid within ±10 BDT rounding tolerance (§4.4)
   if (
     (expected > 0 && received >= expected - PAYMENT_TOLERANCE_BDT) ||
     bill.status === "PAID"
@@ -285,6 +285,194 @@ function deriveBillStatus(bill: {
   };
 }
 
+/**
+ * Helper to compute 12-month & quarterly matrix for any list of projects/events/divisions
+ */
+function buildMatrixForList(
+  list: ProjectFinanceItem[],
+  yearStr: string,
+  mode: "PROFIT" | "EXPENSE"
+) {
+  const currentYearMonth = new Date().toISOString().slice(0, 7);
+
+  const rows = list.map((p) => {
+    const monthMap: Record<
+      string,
+      { billable: number; ims: number; hasData: boolean }
+    > = {};
+
+    for (const m of p.monthlyBreakdown) {
+      if (m.forMonth && m.forMonth.startsWith(yearStr + "-")) {
+        monthMap[m.forMonth] = {
+          billable: m.billableCost,
+          ims: m.imsInvestment,
+          hasData: m.reqCount > 0 || m.billableCost > 0 || m.imsInvestment > 0,
+        };
+      }
+    }
+
+    const actualValuesInOrder: number[] = [];
+    const cells: Array<{
+      monthIndex: number;
+      monthKey: string;
+      netProfit: number; // In EXPENSE mode, this holds total expense for that month
+      billableCost: number;
+      imsInvestment: number;
+      billExVat: number;
+      expectedInflow: number;
+      isForecast: boolean;
+      hasActual: boolean;
+    }> = [];
+
+    for (let i = 0; i < 12; i++) {
+      const mKey = `${yearStr}-${String(i + 1).padStart(2, "0")}`;
+      const mData = monthMap[mKey];
+      if (mData && mData.hasData) {
+        if (mode === "EXPENSE") {
+          const totalExp = mData.billable + mData.ims;
+          actualValuesInOrder.push(totalExp);
+          cells.push({
+            monthIndex: i,
+            monthKey: mKey,
+            netProfit: totalExp,
+            billableCost: mData.billable,
+            imsInvestment: mData.ims,
+            billExVat: 0,
+            expectedInflow: 0,
+            isForecast: false,
+            hasActual: true,
+          });
+        } else {
+          const c = calculateProfitSummary({
+            terms: p.terms,
+            billableCost: mData.billable,
+            imsInvestment: mData.ims,
+          });
+          actualValuesInOrder.push(c.netProfit);
+          cells.push({
+            monthIndex: i,
+            monthKey: mKey,
+            netProfit: c.netProfit,
+            billableCost: mData.billable,
+            imsInvestment: mData.ims,
+            billExVat: c.billExVat,
+            expectedInflow: c.expectedInflow,
+            isForecast: false,
+            hasActual: true,
+          });
+        }
+      } else {
+        cells.push({
+          monthIndex: i,
+          monthKey: mKey,
+          netProfit: 0,
+          billableCost: 0,
+          imsInvestment: 0,
+          billExVat: 0,
+          expectedInflow: 0,
+          isForecast: false,
+          hasActual: false,
+        });
+      }
+    }
+
+    let forecastMonthlyValue: number | null = null;
+    if (actualValuesInOrder.length > 0) {
+      if (mode === "PROFIT" && p.terms.billingProfile === "FIXED_FEE") {
+        forecastMonthlyValue =
+          actualValuesInOrder[actualValuesInOrder.length - 1];
+      } else {
+        const last3 = actualValuesInOrder.slice(-3);
+        const sum3 = last3.reduce((s, v) => s + v, 0);
+        forecastMonthlyValue = Number((sum3 / last3.length).toFixed(2));
+      }
+    }
+
+    for (const cell of cells) {
+      if (
+        !cell.hasActual &&
+        cell.monthKey > currentYearMonth &&
+        forecastMonthlyValue !== null
+      ) {
+        cell.netProfit = forecastMonthlyValue;
+        cell.isForecast = true;
+      }
+    }
+
+    const actualYtd = cells
+      .filter((c) => c.hasActual)
+      .reduce((s, c) => s + c.netProfit, 0);
+    const totalImsYtd = cells
+      .filter((c) => c.hasActual)
+      .reduce((s, c) => s + c.imsInvestment, 0);
+    const totalBillableYtd = cells
+      .filter((c) => c.hasActual)
+      .reduce((s, c) => s + c.billableCost, 0);
+
+    const q1 = cells[0].netProfit + cells[1].netProfit + cells[2].netProfit;
+    const q2 = cells[3].netProfit + cells[4].netProfit + cells[5].netProfit;
+    const q3 = cells[6].netProfit + cells[7].netProfit + cells[8].netProfit;
+    const q4 = cells[9].netProfit + cells[10].netProfit + cells[11].netProfit;
+    const h1 = q1 + q2;
+    const h2 = q3 + q4;
+    const fullYearTotal = h1 + h2;
+    const activeOrForecastMonths = cells.filter(
+      (c) => c.hasActual || c.isForecast
+    ).length;
+    const monthlyAvg =
+      activeOrForecastMonths > 0
+        ? fullYearTotal / activeOrForecastMonths
+        : 0;
+
+    return {
+      project: p,
+      cells,
+      actualYtd,
+      totalImsYtd,
+      totalBillableYtd,
+      q1,
+      q2,
+      q3,
+      q4,
+      h1,
+      h2,
+      fullYearTotal,
+      monthlyAvg,
+    };
+  });
+
+  rows.sort((a, b) => b.fullYearTotal - a.fullYearTotal);
+
+  const monthTotals = Array.from({ length: 12 }, (_, idx) =>
+    rows.reduce((sum, r) => sum + r.cells[idx].netProfit, 0)
+  );
+  const grandActualYtd = rows.reduce((s, r) => s + r.actualYtd, 0);
+  const grandImsYtd = rows.reduce((s, r) => s + r.totalImsYtd, 0);
+  const grandQ1 = rows.reduce((s, r) => s + r.q1, 0);
+  const grandQ2 = rows.reduce((s, r) => s + r.q2, 0);
+  const grandQ3 = rows.reduce((s, r) => s + r.q3, 0);
+  const grandQ4 = rows.reduce((s, r) => s + r.q4, 0);
+  const grandH1 = rows.reduce((s, r) => s + r.h1, 0);
+  const grandH2 = rows.reduce((s, r) => s + r.h2, 0);
+  const grandFullYear = rows.reduce((s, r) => s + r.fullYearTotal, 0);
+  const grandMonthlyAvg = grandFullYear / 12;
+
+  return {
+    rows,
+    monthTotals,
+    grandActualYtd,
+    grandImsYtd,
+    grandQ1,
+    grandQ2,
+    grandQ3,
+    grandQ4,
+    grandH1,
+    grandH2,
+    grandFullYear,
+    grandMonthlyAvg,
+  };
+}
+
 export default function FinanceClient({
   projects,
   canEditFinance,
@@ -294,7 +482,7 @@ export default function FinanceClient({
 }) {
   const router = useRouter();
 
-  // Strictly separate Projects vs Events
+  // Strictly separate Projects vs Events vs IMS Group Internal Divisions
   const permanentProjects = useMemo(
     () => projects.filter((p) => p.kind === "PERMANENT"),
     [projects]
@@ -303,16 +491,107 @@ export default function FinanceClient({
     () => projects.filter((p) => p.kind === "EVENT"),
     [projects]
   );
-
-  const [activeType, setActiveType] = useState<"PERMANENT" | "EVENT">(
-    "PERMANENT"
+  const companyDivisions = useMemo(
+    () => projects.filter((p) => p.kind === "COMPANY"),
+    [projects]
   );
+
+  // Synthetic "All IMS Group Divisions (Combined)" item so user can view all IMS Group overhead at once or pick a single division
+  const combinedCompanyItem: ProjectFinanceItem | null = useMemo(() => {
+    if (companyDivisions.length === 0) return null;
+    const allReqs: RequisitionSummaryItem[] = [];
+    const byMonth: Record<
+      string,
+      {
+        forMonth: string;
+        billableCost: number;
+        imsInvestment: number;
+        executedBillable: number;
+        executedImsInv: number;
+        reqCount: number;
+      }
+    > = {};
+
+    let totalBillableReq = 0;
+    let totalImsInvReq = 0;
+    let executedBillable = 0;
+    let executedImsInv = 0;
+
+    for (const div of companyDivisions) {
+      totalBillableReq += div.totalBillableReq;
+      totalImsInvReq += div.totalImsInvReq;
+      executedBillable += div.executedBillable;
+      executedImsInv += div.executedImsInv;
+
+      for (const r of div.requisitionsList) {
+        allReqs.push({
+          ...r,
+          divisionName: div.name,
+        });
+      }
+
+      for (const m of div.monthlyBreakdown) {
+        if (!byMonth[m.forMonth]) {
+          byMonth[m.forMonth] = {
+            forMonth: m.forMonth,
+            billableCost: 0,
+            imsInvestment: 0,
+            executedBillable: 0,
+            executedImsInv: 0,
+            reqCount: 0,
+          };
+        }
+        byMonth[m.forMonth].billableCost += m.billableCost;
+        byMonth[m.forMonth].imsInvestment += m.imsInvestment;
+        byMonth[m.forMonth].executedBillable += m.executedBillable;
+        byMonth[m.forMonth].executedImsInv += m.executedImsInv;
+        byMonth[m.forMonth].reqCount += m.reqCount;
+      }
+    }
+
+    allReqs.sort((a, b) => b.date.localeCompare(a.date));
+
+    return {
+      id: "ALL_COMPANY",
+      code: "IMS-GROUP-ALL",
+      name: "All IMS Group Divisions (Combined Overhead)",
+      companyName: "IMS GROUP (IMS, CLAN, SCL, TradePULSE)",
+      kind: "COMPANY",
+      headName: "All Division Heads",
+      directorName: "Board of Directors & MD",
+      budget: 0,
+      terms: companyDivisions[0].terms,
+      reqCount: allReqs.length,
+      requisitionsList: allReqs,
+      totalBillableReq,
+      totalImsInvReq,
+      executedBillable,
+      executedImsInv,
+      overallCalc: companyDivisions[0].overallCalc,
+      monthlyBreakdown: Object.values(byMonth).sort((a, b) =>
+        b.forMonth.localeCompare(a.forMonth)
+      ),
+      bills: [],
+      totalReceivedFromBills: 0,
+      totalExpectedFromBills: 0,
+      totalBilledWithVat: 0,
+    };
+  }, [companyDivisions]);
+
+  const [activeType, setActiveType] = useState<
+    "PERMANENT" | "EVENT" | "COMPANY"
+  >("PERMANENT");
   const [viewMode, setViewMode] = useState<
     "SINGLE" | "SUMMARY_MATRIX" | "AGEING"
   >("SINGLE");
 
-  const currentList =
-    activeType === "PERMANENT" ? permanentProjects : eventProjects;
+  const currentList = useMemo(() => {
+    if (activeType === "PERMANENT") return permanentProjects;
+    if (activeType === "EVENT") return eventProjects;
+    return combinedCompanyItem
+      ? [combinedCompanyItem, ...companyDivisions]
+      : companyDivisions;
+  }, [activeType, permanentProjects, eventProjects, companyDivisions, combinedCompanyItem]);
 
   const [selectedId, setSelectedId] = useState<string>(() => {
     const firstActive =
@@ -322,13 +601,24 @@ export default function FinanceClient({
   });
 
   useEffect(() => {
-    const list = activeType === "PERMANENT" ? permanentProjects : eventProjects;
-    if (!list.some((p) => p.id === selectedId)) {
-      const firstActive =
-        list.find((p) => p.reqCount > 0 || p.bills.length > 0) || list[0];
-      setSelectedId(firstActive ? firstActive.id : "");
+    if (!currentList.some((p) => p.id === selectedId)) {
+      if (activeType === "COMPANY" && combinedCompanyItem) {
+        setSelectedId("ALL_COMPANY");
+      } else {
+        const firstActive =
+          currentList.find((p) => p.reqCount > 0 || p.bills.length > 0) ||
+          currentList[0];
+        setSelectedId(firstActive ? firstActive.id : "");
+      }
     }
-  }, [activeType, permanentProjects, eventProjects, selectedId]);
+  }, [activeType, currentList, selectedId, combinedCompanyItem]);
+
+  // If switching to COMPANY while on AGEING view, switch to SINGLE view (since internal divisions don't issue client bills)
+  useEffect(() => {
+    if (activeType === "COMPANY" && viewMode === "AGEING") {
+      setViewMode("SINGLE");
+    }
+  }, [activeType, viewMode]);
 
   const selectedProject = useMemo(
     () =>
@@ -391,7 +681,6 @@ export default function FinanceClient({
     return Array.from(set).sort((a, b) => b.localeCompare(a));
   }, [selectedProject]);
 
-  // Available years across all projects for the Management Summary Matrix
   const availableYears = useMemo(() => {
     const yrs = new Set<string>([
       String(new Date().getFullYear()),
@@ -413,7 +702,56 @@ export default function FinanceClient({
     return Array.from(yrs).sort((a, b) => b.localeCompare(a));
   }, [projects]);
 
-  // Filtered Requisitions & Payments for the selected project and month
+  // Consolidated Group-Wide Totals (Projects Net Profit + Events Net Profit - IMS Group Overhead Expenses)
+  const consolidatedGroupStats = useMemo(() => {
+    const projMatrix = buildMatrixForList(
+      permanentProjects,
+      matrixYear,
+      "PROFIT"
+    );
+    const evtMatrix = buildMatrixForList(eventProjects, matrixYear, "PROFIT");
+    const compMatrix = buildMatrixForList(
+      companyDivisions,
+      matrixYear,
+      "EXPENSE"
+    );
+
+    const totalCompanyAllTimeSpend = companyDivisions.reduce(
+      (s, d) => s + d.totalBillableReq + d.totalImsInvReq,
+      0
+    );
+    const totalProjectsAllTimeProfit = permanentProjects.reduce(
+      (s, p) => s + Number(p.overallCalc?.netProfit || 0),
+      0
+    );
+    const totalEventsAllTimeProfit = eventProjects.reduce(
+      (s, p) => s + Number(p.overallCalc?.netProfit || 0),
+      0
+    );
+
+    return {
+      projMatrix,
+      evtMatrix,
+      compMatrix,
+      totalCompanyAllTimeSpend,
+      totalProjectsAllTimeProfit,
+      totalEventsAllTimeProfit,
+      trueGroupBottomLineAllTime:
+        totalProjectsAllTimeProfit +
+        totalEventsAllTimeProfit -
+        totalCompanyAllTimeSpend,
+      trueGroupBottomLineYtd:
+        projMatrix.grandActualYtd +
+        evtMatrix.grandActualYtd -
+        compMatrix.grandActualYtd,
+      trueGroupBottomLineFullYear:
+        projMatrix.grandFullYear +
+        evtMatrix.grandFullYear -
+        compMatrix.grandFullYear,
+    };
+  }, [permanentProjects, eventProjects, companyDivisions, matrixYear]);
+
+  // Filtered Requisitions & Payments for the selected project/event/division and month
   const activeStats = useMemo(() => {
     if (!selectedProject) return null;
 
@@ -432,6 +770,16 @@ export default function FinanceClient({
     const billableSpend = reqs.reduce((sum, r) => sum + r.billableCost, 0);
     const imsSpend = reqs.reduce((sum, r) => sum + r.imsInvestment, 0);
     const totalSpend = billableSpend + imsSpend;
+
+    const executedSpend = reqs
+      .filter(
+        (r) =>
+          r.status === "EXECUTED" ||
+          r.status === "APPROVED" ||
+          r.status === "FORWARDED"
+      )
+      .reduce((sum, r) => sum + r.total, 0);
+    const pendingSpend = Math.max(0, totalSpend - executedSpend);
 
     const calc = calculateProfitSummary({
       terms: selectedProject.terms,
@@ -452,7 +800,6 @@ export default function FinanceClient({
 
     const receivedAmount = bills.reduce((sum, b) => sum + b.receivedAmount, 0);
     const rawDue = Math.max(0, expectedInflow - receivedAmount);
-    // Apply ±10 BDT rounding tolerance (§4.4)
     const remainingDue = rawDue <= PAYMENT_TOLERANCE_BDT ? 0 : rawDue;
     const deviation = receivedAmount - expectedInflow;
 
@@ -469,12 +816,18 @@ export default function FinanceClient({
           : Math.min(100, Math.round((receivedAmount / expectedInflow) * 100))
         : 0;
 
+    const distinctMonths = new Set(reqs.map((r) => r.forMonth)).size || 1;
+    const monthlyAvgSpend = totalSpend / distinctMonths;
+
     return {
       reqs,
       bills,
       billableSpend,
       imsSpend,
       totalSpend,
+      executedSpend,
+      pendingSpend,
+      monthlyAvgSpend,
       calc,
       billedExVat,
       billedWithVat,
@@ -488,180 +841,16 @@ export default function FinanceClient({
     };
   }, [selectedProject, selectedMonth]);
 
-  // ============================================================================
-  // §7.7 & §9: MANAGEMENT PROFIT SUMMARY MATRIX (12 MONTHS + Q1-Q4 + H1/H2 + FORECAST)
-  // ============================================================================
+  // Active matrix for the currently selected tab (`PERMANENT` | `EVENT` | `COMPANY`)
   const managementMatrix = useMemo(() => {
-    const currentYearMonth = new Date().toISOString().slice(0, 7);
-
-    const rows = currentList.map((p) => {
-      // Map each month 0..11 (`YYYY-01` .. `YYYY-12`)
-      const monthMap: Record<
-        string,
-        { billable: number; ims: number; hasData: boolean }
-      > = {};
-
-      for (const m of p.monthlyBreakdown) {
-        if (m.forMonth && m.forMonth.startsWith(matrixYear + "-")) {
-          monthMap[m.forMonth] = {
-            billable: m.billableCost,
-            ims: m.imsInvestment,
-            hasData: m.reqCount > 0 || m.billableCost > 0 || m.imsInvestment > 0,
-          };
-        }
-      }
-
-      // First compute actual net profit for months that have activity
-      const actualProfitsInOrder: number[] = [];
-      const cells: Array<{
-        monthIndex: number;
-        monthKey: string;
-        netProfit: number;
-        billableCost: number;
-        imsInvestment: number;
-        billExVat: number;
-        expectedInflow: number;
-        isForecast: boolean;
-        hasActual: boolean;
-      }> = [];
-
-      for (let i = 0; i < 12; i++) {
-        const mKey = `${matrixYear}-${String(i + 1).padStart(2, "0")}`;
-        const mData = monthMap[mKey];
-        if (mData && mData.hasData) {
-          const c = calculateProfitSummary({
-            terms: p.terms,
-            billableCost: mData.billable,
-            imsInvestment: mData.ims,
-          });
-          actualProfitsInOrder.push(c.netProfit);
-          cells.push({
-            monthIndex: i,
-            monthKey: mKey,
-            netProfit: c.netProfit,
-            billableCost: mData.billable,
-            imsInvestment: mData.ims,
-            billExVat: c.billExVat,
-            expectedInflow: c.expectedInflow,
-            isForecast: false,
-            hasActual: true,
-          });
-        } else {
-          cells.push({
-            monthIndex: i,
-            monthKey: mKey,
-            netProfit: 0,
-            billableCost: 0,
-            imsInvestment: 0,
-            billExVat: 0,
-            expectedInflow: 0,
-            isForecast: false,
-            hasActual: false,
-          });
-        }
-      }
-
-      // §9 Forecast logic for future months of the selected year:
-      // - FIXED_FEE: last active month's net profit
-      // - Others: average net profit of the last 3 active months
-      let forecastMonthlyValue: number | null = null;
-      if (actualProfitsInOrder.length > 0) {
-        if (p.terms.billingProfile === "FIXED_FEE") {
-          forecastMonthlyValue =
-            actualProfitsInOrder[actualProfitsInOrder.length - 1];
-        } else {
-          const last3 = actualProfitsInOrder.slice(-3);
-          const sum3 = last3.reduce((s, v) => s + v, 0);
-          forecastMonthlyValue = Number((sum3 / last3.length).toFixed(2));
-        }
-      }
-
-      for (const cell of cells) {
-        if (
-          !cell.hasActual &&
-          cell.monthKey > currentYearMonth &&
-          forecastMonthlyValue !== null
-        ) {
-          cell.netProfit = forecastMonthlyValue;
-          cell.isForecast = true;
-        }
-      }
-
-      const actualYtd = cells
-        .filter((c) => c.hasActual)
-        .reduce((s, c) => s + c.netProfit, 0);
-      const totalImsYtd = cells
-        .filter((c) => c.hasActual)
-        .reduce((s, c) => s + c.imsInvestment, 0);
-      const totalBillableYtd = cells
-        .filter((c) => c.hasActual)
-        .reduce((s, c) => s + c.billableCost, 0);
-
-      const q1 = cells[0].netProfit + cells[1].netProfit + cells[2].netProfit;
-      const q2 = cells[3].netProfit + cells[4].netProfit + cells[5].netProfit;
-      const q3 = cells[6].netProfit + cells[7].netProfit + cells[8].netProfit;
-      const q4 = cells[9].netProfit + cells[10].netProfit + cells[11].netProfit;
-      const h1 = q1 + q2;
-      const h2 = q3 + q4;
-      const fullYearTotal = h1 + h2;
-      const activeOrForecastMonths = cells.filter(
-        (c) => c.hasActual || c.isForecast
-      ).length;
-      const monthlyAvg =
-        activeOrForecastMonths > 0
-          ? fullYearTotal / activeOrForecastMonths
-          : 0;
-
-      return {
-        project: p,
-        cells,
-        actualYtd,
-        totalImsYtd,
-        totalBillableYtd,
-        q1,
-        q2,
-        q3,
-        q4,
-        h1,
-        h2,
-        fullYearTotal,
-        monthlyAvg,
-      };
-    });
-
-    // Sort project rows by Full-Year Total descending (§7.7)
-    rows.sort((a, b) => b.fullYearTotal - a.fullYearTotal);
-
-    // Grand totals across ALL projects (§7.7 & §13 Golden Test #6: never miss a project row!)
-    const monthTotals = Array.from({ length: 12 }, (_, idx) =>
-      rows.reduce((sum, r) => sum + r.cells[idx].netProfit, 0)
-    );
-    const grandActualYtd = rows.reduce((s, r) => s + r.actualYtd, 0);
-    const grandImsYtd = rows.reduce((s, r) => s + r.totalImsYtd, 0);
-    const grandQ1 = rows.reduce((s, r) => s + r.q1, 0);
-    const grandQ2 = rows.reduce((s, r) => s + r.q2, 0);
-    const grandQ3 = rows.reduce((s, r) => s + r.q3, 0);
-    const grandQ4 = rows.reduce((s, r) => s + r.q4, 0);
-    const grandH1 = rows.reduce((s, r) => s + r.h1, 0);
-    const grandH2 = rows.reduce((s, r) => s + r.h2, 0);
-    const grandFullYear = rows.reduce((s, r) => s + r.fullYearTotal, 0);
-    const grandMonthlyAvg = grandFullYear / 12;
-
-    return {
-      rows,
-      monthTotals,
-      grandActualYtd,
-      grandImsYtd,
-      grandQ1,
-      grandQ2,
-      grandQ3,
-      grandQ4,
-      grandH1,
-      grandH2,
-      grandFullYear,
-      grandMonthlyAvg,
-    };
-  }, [currentList, matrixYear]);
+    if (activeType === "PERMANENT") {
+      return consolidatedGroupStats.projMatrix;
+    }
+    if (activeType === "EVENT") {
+      return consolidatedGroupStats.evtMatrix;
+    }
+    return consolidatedGroupStats.compMatrix;
+  }, [activeType, consolidatedGroupStats]);
 
   // ============================================================================
   // §4.4 & §7.6: RECEIVABLES & OVERDUE AGEING TRACKER
@@ -674,13 +863,13 @@ export default function FinanceClient({
     }> = [];
 
     for (const p of currentList) {
+      if (p.id === "ALL_COMPANY") continue;
       for (const b of p.bills) {
         const derived = deriveBillStatus(b);
         allBillRows.push({ bill: b, project: p, derived });
       }
     }
 
-    // Sort: Overdue first (highest days overdue), then Due Soon, then Submitted, then Paid
     allBillRows.sort((a, b) => {
       if (b.derived.daysOverdue !== a.derived.daysOverdue) {
         return b.derived.daysOverdue - a.derived.daysOverdue;
@@ -754,7 +943,7 @@ export default function FinanceClient({
     };
   }, [currentList, ageingFilter]);
 
-  // 1. Monthly Chart Data for Selected Project
+  // 1. Monthly Chart Data for Selected Project/Event/Division
   const monthlyChartData = useMemo(() => {
     if (!selectedProject) return [];
     const map: Record<
@@ -801,6 +990,13 @@ export default function FinanceClient({
     return Object.values(map)
       .sort((a, b) => a.month.localeCompare(b.month))
       .map((row) => {
+        if (selectedProject.kind === "COMPANY") {
+          return {
+            ...row,
+            expectedInflow: 0,
+            accruedProfit: 0,
+          };
+        }
         const c = calculateProfitSummary({
           terms: selectedProject.terms,
           billableCost: row.billableCost,
@@ -814,25 +1010,24 @@ export default function FinanceClient({
       });
   }, [selectedProject]);
 
-  // 2. Cost Head Breakdown Pie Data for Selected Project
+  // 2. Cost Head Breakdown Pie Data for Selected Project/Event/Division
   const costHeadPieData = useMemo(() => {
     if (!activeStats) return [];
     const map: Record<string, number> = {};
     for (const r of activeStats.reqs) {
       if (r.items && r.items.length > 0) {
         for (const it of r.items) {
-          const head = it.costHead || "General Expense";
+          const head =
+            it.costHead && it.costHead !== "Uncategorized"
+              ? it.costHead
+              : it.particulars.slice(0, 28) || "General Expense";
           map[head] = (map[head] || 0) + it.amount;
         }
       } else {
-        if (r.billableCost > 0) {
-          map["Billable Requisition Spend"] =
-            (map["Billable Requisition Spend"] || 0) + r.billableCost;
-        }
-        if (r.imsInvestment > 0) {
-          map["IMS Own Investment"] =
-            (map["IMS Own Investment"] || 0) + r.imsInvestment;
-        }
+        const label =
+          r.divisionName ||
+          (r.billableCost > 0 ? "General Requisition Spend" : "IMS Expense");
+        map[label] = (map[label] || 0) + r.total;
       }
     }
     return Object.entries(map)
@@ -869,7 +1064,7 @@ export default function FinanceClient({
     targetProject?: ProjectFinanceItem
   ) {
     const proj = targetProject || selectedProject;
-    if (!proj) return;
+    if (!proj || proj.id === "ALL_COMPANY") return;
     setModalProject(proj);
 
     if (existingBill) {
@@ -952,7 +1147,7 @@ export default function FinanceClient({
   async function handleSaveBill(e: React.FormEvent) {
     e.preventDefault();
     const proj = modalProject || selectedProject;
-    if (!proj) return;
+    if (!proj || proj.id === "ALL_COMPANY") return;
     setSaving(true);
     try {
       const res = await fetch("/api/finance/bills", {
@@ -1009,7 +1204,9 @@ export default function FinanceClient({
     const titleLabel =
       activeType === "PERMANENT"
         ? `IMS Management Profit Summary — Projects (${matrixYear})`
-        : `IMS Management Profit Summary — Events (${matrixYear})`;
+        : activeType === "EVENT"
+        ? `IMS Management Profit Summary — Events (${matrixYear})`
+        : `IMS Group Internal Overhead Expenses Summary (${matrixYear})`;
 
     let html = `
       <html xmlns:o="urn:schemas-microsoft-com:office:office"
@@ -1018,7 +1215,7 @@ export default function FinanceClient({
       <head>
         <meta charset="utf-8" />
         <style>
-          table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11px; }
+          table { border-collapse: collapse; font-family: Arial, sans-serif; font-size: 11px; margin-bottom: 18px; }
           th { background-color: #1F4E8C; color: #ffffff; font-weight: bold; padding: 6px 8px; border: 1px solid #cbd5e1; }
           td { padding: 5px 8px; border: 1px solid #cbd5e1; }
           .num { text-align: right; mso-number-format:"\\#\\,\\#\\#0\\.00"; }
@@ -1029,12 +1226,52 @@ export default function FinanceClient({
       <body>
         <h2>${titleLabel}</h2>
         <p>Generated on ${new Date().toISOString().slice(0, 10)} • Highlighted cells indicate Auto-Forecast (avg of last 3 active months)</p>
+
+        <h3>Consolidated IMS Group Bottom-Line (${matrixYear})</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Category</th>
+              <th>Actual YTD (${matrixYear})</th>
+              <th>Full Year Projected (${matrixYear})</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>1. Projects Net Profit</td>
+              <td class="num">${consolidatedGroupStats.projMatrix.grandActualYtd.toFixed(2)}</td>
+              <td class="num">${consolidatedGroupStats.projMatrix.grandFullYear.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td>2. Events Net Profit</td>
+              <td class="num">${consolidatedGroupStats.evtMatrix.grandActualYtd.toFixed(2)}</td>
+              <td class="num">${consolidatedGroupStats.evtMatrix.grandFullYear.toFixed(2)}</td>
+            </tr>
+            <tr>
+              <td>3. Less: IMS Group Internal Overhead Expenses</td>
+              <td class="num">-${consolidatedGroupStats.compMatrix.grandActualYtd.toFixed(2)}</td>
+              <td class="num">-${consolidatedGroupStats.compMatrix.grandFullYear.toFixed(2)}</td>
+            </tr>
+            <tr class="total-row">
+              <td>IMS GROUP TRUE NET BOTTOM-LINE PROFIT / LOSS</td>
+              <td class="num">${consolidatedGroupStats.trueGroupBottomLineYtd.toFixed(2)}</td>
+              <td class="num">${consolidatedGroupStats.trueGroupBottomLineFullYear.toFixed(2)}</td>
+            </tr>
+          </tbody>
+        </table>
+
         <table>
           <thead>
             <tr>
               <th>Code</th>
-              <th>${activeType === "PERMANENT" ? "Project Name" : "Event Name"}</th>
-              <th>Billing Profile</th>
+              <th>${
+                activeType === "PERMANENT"
+                  ? "Project Name"
+                  : activeType === "EVENT"
+                  ? "Event Name"
+                  : "Division / Company Unit"
+              }</th>
+              <th>Model / Type</th>
               ${MONTH_NAMES.map((m) => `<th>${m} ${matrixYear}</th>`).join("")}
               <th>Q1</th>
               <th>Q2</th>
@@ -1045,7 +1282,6 @@ export default function FinanceClient({
               <th>Actual YTD</th>
               <th>Full Year (w/ Forecast)</th>
               <th>Monthly Avg</th>
-              <th>IMS Investment YTD</th>
             </tr>
           </thead>
           <tbody>
@@ -1055,7 +1291,11 @@ export default function FinanceClient({
       html += `<tr>
         <td>${row.project.code}</td>
         <td>${row.project.name}</td>
-        <td>${row.project.terms.billingProfile}</td>
+        <td>${
+          activeType === "COMPANY"
+            ? "IMS GROUP OVERHEAD"
+            : row.project.terms.billingProfile
+        }</td>
         ${row.cells
           .map(
             (c) =>
@@ -1073,14 +1313,11 @@ export default function FinanceClient({
         <td class="num">${row.actualYtd.toFixed(2)}</td>
         <td class="num"><strong>${row.fullYearTotal.toFixed(2)}</strong></td>
         <td class="num">${row.monthlyAvg.toFixed(2)}</td>
-        <td class="num">${row.totalImsYtd.toFixed(2)}</td>
       </tr>`;
     }
 
     html += `<tr class="total-row">
-      <td colspan="3">TOTAL (${managementMatrix.rows.length} ${
-      activeType === "PERMANENT" ? "Projects" : "Events"
-    })</td>
+      <td colspan="3">TOTAL (${managementMatrix.rows.length})</td>
       ${managementMatrix.monthTotals
         .map((tot) => `<td class="num">${tot.toFixed(2)}</td>`)
         .join("")}
@@ -1093,7 +1330,6 @@ export default function FinanceClient({
       <td class="num">${managementMatrix.grandActualYtd.toFixed(2)}</td>
       <td class="num">${managementMatrix.grandFullYear.toFixed(2)}</td>
       <td class="num">${managementMatrix.grandMonthlyAvg.toFixed(2)}</td>
-      <td class="num">${managementMatrix.grandImsYtd.toFixed(2)}</td>
     </tr>`;
 
     html += `</tbody></table></body></html>`;
@@ -1104,14 +1340,13 @@ export default function FinanceClient({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `IMS_Profit_Summary_${activeType}_${matrixYear}.xls`;
+    a.download = `IMS_Finance_Summary_${activeType}_${matrixYear}.xls`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
   }
 
-  // §4.2: Expected inflow is Bill Ex-VAT - AIT (VAT is a 15% pass-through)
   const liveBillWithVat =
     Number(formBillExVat || 0) + Number(formVatAmt || 0);
   const liveExpectedInflow =
@@ -1121,16 +1356,16 @@ export default function FinanceClient({
 
   return (
     <div className="mt-5 space-y-6">
-      {/* STEP 1: CLEAN SELECTOR BAR (PROJECTS vs EVENTS + VIEW SWITCHER + DROPDOWN + PERIOD) */}
+      {/* STEP 1: CLEAN SELECTOR BAR (PROJECTS vs EVENTS vs IMS GROUP EXPENSES + VIEW SWITCHER + DROPDOWN + PERIOD) */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
-        {/* Top Row: Projects/Events Toggle + View Mode Tabs */}
+        {/* Top Row: Projects / Events / IMS Group Toggle + View Mode Tabs */}
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-gray-100">
-          {/* 1A. Toggle between Projects and Events */}
-          <div className="inline-flex bg-gray-100 p-1 rounded-xl border border-gray-200 shrink-0">
+          {/* 1A. Toggle between Projects, Events, and IMS Group Expenses */}
+          <div className="inline-flex flex-wrap bg-gray-100 p-1 rounded-xl border border-gray-200 shrink-0 gap-1">
             <button
               type="button"
               onClick={() => setActiveType("PERMANENT")}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 activeType === "PERMANENT"
                   ? "bg-gray-900 text-white shadow-sm"
                   : "text-gray-600 hover:text-gray-900"
@@ -1141,7 +1376,7 @@ export default function FinanceClient({
             <button
               type="button"
               onClick={() => setActiveType("EVENT")}
-              className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 activeType === "EVENT"
                   ? "bg-purple-700 text-white shadow-sm"
                   : "text-gray-600 hover:text-gray-900"
@@ -1149,9 +1384,20 @@ export default function FinanceClient({
             >
               🎪 Events ({eventProjects.length})
             </button>
+            <button
+              type="button"
+              onClick={() => setActiveType("COMPANY")}
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                activeType === "COMPANY"
+                  ? "bg-rose-700 text-white shadow-sm"
+                  : "text-gray-600 hover:text-gray-900"
+              }`}
+            >
+              🏢 IMS Group Expenses ({companyDivisions.length})
+            </button>
           </div>
 
-          {/* 1B. View Mode Switcher: Single Project View | Management Summary Matrix | Receivables Ageing */}
+          {/* 1B. View Mode Switcher */}
           <div className="inline-flex flex-wrap bg-slate-100 p-1 rounded-xl border border-slate-200 gap-1">
             <button
               type="button"
@@ -1162,7 +1408,13 @@ export default function FinanceClient({
                   : "text-gray-700 hover:text-gray-900"
               }`}
             >
-              🔍 Single {activeType === "PERMANENT" ? "Project" : "Event"} View
+              🔍 Single{" "}
+              {activeType === "PERMANENT"
+                ? "Project"
+                : activeType === "EVENT"
+                ? "Event"
+                : "Division"}{" "}
+              View
             </button>
             <button
               type="button"
@@ -1173,19 +1425,21 @@ export default function FinanceClient({
                   : "text-gray-700 hover:text-gray-900"
               }`}
             >
-              📊 Management Profit Summary (12M & Forecast)
+              📊 Management Summary (12M & Group P&L)
             </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("AGEING")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                viewMode === "AGEING"
-                  ? "bg-blue-700 text-white shadow-sm"
-                  : "text-gray-700 hover:text-gray-900"
-              }`}
-            >
-              ⏰ Receivables & Overdue Ageing
-            </button>
+            {activeType !== "COMPANY" && (
+              <button
+                type="button"
+                onClick={() => setViewMode("AGEING")}
+                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                  viewMode === "AGEING"
+                    ? "bg-blue-700 text-white shadow-sm"
+                    : "text-gray-700 hover:text-gray-900"
+                }`}
+              >
+                ⏰ Receivables & Overdue Ageing
+              </button>
+            )}
           </div>
         </div>
 
@@ -1196,7 +1450,9 @@ export default function FinanceClient({
               <label className="text-xs font-bold text-gray-700 whitespace-nowrap shrink-0">
                 {activeType === "PERMANENT"
                   ? "Select Project:"
-                  : "Select Event:"}
+                  : activeType === "EVENT"
+                  ? "Select Event:"
+                  : "Select Division:"}
               </label>
               <select
                 value={selectedProject?.id || ""}
@@ -1204,15 +1460,13 @@ export default function FinanceClient({
                 className="h-10 w-full rounded-lg border-2 border-gray-300 bg-white px-3 text-sm font-bold text-gray-900 shadow-sm focus:border-blue-600 focus:outline-none"
               >
                 {currentList.length === 0 ? (
-                  <option value="">
-                    No {activeType === "PERMANENT" ? "Projects" : "Events"}{" "}
-                    Found
-                  </option>
+                  <option value="">No Items Found</option>
                 ) : (
                   currentList.map((p) => {
                     const totalSpend = p.totalBillableReq + p.totalImsInvReq;
                     return (
                       <option key={p.id} value={p.id}>
+                        {p.id === "ALL_COMPANY" ? "🏢 " : ""}
                         {p.name} ({p.code}) — {p.reqCount} Req(s)
                         {totalSpend > 0 ? ` • Tk ${formatBDT(totalSpend)}` : ""}
                       </option>
@@ -1319,68 +1573,88 @@ export default function FinanceClient({
       </div>
 
       {/* ========================================================================
-          VIEW MODE 2: MANAGEMENT PROFIT SUMMARY MATRIX (§7.7 & §9)
+          VIEW MODE 2: MANAGEMENT PROFIT SUMMARY MATRIX (§7.7 & §9 + CONSOLIDATED GROUP P&L)
          ======================================================================== */}
       {viewMode === "SUMMARY_MATRIX" && (
         <div className="space-y-5">
-          {/* Summary KPI Tiles */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
-            <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
-              <div className="text-[11px] font-bold text-gray-500 uppercase">
-                1. Actual Net Profit YTD ({matrixYear})
+          {/* CONSOLIDATED IMS GROUP BOTTOM-LINE BANNER (Projects Profit + Events Profit - IMS Group Overhead) */}
+          <div className="bg-slate-900 text-white rounded-xl p-4 shadow-sm border border-slate-800">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-700">
+              <div>
+                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                  🏦 Consolidated IMS Group Bottom-Line Summary ({matrixYear})
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  True Group Net Profit = (Projects Net Profit + Events Net Profit) − IMS Group Internal Overhead Expenses
+                </p>
               </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="bg-slate-800/90 rounded-lg p-3 border border-slate-700">
+                <div className="text-[10px] font-bold text-blue-300 uppercase">
+                  1. 📁 Projects Net Profit ({matrixYear})
+                </div>
+                <div className="text-base font-bold text-white mt-0.5">
+                  Tk {formatBDT(consolidatedGroupStats.projMatrix.grandActualYtd)}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5">
+                  Full-Year w/ Forecast: Tk{" "}
+                  {formatCompactBDT(
+                    consolidatedGroupStats.projMatrix.grandFullYear
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-slate-800/90 rounded-lg p-3 border border-slate-700">
+                <div className="text-[10px] font-bold text-purple-300 uppercase">
+                  2. 🎪 Events Net Profit ({matrixYear})
+                </div>
+                <div className="text-base font-bold text-white mt-0.5">
+                  Tk {formatBDT(consolidatedGroupStats.evtMatrix.grandActualYtd)}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-0.5">
+                  Full-Year w/ Forecast: Tk{" "}
+                  {formatCompactBDT(
+                    consolidatedGroupStats.evtMatrix.grandFullYear
+                  )}
+                </div>
+              </div>
+
+              <div className="bg-rose-950/60 rounded-lg p-3 border border-rose-800/60">
+                <div className="text-[10px] font-bold text-rose-300 uppercase">
+                  3. ➖ 🏢 IMS Group Internal Expenses
+                </div>
+                <div className="text-base font-bold text-rose-200 mt-0.5">
+                  −Tk{" "}
+                  {formatBDT(consolidatedGroupStats.compMatrix.grandActualYtd)}
+                </div>
+                <div className="text-[10px] text-rose-300/80 mt-0.5">
+                  HO, IT, Studio, BD, CLAN, SCL, TP Overhead
+                </div>
+              </div>
+
               <div
-                className={`text-lg font-bold mt-1 ${
-                  managementMatrix.grandActualYtd >= 0
-                    ? "text-emerald-800"
-                    : "text-red-700"
+                className={`rounded-lg p-3 border ${
+                  consolidatedGroupStats.trueGroupBottomLineYtd >= 0
+                    ? "bg-emerald-950/80 border-emerald-600"
+                    : "bg-red-950/80 border-red-600"
                 }`}
               >
-                Tk {formatBDT(managementMatrix.grandActualYtd)}
-              </div>
-              <div className="text-[11px] text-gray-500 mt-0.5">
-                From active months across {managementMatrix.rows.length}{" "}
-                {activeType === "PERMANENT" ? "projects" : "events"}
-              </div>
-            </div>
-
-            <div className="bg-blue-50/60 border border-blue-200 rounded-xl p-4 shadow-sm">
-              <div className="text-[11px] font-bold text-blue-800 uppercase">
-                2. Full-Year Projected (Actual + Forecast)
-              </div>
-              <div className="text-lg font-bold text-blue-950 mt-1">
-                Tk {formatBDT(managementMatrix.grandFullYear)}
-              </div>
-              <div className="text-[11px] text-blue-700 mt-0.5">
-                Avg/Month: Tk {formatBDT(managementMatrix.grandMonthlyAvg)}
-              </div>
-            </div>
-
-            <div className="bg-indigo-50/60 border border-indigo-200 rounded-xl p-4 shadow-sm">
-              <div className="text-[11px] font-bold text-indigo-800 uppercase">
-                3. Half-Year Split (H1 vs H2)
-              </div>
-              <div className="text-sm font-bold text-indigo-950 mt-1">
-                H1: Tk {formatCompactBDT(managementMatrix.grandH1)} • H2: Tk{" "}
-                {formatCompactBDT(managementMatrix.grandH2)}
-              </div>
-              <div className="text-[11px] text-indigo-700 mt-0.5">
-                Q1: {formatCompactBDT(managementMatrix.grandQ1)} | Q2:{" "}
-                {formatCompactBDT(managementMatrix.grandQ2)} | Q3:{" "}
-                {formatCompactBDT(managementMatrix.grandQ3)} | Q4:{" "}
-                {formatCompactBDT(managementMatrix.grandQ4)}
-              </div>
-            </div>
-
-            <div className="bg-amber-50/60 border border-amber-200 rounded-xl p-4 shadow-sm">
-              <div className="text-[11px] font-bold text-amber-800 uppercase">
-                4. Total IMS Own Investment YTD
-              </div>
-              <div className="text-lg font-bold text-amber-950 mt-1">
-                Tk {formatBDT(managementMatrix.grandImsYtd)}
-              </div>
-              <div className="text-[11px] text-amber-800 mt-0.5">
-                Non-billable IMS spend deducted from profit
+                <div className="text-[10px] font-bold text-emerald-300 uppercase">
+                  4. ＝ True IMS Group Net Profit
+                </div>
+                <div className="text-base font-bold text-white mt-0.5">
+                  {consolidatedGroupStats.trueGroupBottomLineYtd >= 0
+                    ? "+"
+                    : ""}
+                  Tk {formatBDT(consolidatedGroupStats.trueGroupBottomLineYtd)}
+                </div>
+                <div className="text-[10px] text-slate-300 mt-0.5">
+                  Full-Year Projected: Tk{" "}
+                  {formatCompactBDT(
+                    consolidatedGroupStats.trueGroupBottomLineFullYear
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -1390,15 +1664,15 @@ export default function FinanceClient({
             <div className="px-5 py-3.5 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2 bg-gray-50/70">
               <div>
                 <h3 className="text-sm font-bold text-gray-900">
-                  📊 Management Net Profit Summary — {matrixYear} (
-                  {matrixPeriodView === "MONTHLY"
-                    ? "Monthly Jan–Dec"
-                    : "Quarterly Q1–Q4 & H1/H2"}
-                  )
+                  📊{" "}
+                  {activeType === "COMPANY"
+                    ? `IMS Group Internal Overhead Expenses Matrix — ${matrixYear}`
+                    : `Management Net Profit Summary — ${
+                        activeType === "PERMANENT" ? "Projects" : "Events"
+                      } (${matrixYear})`}
                 </h3>
                 <p className="text-xs text-gray-500">
-                  Click any {activeType === "PERMANENT" ? "project" : "event"}{" "}
-                  name to drill down into its requisitions and payments.{" "}
+                  Click any row name to drill down into its requisitions.{" "}
                   <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold ml-1">
                     Amber tinted = Auto-Forecast (§9)
                   </span>
@@ -1411,9 +1685,15 @@ export default function FinanceClient({
                 <thead className="bg-slate-800 text-white uppercase">
                   <tr>
                     <th className="py-2.5 px-3 sticky left-0 bg-slate-800 z-10 min-w-[180px]">
-                      {activeType === "PERMANENT" ? "Project" : "Event"}
+                      {activeType === "PERMANENT"
+                        ? "Project"
+                        : activeType === "EVENT"
+                        ? "Event"
+                        : "IMS Group Division"}
                     </th>
-                    <th className="py-2.5 px-2">Model</th>
+                    <th className="py-2.5 px-2">
+                      {activeType === "COMPANY" ? "Company" : "Model"}
+                    </th>
                     {matrixPeriodView === "MONTHLY" ? (
                       MONTH_NAMES.map((m) => (
                         <th key={m} className="py-2.5 px-2 text-right">
@@ -1462,7 +1742,9 @@ export default function FinanceClient({
                         </div>
                       </td>
                       <td className="py-2.5 px-2 text-[10px] font-mono text-gray-600">
-                        {row.project.terms.billingProfile}
+                        {activeType === "COMPANY"
+                          ? row.project.companyName
+                          : row.project.terms.billingProfile}
                       </td>
                       {matrixPeriodView === "MONTHLY" ? (
                         row.cells.map((c) => (
@@ -1472,18 +1754,13 @@ export default function FinanceClient({
                               c.isForecast
                                 ? "bg-amber-50/70 text-amber-900 italic"
                                 : c.hasActual
-                                ? c.netProfit >= 0
+                                ? activeType === "COMPANY"
+                                  ? "text-rose-800 font-semibold"
+                                  : c.netProfit >= 0
                                   ? "text-gray-900 font-semibold"
                                   : "text-red-700 font-semibold"
                                 : "text-gray-300"
                             }`}
-                            title={
-                              c.isForecast
-                                ? "Auto-Forecast (avg of last 3 active months)"
-                                : c.hasActual
-                                ? `Actual Net Profit (${c.monthKey})`
-                                : "No activity"
-                            }
                           >
                             {c.hasActual || c.isForecast
                               ? formatCompactBDT(c.netProfit)
@@ -1512,7 +1789,13 @@ export default function FinanceClient({
                           </td>
                         </>
                       )}
-                      <td className="py-2.5 px-2.5 text-right font-mono font-bold text-emerald-800 bg-emerald-50/30">
+                      <td
+                        className={`py-2.5 px-2.5 text-right font-mono font-bold ${
+                          activeType === "COMPANY"
+                            ? "text-rose-900 bg-rose-50/40"
+                            : "text-emerald-800 bg-emerald-50/30"
+                        }`}
+                      >
                         {formatCompactBDT(row.actualYtd)}
                       </td>
                       <td className="py-2.5 px-2.5 text-right font-mono font-bold text-blue-950 bg-blue-50/40">
@@ -1531,7 +1814,12 @@ export default function FinanceClient({
                       className="py-3 px-3 sticky left-0 bg-slate-100"
                     >
                       TOTAL ({managementMatrix.rows.length}{" "}
-                      {activeType === "PERMANENT" ? "Projects" : "Events"})
+                      {activeType === "PERMANENT"
+                        ? "Projects"
+                        : activeType === "EVENT"
+                        ? "Events"
+                        : "Divisions"}
+                      )
                     </td>
                     {matrixPeriodView === "MONTHLY" ? (
                       managementMatrix.monthTotals.map((tot, idx) => (
@@ -1821,29 +2109,457 @@ export default function FinanceClient({
       )}
 
       {/* ========================================================================
-          VIEW MODE 1: SINGLE PROJECT / EVENT DROPDOWN VIEW (DEFAULT)
+          VIEW MODE 1: SINGLE PROJECT / EVENT / IMS GROUP DIVISION VIEW (DEFAULT)
          ======================================================================== */}
       {viewMode === "SINGLE" && (
         <>
           {!selectedProject || !activeStats ? (
             <div className="bg-white border border-gray-200 rounded-xl p-12 text-center shadow-sm">
               <div className="text-base font-bold text-gray-800">
-                No {activeType === "PERMANENT" ? "Projects" : "Events"}{" "}
-                Available
+                No Items Available
               </div>
-              <p className="text-xs text-gray-500 mt-1">
-                Create {activeType === "PERMANENT" ? "a Project" : "an Event"}{" "}
-                in{" "}
-                <Link
-                  href="/admin/projects"
-                  className="text-blue-600 underline font-semibold"
-                >
-                  Projects & Events Setup
-                </Link>{" "}
-                to track its Requisitions, Client Bills, and Profit/Loss.
-              </p>
             </div>
+          ) : selectedProject.kind === "COMPANY" ? (
+            /* ==================================================================
+               🏢 IMS GROUP INTERNAL OVERHEAD EXPENSES VIEW
+               ================================================================== */
+            <>
+              {/* STEP 2 (COMPANY): SELECTED IMS GROUP DIVISION BANNER */}
+              <div className="bg-white border border-rose-200 rounded-xl p-5 shadow-sm">
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold border bg-rose-50 text-rose-800 border-rose-200">
+                        🏢 IMS GROUP INTERNAL EXPENSE
+                      </span>
+                      <span className="text-xs font-mono font-bold text-gray-500">
+                        {selectedProject.code}
+                      </span>
+                      <span className="text-xs text-gray-400">•</span>
+                      <span className="text-xs font-semibold text-gray-600">
+                        {selectedProject.companyName}
+                      </span>
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900 mt-1">
+                      {selectedProject.name}
+                    </h2>
+                    <div className="flex flex-wrap items-center gap-4 mt-1.5 text-xs text-gray-600">
+                      <span>
+                        Category:{" "}
+                        <strong className="text-rose-800">
+                          100% Internal Company Overhead (OPEX)
+                        </strong>
+                      </span>
+                      <span>
+                        Division Head:{" "}
+                        <strong className="text-gray-900">
+                          {selectedProject.headName}
+                        </strong>
+                      </span>
+                      <span>
+                        Director:{" "}
+                        <strong className="text-gray-900">
+                          {selectedProject.directorName}
+                        </strong>
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Consolidated Group Net Profit Box */}
+                  <div className="w-full md:w-96 bg-slate-900 text-white rounded-xl p-3.5">
+                    <div className="text-[11px] font-bold text-slate-300 uppercase">
+                      🏦 IMS Group Bottom-Line Impact (All-Time)
+                    </div>
+                    <div className="flex items-center justify-between text-xs mt-1.5">
+                      <span className="text-slate-300">
+                        Projects + Events Profit:
+                      </span>
+                      <strong className="text-emerald-400 font-mono">
+                        +Tk{" "}
+                        {formatBDT(
+                          consolidatedGroupStats.totalProjectsAllTimeProfit +
+                            consolidatedGroupStats.totalEventsAllTimeProfit
+                        )}
+                      </strong>
+                    </div>
+                    <div className="flex items-center justify-between text-xs mt-1">
+                      <span className="text-slate-300">
+                        Less Total Group Overhead:
+                      </span>
+                      <strong className="text-rose-400 font-mono">
+                        −Tk{" "}
+                        {formatBDT(
+                          consolidatedGroupStats.totalCompanyAllTimeSpend
+                        )}
+                      </strong>
+                    </div>
+                    <div className="flex items-center justify-between text-xs mt-1.5 pt-1.5 border-t border-slate-700">
+                      <span className="font-bold text-white">
+                        True Group Net Profit:
+                      </span>
+                      <strong
+                        className={`font-mono text-sm ${
+                          consolidatedGroupStats.trueGroupBottomLineAllTime >= 0
+                            ? "text-emerald-400"
+                            : "text-red-400"
+                        }`}
+                      >
+                        {consolidatedGroupStats.trueGroupBottomLineAllTime >= 0
+                          ? "+"
+                          : ""}
+                        Tk{" "}
+                        {formatBDT(
+                          consolidatedGroupStats.trueGroupBottomLineAllTime
+                        )}
+                      </strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 3 (COMPANY): 6 KPI CARDS FOR IMS GROUP EXPENSES */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+                <div className="bg-rose-50/60 border border-rose-200 rounded-xl p-4 shadow-sm">
+                  <div className="text-[11px] font-bold text-rose-800 uppercase">
+                    1. Division Overhead Spend
+                  </div>
+                  <div className="text-base font-bold text-rose-950 mt-1">
+                    Tk {formatBDT(activeStats.totalSpend)}
+                  </div>
+                  <div className="text-[11px] text-rose-700 mt-1">
+                    Across <strong>{activeStats.reqs.length}</strong>{" "}
+                    Requisition(s)
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                  <div className="text-[11px] font-bold text-gray-500 uppercase">
+                    2. Approved / Executed
+                  </div>
+                  <div className="text-base font-bold text-emerald-900 mt-1">
+                    Tk {formatBDT(activeStats.executedSpend)}
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    Confirmed overhead spend
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                  <div className="text-[11px] font-bold text-gray-500 uppercase">
+                    3. Pending Approval
+                  </div>
+                  <div className="text-base font-bold text-amber-800 mt-1">
+                    Tk {formatBDT(activeStats.pendingSpend)}
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    In approval pipeline
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                  <div className="text-[11px] font-bold text-gray-500 uppercase">
+                    4. Monthly Avg Burn
+                  </div>
+                  <div className="text-base font-bold text-gray-900 mt-1">
+                    Tk {formatBDT(activeStats.monthlyAvgSpend)}
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    Average per active month
+                  </div>
+                </div>
+
+                <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                  <div className="text-[11px] font-bold text-gray-500 uppercase">
+                    5. Share of Group OPEX
+                  </div>
+                  <div className="text-base font-bold text-gray-900 mt-1">
+                    {consolidatedGroupStats.totalCompanyAllTimeSpend > 0
+                      ? `${Math.min(
+                          100,
+                          Math.round(
+                            (activeStats.totalSpend /
+                              consolidatedGroupStats.totalCompanyAllTimeSpend) *
+                              100
+                          )
+                        )}%`
+                      : "0%"}
+                  </div>
+                  <div className="text-[11px] text-gray-500 mt-1">
+                    Of Tk{" "}
+                    {formatCompactBDT(
+                      consolidatedGroupStats.totalCompanyAllTimeSpend
+                    )}{" "}
+                    total OPEX
+                  </div>
+                </div>
+
+                <div
+                  className={`border rounded-xl p-4 shadow-sm ${
+                    consolidatedGroupStats.trueGroupBottomLineAllTime >= 0
+                      ? "bg-emerald-50/80 border-emerald-300"
+                      : "bg-red-50 border-red-300"
+                  }`}
+                >
+                  <div className="text-[11px] font-bold text-gray-700 uppercase">
+                    6. True Group Net P&L
+                  </div>
+                  <div
+                    className={`text-base font-bold mt-1 ${
+                      consolidatedGroupStats.trueGroupBottomLineAllTime >= 0
+                        ? "text-emerald-900"
+                        : "text-red-900"
+                    }`}
+                  >
+                    {consolidatedGroupStats.trueGroupBottomLineAllTime >= 0
+                      ? "+"
+                      : ""}
+                    Tk{" "}
+                    {formatBDT(
+                      consolidatedGroupStats.trueGroupBottomLineAllTime
+                    )}
+                  </div>
+                  <div className="text-[11px] text-gray-600 mt-1">
+                    (Proj + Evt Profit) − Group OPEX
+                  </div>
+                </div>
+              </div>
+
+              {/* STEP 4 (COMPANY): TWO CLEAN TABLES FOR IMS GROUP EXPENSES */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* TABLE A: ALL REQUISITIONS OF THIS IMS GROUP DIVISION */}
+                <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
+                  <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/60">
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900">
+                        📋 Internal Requisitions — {selectedProject.name} (
+                        {activeStats.reqs.length})
+                      </h3>
+                      <p className="text-xs text-gray-500">
+                        Click any requisition voucher to view or expand its expense line items.
+                      </p>
+                    </div>
+                  </div>
+
+                  {activeStats.reqs.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-gray-500">
+                      No requisitions recorded for{" "}
+                      <strong>{selectedProject.name}</strong> in this period.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
+                          <tr>
+                            <th className="py-2.5 px-3">Voucher #</th>
+                            <th className="py-2.5 px-3">Date / Month</th>
+                            <th className="py-2.5 px-3">Status</th>
+                            <th className="py-2.5 px-3 text-right">
+                              Amount (Tk)
+                            </th>
+                            <th className="py-2.5 px-3 text-center">Items</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {activeStats.reqs.map((r) => {
+                            const isExpanded = expandedReqId === r.id;
+                            return (
+                              <React.Fragment key={r.id}>
+                                <tr className="hover:bg-gray-50/80">
+                                  <td className="py-3 px-3 font-bold text-blue-700">
+                                    <Link
+                                      href={`/requisitions/${r.id}`}
+                                      className="hover:underline"
+                                    >
+                                      {r.number}
+                                    </Link>
+                                    <div className="text-[10px] font-normal text-gray-500">
+                                      {r.makerName}
+                                      {r.divisionName
+                                        ? ` • ${r.divisionName}`
+                                        : ""}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-3 text-gray-700">
+                                    <div>{r.date}</div>
+                                    <div className="font-mono text-[10px] text-gray-400">
+                                      {r.forMonth}
+                                    </div>
+                                  </td>
+                                  <td className="py-3 px-3">
+                                    <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700 text-[10px] font-bold">
+                                      {r.status}
+                                    </span>
+                                  </td>
+                                  <td className="py-3 px-3 text-right font-mono font-bold text-rose-900">
+                                    Tk {formatBDT(r.total)}
+                                  </td>
+                                  <td className="py-3 px-3 text-center">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setExpandedReqId(
+                                          isExpanded ? null : r.id
+                                        )
+                                      }
+                                      className="px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 text-[11px] font-semibold text-gray-700"
+                                    >
+                                      {isExpanded
+                                        ? "▲ Hide"
+                                        : `▼ ${r.items?.length || 0}`}
+                                    </button>
+                                  </td>
+                                </tr>
+                                {isExpanded && r.items && r.items.length > 0 && (
+                                  <tr className="bg-slate-50">
+                                    <td colSpan={5} className="p-3">
+                                      <div className="bg-white border border-gray-200 rounded-lg overflow-hidden">
+                                        <table className="w-full text-[11px]">
+                                          <thead className="bg-gray-50 text-gray-600 border-b border-gray-200">
+                                            <tr>
+                                              <th className="py-1.5 px-2.5 text-left">
+                                                SL
+                                              </th>
+                                              <th className="py-1.5 px-2.5 text-left">
+                                                Particulars
+                                              </th>
+                                              <th className="py-1.5 px-2.5 text-left">
+                                                Cost Head
+                                              </th>
+                                              <th className="py-1.5 px-2.5 text-right">
+                                                Amount (Tk)
+                                              </th>
+                                            </tr>
+                                          </thead>
+                                          <tbody className="divide-y divide-gray-100">
+                                            {r.items.map((it) => (
+                                              <tr key={it.id}>
+                                                <td className="py-1.5 px-2.5 text-gray-500">
+                                                  {it.sl}
+                                                </td>
+                                                <td className="py-1.5 px-2.5 font-medium text-gray-800">
+                                                  {it.particulars}
+                                                </td>
+                                                <td className="py-1.5 px-2.5 text-gray-600">
+                                                  {it.costHead}
+                                                </td>
+                                                <td className="py-1.5 px-2.5 text-right font-mono font-semibold text-gray-900">
+                                                  {formatBDT(it.amount)}
+                                                </td>
+                                              </tr>
+                                            ))}
+                                          </tbody>
+                                        </table>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                              </React.Fragment>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot className="bg-gray-50 border-t-2 border-gray-200 font-bold text-gray-900">
+                          <tr>
+                            <td colSpan={3} className="py-2.5 px-3">
+                              Total Overhead ({activeStats.reqs.length}{" "}
+                              Requisition
+                              {activeStats.reqs.length === 1 ? "" : "s"})
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono text-rose-900">
+                              Tk {formatBDT(activeStats.totalSpend)}
+                            </td>
+                            <td></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                {/* TABLE B: OVERHEAD EXPENSE BREAKDOWN BY COST HEAD / DIVISION */}
+                <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
+                  <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/60">
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900">
+                        🧾 Expense Breakdown by Cost Head & Division
+                      </h3>
+                      <p className="text-xs text-gray-500">
+                        Summary of where IMS Group internal overhead is spent.
+                      </p>
+                    </div>
+                  </div>
+
+                  {costHeadPieData.length === 0 ? (
+                    <div className="p-8 text-center text-xs text-gray-500">
+                      No expense breakdown available for this selection yet.
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
+                          <tr>
+                            <th className="py-2.5 px-3">
+                              Expense Head / Particular
+                            </th>
+                            <th className="py-2.5 px-3 text-right">
+                              Total Spend (Tk)
+                            </th>
+                            <th className="py-2.5 px-3 text-right">
+                              % of Selection
+                            </th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-200">
+                          {costHeadPieData.map((item, idx) => {
+                            const pct =
+                              activeStats.totalSpend > 0
+                                ? (
+                                    (item.value / activeStats.totalSpend) *
+                                    100
+                                  ).toFixed(1)
+                                : "0.0";
+                            return (
+                              <tr key={item.name} className="hover:bg-gray-50">
+                                <td className="py-2.5 px-3 font-medium text-gray-800 flex items-center gap-2">
+                                  <span
+                                    className="w-2.5 h-2.5 rounded-full shrink-0"
+                                    style={{
+                                      backgroundColor:
+                                        PIE_COLORS[idx % PIE_COLORS.length],
+                                    }}
+                                  />
+                                  {item.name}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono font-bold text-gray-900">
+                                  Tk {formatBDT(item.value)}
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-mono text-gray-600">
+                                  {pct}%
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                        <tfoot className="bg-gray-50 border-t-2 border-gray-200 font-bold text-gray-900">
+                          <tr>
+                            <td className="py-2.5 px-3">Total Overhead</td>
+                            <td className="py-2.5 px-3 text-right font-mono text-rose-900">
+                              Tk {formatBDT(activeStats.totalSpend)}
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono">
+                              100%
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </>
           ) : (
+            /* ==================================================================
+               📁 PROJECT OR 🎪 EVENT VIEW
+               ================================================================== */
             <>
               {/* STEP 2: SELECTED PROJECT / EVENT BANNER & COLLECTION PROGRESS */}
               <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm">
@@ -2276,7 +2992,9 @@ export default function FinanceClient({
                           <tr>
                             <th className="py-2.5 px-3"># / Period</th>
                             <th className="py-2.5 px-3">Invoice / Ref</th>
-                            <th className="py-2.5 px-3">Derived Status & Due</th>
+                            <th className="py-2.5 px-3">
+                              Derived Status & Due
+                            </th>
                             <th className="py-2.5 px-3 text-right">
                               Received (Tk)
                             </th>
@@ -2369,226 +3087,255 @@ export default function FinanceClient({
                   )}
                 </div>
               </div>
+            </>
+          )}
 
-              {/* STEP 5: COMPACT VISUAL DATA ANALYSIS CHARTS BELOW THE PAGE */}
-              <div className="pt-2">
-                <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
-                  📊 Visual Data Analysis — {selectedProject.name}
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Compact Chart 1 */}
-                  <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm">
-                    <div className="mb-2">
-                      <h4 className="text-xs font-bold text-gray-900">
-                        📈 Spend vs. Inflow & Profit
-                      </h4>
-                      <p className="text-[11px] text-gray-500">
-                        Monthly Spend, Expected Inflow, Received & Profit
-                      </p>
+          {/* STEP 5 (SHARED): COMPACT VISUAL DATA ANALYSIS CHARTS BELOW THE PAGE */}
+          {selectedProject && activeStats && (
+            <div className="pt-2">
+              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
+                📊 Visual Data Analysis — {selectedProject.name}
+              </h3>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                {/* Compact Chart 1 */}
+                <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm">
+                  <div className="mb-2">
+                    <h4 className="text-xs font-bold text-gray-900">
+                      {selectedProject.kind === "COMPANY"
+                        ? "📈 Monthly Overhead Spend Trend"
+                        : "📈 Spend vs. Inflow & Profit"}
+                    </h4>
+                    <p className="text-[11px] text-gray-500">
+                      {selectedProject.kind === "COMPANY"
+                        ? "Monthly internal requisition spend"
+                        : "Monthly Spend, Expected Inflow, Received & Profit"}
+                    </p>
+                  </div>
+
+                  {monthlyChartData.length === 0 ? (
+                    <div className="h-40 flex items-center justify-center text-xs text-gray-400">
+                      No monthly data yet.
                     </div>
+                  ) : (
+                    <div className="h-40 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={monthlyChartData}
+                          margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
+                        >
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            stroke="#e5e7eb"
+                          />
+                          <XAxis dataKey="month" tick={{ fontSize: 10 }} />
+                          <YAxis
+                            tick={{ fontSize: 10 }}
+                            width={40}
+                            tickFormatter={(v) =>
+                              v >= 100000
+                                ? `${(v / 100000).toFixed(1)}L`
+                                : v >= 1000
+                                ? `${(v / 1000).toFixed(0)}k`
+                                : String(v)
+                            }
+                          />
+                          <Tooltip
+                            formatter={(val: any) =>
+                              `Tk ${formatBDT(Number(val || 0))}`
+                            }
+                          />
+                          <Legend wrapperStyle={{ fontSize: 10 }} />
+                          <Bar
+                            dataKey="totalCost"
+                            name={
+                              selectedProject.kind === "COMPANY"
+                                ? "Overhead Spend"
+                                : "Cost"
+                            }
+                            fill={
+                              selectedProject.kind === "COMPANY"
+                                ? "#be123c"
+                                : "#4b5563"
+                            }
+                            radius={[3, 3, 0, 0]}
+                          />
+                          {selectedProject.kind !== "COMPANY" && (
+                            <>
+                              <Bar
+                                dataKey="expectedInflow"
+                                name="Inflow (-AIT)"
+                                fill="#4f46e5"
+                                radius={[3, 3, 0, 0]}
+                              />
+                              <Bar
+                                dataKey="receivedAmount"
+                                name="Received"
+                                fill="#059669"
+                                radius={[3, 3, 0, 0]}
+                              />
+                              <Bar
+                                dataKey="accruedProfit"
+                                name="Profit"
+                                fill="#10b981"
+                                radius={[3, 3, 0, 0]}
+                              />
+                            </>
+                          )}
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </div>
 
-                    {monthlyChartData.length === 0 ? (
-                      <div className="h-40 flex items-center justify-center text-xs text-gray-400">
-                        No monthly data yet.
-                      </div>
-                    ) : (
-                      <div className="h-40 w-full">
+                {/* Compact Chart 2 */}
+                <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm">
+                  <div className="mb-2">
+                    <h4 className="text-xs font-bold text-gray-900">
+                      🍩 Cost Head Breakdown
+                    </h4>
+                    <p className="text-[11px] text-gray-500">
+                      Requisition spend by cost head
+                    </p>
+                  </div>
+
+                  {costHeadPieData.length === 0 ? (
+                    <div className="h-40 flex items-center justify-center text-xs text-gray-400">
+                      No line items yet.
+                    </div>
+                  ) : (
+                    <div className="h-40 w-full flex items-center gap-2">
+                      <div className="h-36 w-1/2">
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart
-                            data={monthlyChartData}
-                            margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
-                          >
-                            <CartesianGrid
-                              strokeDasharray="3 3"
-                              stroke="#e5e7eb"
-                            />
-                            <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                            <YAxis
-                              tick={{ fontSize: 10 }}
-                              width={40}
-                              tickFormatter={(v) =>
-                                v >= 100000
-                                  ? `${(v / 100000).toFixed(1)}L`
-                                  : v >= 1000
-                                  ? `${(v / 1000).toFixed(0)}k`
-                                  : String(v)
-                              }
-                            />
+                          <PieChart>
+                            <Pie
+                              data={costHeadPieData}
+                              dataKey="value"
+                              nameKey="name"
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={25}
+                              outerRadius={48}
+                              paddingAngle={2}
+                            >
+                              {costHeadPieData.map((_, idx) => (
+                                <Cell
+                                  key={idx}
+                                  fill={PIE_COLORS[idx % PIE_COLORS.length]}
+                                />
+                              ))}
+                            </Pie>
                             <Tooltip
                               formatter={(val: any) =>
                                 `Tk ${formatBDT(Number(val || 0))}`
                               }
                             />
-                            <Legend wrapperStyle={{ fontSize: 10 }} />
-                            <Bar
-                              dataKey="totalCost"
-                              name="Cost"
-                              fill="#4b5563"
-                              radius={[3, 3, 0, 0]}
-                            />
-                            <Bar
-                              dataKey="expectedInflow"
-                              name="Inflow (-AIT)"
-                              fill="#4f46e5"
-                              radius={[3, 3, 0, 0]}
-                            />
-                            <Bar
-                              dataKey="receivedAmount"
-                              name="Received"
-                              fill="#059669"
-                              radius={[3, 3, 0, 0]}
-                            />
-                            <Bar
-                              dataKey="accruedProfit"
-                              name="Profit"
-                              fill="#10b981"
-                              radius={[3, 3, 0, 0]}
-                            />
-                          </BarChart>
+                          </PieChart>
                         </ResponsiveContainer>
                       </div>
-                    )}
-                  </div>
 
-                  {/* Compact Chart 2 */}
-                  <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm">
-                    <div className="mb-2">
-                      <h4 className="text-xs font-bold text-gray-900">
-                        🍩 Cost Head Breakdown
-                      </h4>
-                      <p className="text-[11px] text-gray-500">
-                        Requisition spend by cost head
-                      </p>
-                    </div>
-
-                    {costHeadPieData.length === 0 ? (
-                      <div className="h-40 flex items-center justify-center text-xs text-gray-400">
-                        No line items yet.
-                      </div>
-                    ) : (
-                      <div className="h-40 w-full flex items-center gap-2">
-                        <div className="h-36 w-1/2">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={costHeadPieData}
-                                dataKey="value"
-                                nameKey="name"
-                                cx="50%"
-                                cy="50%"
-                                innerRadius={25}
-                                outerRadius={48}
-                                paddingAngle={2}
-                              >
-                                {costHeadPieData.map((_, idx) => (
-                                  <Cell
-                                    key={idx}
-                                    fill={PIE_COLORS[idx % PIE_COLORS.length]}
-                                  />
-                                ))}
-                              </Pie>
-                              <Tooltip
-                                formatter={(val: any) =>
-                                  `Tk ${formatBDT(Number(val || 0))}`
-                                }
+                      <div className="w-1/2 space-y-1 max-h-36 overflow-y-auto pr-1">
+                        {costHeadPieData.map((d, idx) => (
+                          <div
+                            key={d.name}
+                            className="flex items-center justify-between text-[10px]"
+                          >
+                            <div className="flex items-center gap-1 truncate">
+                              <span
+                                className="w-2 h-2 rounded-full shrink-0"
+                                style={{
+                                  backgroundColor:
+                                    PIE_COLORS[idx % PIE_COLORS.length],
+                                }}
                               />
-                            </PieChart>
-                          </ResponsiveContainer>
-                        </div>
-
-                        <div className="w-1/2 space-y-1 max-h-36 overflow-y-auto pr-1">
-                          {costHeadPieData.map((d, idx) => (
-                            <div
-                              key={d.name}
-                              className="flex items-center justify-between text-[10px]"
-                            >
-                              <div className="flex items-center gap-1 truncate">
-                                <span
-                                  className="w-2 h-2 rounded-full shrink-0"
-                                  style={{
-                                    backgroundColor:
-                                      PIE_COLORS[idx % PIE_COLORS.length],
-                                  }}
-                                />
-                                <span className="text-gray-700 truncate">
-                                  {d.name}
-                                </span>
-                              </div>
-                              <span className="font-mono font-bold text-gray-900 ml-1">
-                                {formatBDT(d.value)}
+                              <span className="text-gray-700 truncate">
+                                {d.name}
                               </span>
                             </div>
-                          ))}
-                        </div>
+                            <span className="font-mono font-bold text-gray-900 ml-1">
+                              {formatBDT(d.value)}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                    )}
+                    </div>
+                  )}
+                </div>
+
+                {/* Compact Chart 3 */}
+                <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm">
+                  <div className="mb-2">
+                    <h4 className="text-xs font-bold text-gray-900">
+                      📊 Requisitions Spend ({reqBarData.length})
+                    </h4>
+                    <p className="text-[11px] text-gray-500">
+                      Individual requisition amounts
+                    </p>
                   </div>
 
-                  {/* Compact Chart 3 */}
-                  <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm">
-                    <div className="mb-2">
-                      <h4 className="text-xs font-bold text-gray-900">
-                        📊 Requisitions Cost Split ({reqBarData.length})
-                      </h4>
-                      <p className="text-[11px] text-gray-500">
-                        Billable vs. IMS Investment per requisition
-                      </p>
+                  {reqBarData.length === 0 ? (
+                    <div className="h-40 flex items-center justify-center text-xs text-gray-400">
+                      No requisitions yet.
                     </div>
-
-                    {reqBarData.length === 0 ? (
-                      <div className="h-40 flex items-center justify-center text-xs text-gray-400">
-                        No requisitions yet.
-                      </div>
-                    ) : (
-                      <div className="h-40 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <BarChart
-                            data={reqBarData}
-                            margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
-                          >
-                            <CartesianGrid
-                              strokeDasharray="3 3"
-                              stroke="#e5e7eb"
-                            />
-                            <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                            <YAxis
-                              tick={{ fontSize: 10 }}
-                              width={40}
-                              tickFormatter={(v) =>
-                                v >= 100000
-                                  ? `${(v / 100000).toFixed(1)}L`
-                                  : v >= 1000
-                                  ? `${(v / 1000).toFixed(0)}k`
-                                  : String(v)
-                              }
-                            />
-                            <Tooltip
-                              formatter={(val: any) =>
-                                `Tk ${formatBDT(Number(val || 0))}`
-                              }
-                            />
-                            <Legend wrapperStyle={{ fontSize: 10 }} />
+                  ) : (
+                    <div className="h-40 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                          data={reqBarData}
+                          margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
+                        >
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            stroke="#e5e7eb"
+                          />
+                          <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                          <YAxis
+                            tick={{ fontSize: 10 }}
+                            width={40}
+                            tickFormatter={(v) =>
+                              v >= 100000
+                                ? `${(v / 100000).toFixed(1)}L`
+                                : v >= 1000
+                                ? `${(v / 1000).toFixed(0)}k`
+                                : String(v)
+                            }
+                          />
+                          <Tooltip
+                            formatter={(val: any) =>
+                              `Tk ${formatBDT(Number(val || 0))}`
+                            }
+                          />
+                          <Legend wrapperStyle={{ fontSize: 10 }} />
+                          {selectedProject.kind === "COMPANY" ? (
                             <Bar
-                              dataKey="Billable"
-                              name="Billable"
-                              stackId="a"
-                              fill="#2563eb"
-                            />
-                            <Bar
-                              dataKey="IMS_Investment"
-                              name="IMS Inv."
-                              stackId="a"
-                              fill="#d97706"
+                              dataKey="Total"
+                              name="Overhead Amount"
+                              fill="#be123c"
                               radius={[3, 3, 0, 0]}
                             />
-                          </BarChart>
-                        </ResponsiveContainer>
-                      </div>
-                    )}
-                  </div>
+                          ) : (
+                            <>
+                              <Bar
+                                dataKey="Billable"
+                                name="Billable"
+                                stackId="a"
+                                fill="#2563eb"
+                              />
+                              <Bar
+                                dataKey="IMS_Investment"
+                                name="IMS Inv."
+                                stackId="a"
+                                fill="#d97706"
+                                radius={[3, 3, 0, 0]}
+                              />
+                            </>
+                          )}
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
                 </div>
               </div>
-            </>
+            </div>
           )}
         </>
       )}
