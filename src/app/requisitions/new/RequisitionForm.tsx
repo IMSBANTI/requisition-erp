@@ -1418,158 +1418,177 @@ export default function RequisitionForm({
 
       {/* Attachments & Submission Options */}
       <div className="mt-6 bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-4">
-        {/* Dedicated Purchase Order (PO) / Work Order Section for Project & Event Requisitions */}
-        {requisitionMode !== "COMPANY" && (
-          <div className="p-4 rounded-xl border-2 border-blue-200 bg-blue-50/40 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center space-x-2">
-                <span className="text-xl">📄</span>
-                <div>
-                  <h4 className="text-xs font-bold text-blue-950 uppercase tracking-wide flex items-center gap-1.5">
-                    <span>Client Purchase Order (PO) / Work Order</span>
-                    <span className="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-blue-600 text-white">
-                      {requisitionMode === "EVENT" ? "EVENT PO" : "PROJECT PO"}
-                    </span>
-                  </h4>
-                  <p className="text-[11px] text-blue-700 mt-0.5">
-                    Upload the official Purchase Order (PO) or Work Order received from the client for this {requisitionMode === "EVENT" ? "event" : "project"}.
-                  </p>
+        {/* Uploads Section: PO Upload and Quotations/Bills Upload Side by Side */}
+        <div
+          className={
+            requisitionMode !== "COMPANY"
+              ? "grid grid-cols-1 md:grid-cols-2 gap-4 items-stretch"
+              : "w-full"
+          }
+        >
+          {/* Left Column: Dedicated Purchase Order (PO) / Work Order for Project & Event */}
+          {requisitionMode !== "COMPANY" && (
+            <div className="p-3.5 rounded-xl border border-blue-200 bg-blue-50/40 flex flex-col justify-between space-y-2.5">
+              <div>
+                <div className="flex flex-wrap items-center justify-between gap-1.5 pb-2 border-b border-blue-200/70">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-base">📄</span>
+                    <h4 className="text-xs font-bold text-blue-950 uppercase tracking-wide flex items-center gap-1.5">
+                      <span>Client PO / Work Order</span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-extrabold bg-blue-600 text-white">
+                        {requisitionMode === "EVENT" ? "EVENT PO" : "PROJECT PO"}
+                      </span>
+                    </h4>
+                  </div>
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white text-blue-800 border border-blue-200 shadow-2xs">
+                    Max 200 KB
+                  </span>
+                </div>
+
+                <div className="mt-2.5 space-y-2">
+                  <div>
+                    <label className="block text-[11px] font-bold text-blue-900 mb-0.5">
+                      PO / Work Order Ref #
+                    </label>
+                    <input
+                      type="text"
+                      value={poNumber}
+                      onChange={(e) => setPoNumber(e.target.value)}
+                      placeholder="e.g. PO-BL-2026-101 / WO-GP-442"
+                      className="w-full px-2.5 py-1.5 border border-blue-300 rounded-md text-xs font-semibold text-gray-900 bg-white focus:ring-blue-500 focus:border-blue-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold text-blue-900 mb-0.5">
+                      Upload PO Document (PDF / Image)
+                    </label>
+                    {!poFile ? (
+                      <input
+                        type="file"
+                        accept=".pdf,.png,.jpg,.jpeg"
+                        onChange={handlePoFileChange}
+                        className="w-full text-xs text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
+                      />
+                    ) : (
+                      <div className="flex items-center justify-between p-1.5 bg-white border border-blue-300 rounded-md text-xs">
+                        <div className="flex items-center space-x-1.5 truncate">
+                          <span className="text-blue-600 font-bold">📄</span>
+                          <span className="font-bold text-blue-950 truncate max-w-[170px]">
+                            {poFile.name}
+                          </span>
+                          <span className="text-[10px] font-mono text-gray-500">
+                            ({(poFile.size / 1024).toFixed(0)} KB)
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={removePoFile}
+                          className="text-red-500 hover:text-red-700 font-bold px-1.5 py-0.5 text-xs cursor-pointer"
+                          title="Remove PO file"
+                        >
+                          ✕ Remove
+                        </button>
+                      </div>
+                    )}
+                  </div>
+
+                  {poError && (
+                    <div className="p-1.5 bg-red-50 border border-red-200 rounded text-xs text-red-700 font-medium">
+                      ⚠️ {poError}
+                    </div>
+                  )}
                 </div>
               </div>
-              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white text-blue-800 border border-blue-200 shadow-2xs">
-                Max 200 KB (PDF, PNG, JPG)
-              </span>
             </div>
+          )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-blue-200/60">
-              <div>
-                <label className="block text-[11px] font-bold text-blue-900 mb-1">
-                  PO / Work Order Reference #
-                </label>
-                <input
-                  type="text"
-                  value={poNumber}
-                  onChange={(e) => setPoNumber(e.target.value)}
-                  placeholder="e.g. PO-BL-2026-101 / WO-GP-442"
-                  className="w-full px-2.5 py-1.5 border border-blue-300 rounded-md text-xs font-semibold text-gray-900 bg-white focus:ring-blue-500 focus:border-blue-500"
-                />
+          {/* Right Column: Attach Quotations, Bills, Invoices */}
+          <div className="p-3.5 rounded-xl border border-gray-200 bg-gray-50/50 flex flex-col justify-between space-y-2.5">
+            <div>
+              <div className="flex flex-wrap items-center justify-between gap-1.5 pb-2 border-b border-gray-200">
+                <div className="flex items-center space-x-1.5">
+                  <span className="text-base">📎</span>
+                  <h4 className="text-xs font-bold text-gray-800 uppercase tracking-wide">
+                    Quotations / Bills / Invoices
+                  </h4>
+                </div>
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
+                  Max 200 KB per file
+                </span>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-blue-900 mb-1">
-                  Upload PO File
-                </label>
-                {!poFile ? (
+              <div className="mt-2.5 space-y-2">
+                <div>
+                  <div className="flex items-center justify-between mb-0.5">
+                    <label className="block text-[11px] font-bold text-gray-700">
+                      Upload Bills / Quotes (Multiple)
+                    </label>
+                    <span className="text-[10px] text-gray-400">
+                      💡 Tip: Use{" "}
+                      <a
+                        href="https://tinyjpg.com"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline text-blue-600"
+                      >
+                        TinyJPG
+                      </a>{" "}
+                      or{" "}
+                      <a
+                        href="https://www.ilovepdf.com/compress_pdf"
+                        target="_blank"
+                        rel="noreferrer"
+                        className="underline text-blue-600"
+                      >
+                        ILovePDF
+                      </a>
+                    </span>
+                  </div>
                   <input
                     type="file"
+                    multiple
                     accept=".pdf,.png,.jpg,.jpeg"
-                    onChange={handlePoFileChange}
-                    className="w-full text-xs text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
+                    onChange={handleFileChange}
+                    className="w-full text-xs text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-gray-800 file:text-white hover:file:bg-black cursor-pointer"
                   />
-                ) : (
-                  <div className="flex items-center justify-between p-1.5 bg-white border border-blue-300 rounded-md text-xs">
-                    <div className="flex items-center space-x-1.5 truncate">
-                      <span className="text-blue-600 font-bold">📄</span>
-                      <span className="font-bold text-blue-950 truncate max-w-[200px]">
-                        {poFile.name}
-                      </span>
-                      <span className="text-[10px] font-mono text-gray-500">
-                        ({(poFile.size / 1024).toFixed(0)} KB)
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={removePoFile}
-                      className="text-red-500 hover:text-red-700 font-bold px-1.5 py-0.5 text-xs cursor-pointer"
-                      title="Remove PO file"
-                    >
-                      ✕ Remove
-                    </button>
+                </div>
+
+                {attachmentError && (
+                  <div className="p-1.5 bg-red-50 border border-red-200 rounded text-xs text-red-700 font-medium">
+                    ⚠️ {attachmentError}
+                  </div>
+                )}
+
+                {/* List of currently selected attachments */}
+                {attachments.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-1">
+                    {attachments.map((file, i) => (
+                      <div
+                        key={`${file.name}-${i}`}
+                        className="flex items-center space-x-1.5 px-2 py-0.5 bg-white border border-gray-200 rounded text-xs"
+                      >
+                        <span className="text-gray-400">📎</span>
+                        <span className="font-semibold text-gray-800 max-w-[140px] truncate">
+                          {file.name}
+                        </span>
+                        <span className="text-[10px] font-mono text-gray-500">
+                          ({(file.size / 1024).toFixed(0)} KB)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => removeAttachment(i)}
+                          className="ml-0.5 text-gray-400 hover:text-red-600 font-bold cursor-pointer"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
             </div>
-
-            {poError && (
-              <div className="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 font-medium">
-                ⚠️ {poError}
-              </div>
-            )}
           </div>
-        )}
-
-        <div>
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <label className="block text-xs font-semibold text-gray-800">
-              Attach Quotations / Bills (PDF, PNG, JPG)
-              <span className="ml-2 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-700 border border-amber-200">
-                Max 200 KB per file
-              </span>
-            </label>
-            <span className="text-[11px] text-gray-400">
-              💡 Tip: Use{" "}
-              <a
-                href="https://tinyjpg.com"
-                target="_blank"
-                rel="noreferrer"
-                className="underline text-blue-600"
-              >
-                TinyJPG.com
-              </a>{" "}
-              or{" "}
-              <a
-                href="https://www.ilovepdf.com/compress_pdf"
-                target="_blank"
-                rel="noreferrer"
-                className="underline text-blue-600"
-              >
-                ILovePDF
-              </a>{" "}
-              to resize
-            </span>
-          </div>
-
-          <input
-            type="file"
-            multiple
-            accept=".pdf,.png,.jpg,.jpeg"
-            onChange={handleFileChange}
-            className="mt-2 text-xs text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200"
-          />
-
-          {attachmentError && (
-            <div className="mt-2 p-2.5 bg-red-50 border border-red-200 rounded-lg text-xs text-red-700 font-medium flex items-center space-x-1.5">
-              <span>⚠️</span>
-              <span>{attachmentError}</span>
-            </div>
-          )}
-
-          {/* List of currently selected attachments */}
-          {attachments.length > 0 && (
-            <div className="mt-2.5 flex flex-wrap gap-2">
-              {attachments.map((file, i) => (
-                <div
-                  key={`${file.name}-${i}`}
-                  className="flex items-center space-x-1.5 px-2.5 py-1 bg-gray-50 border border-gray-200 rounded-md text-xs"
-                >
-                  <span className="text-gray-500">📎</span>
-                  <span className="font-semibold text-gray-800 max-w-[180px] truncate">
-                    {file.name}
-                  </span>
-                  <span className="text-[10px] font-mono text-gray-500">
-                    ({(file.size / 1024).toFixed(0)} KB)
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => removeAttachment(i)}
-                    className="ml-1 text-gray-400 hover:text-red-600 font-bold cursor-pointer"
-                  >
-                    &times;
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         <div className="pt-3 border-t border-gray-100 flex items-center justify-end space-x-3">
