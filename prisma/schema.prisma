@@ -183,6 +183,7 @@ model Requisition {
   amountInWords   String            @default("")
   comments        String?
   paymentMode     String?           // CASH | CHEQUE | BANK | ADVANCE | BILL_ADJUSTMENT
+  poNumber        String?           // Purchase Order (PO) or Work Order (WO) reference number
   vendor          String?
   source          String            @default("SYSTEM") // SYSTEM | MANUAL
   status          String            @default("DRAFT")
@@ -256,6 +257,8 @@ model Attachment {
   size          Int
   data          Bytes
   isManualScan  Boolean     @default(false)
+  isPo          Boolean     @default(false) // Tagged as Purchase Order (PO) / Work Order (WO) document
+  poNumber      String?     // Associated PO Number
   uploadedById  String
   createdAt     DateTime    @default(now())
 }

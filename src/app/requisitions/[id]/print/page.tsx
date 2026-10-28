@@ -40,6 +40,7 @@ export default async function RequisitionPrintPage({ params }: Props) {
         comments: req.comments,
         type: req.type,
         paymentMode: req.paymentMode || "CASH",
+        poNumber: (req as any).poNumber || null,
         company: {
           name: req.company.name,
           legalName: req.company.legalName,

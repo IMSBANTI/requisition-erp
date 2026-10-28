@@ -437,6 +437,14 @@ export default async function RequisitionDetailPage({ params }: Props) {
                 {req.paymentMode === "CHEQUE" ? "📝 CHEQUE" : "💵 CASH"}
               </span>
             </div>
+            {(req as any).poNumber && (
+              <div className="flex items-center justify-end">
+                <span className="font-semibold text-gray-700 mr-2">PO / WO Ref :</span>
+                <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                  📄 {(req as any).poNumber}
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Amount In Words */}
@@ -683,25 +691,74 @@ export default async function RequisitionDetailPage({ params }: Props) {
           </div>
         </div>
 
-        {/* Attachments Section */}
-        {req.attachments.length > 0 && (
-          <div className="mt-6 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+        {/* Purchase Order (PO) Section */}
+        {((req as any).poNumber || (req.attachments || []).some((a: any) => a.isPo || a.fileName.startsWith("[PO]"))) && (
+          <div className="mt-6 bg-gradient-to-r from-blue-50/70 to-indigo-50/50 p-4 rounded-xl border border-blue-200 shadow-sm space-y-2.5">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <span className="text-xl">📄</span>
+                <div>
+                  <h3 className="text-xs font-extrabold text-blue-950 uppercase tracking-wider flex items-center gap-2">
+                    <span>Client Purchase Order (PO) / Work Order</span>
+                    {(req as any).poNumber && (
+                      <span className="font-mono px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] font-bold">
+                        {(req as any).poNumber}
+                      </span>
+                    )}
+                  </h3>
+                  <p className="text-[11px] text-blue-800">
+                    Official authorization document from the client for this requisition.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {req.attachments.filter((a: any) => a.isPo || a.fileName.startsWith("[PO]")).length > 0 ? (
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-blue-200/60">
+                {req.attachments
+                  .filter((a: any) => a.isPo || a.fileName.startsWith("[PO]"))
+                  .map((att: any) => (
+                    <a
+                      key={att.id}
+                      href={`/api/attachments/${att.id}`}
+                      target="_blank"
+                      className="px-3 py-1.5 rounded-lg border border-blue-300 bg-white hover:bg-blue-50 text-xs font-bold text-blue-900 flex items-center space-x-2 shadow-2xs transition-colors"
+                    >
+                      <span>📥</span>
+                      <span className="truncate max-w-[220px]">{att.fileName}</span>
+                      <span className="text-[10px] text-blue-500 font-mono">({Math.round(att.size / 1024)} KB)</span>
+                    </a>
+                  ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-gray-500 italic pt-1">
+                PO Reference recorded: {(req as any).poNumber} (no digital file attached).
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Other Attachments Section */}
+        {req.attachments.filter((a: any) => !a.isPo && !a.fileName.startsWith("[PO]")).length > 0 && (
+          <div className="mt-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
             <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider mb-2">
-              Attached Quotations & Invoices ({req.attachments.length})
+              Attached Quotations & Invoices ({req.attachments.filter((a: any) => !a.isPo && !a.fileName.startsWith("[PO]")).length})
             </h3>
             <div className="flex flex-wrap gap-2">
-              {req.attachments.map((att) => (
-                <a
-                  key={att.id}
-                  href={`/api/attachments/${att.id}`}
-                  target="_blank"
-                  className="px-3 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-xs font-medium text-gray-800 flex items-center space-x-1.5 transition-colors"
-                >
-                  <span>📎</span>
-                  <span className="truncate max-w-[200px]">{att.fileName}</span>
-                  <span className="text-[10px] text-gray-400">({Math.round(att.size / 1024)} KB)</span>
-                </a>
-              ))}
+              {req.attachments
+                .filter((a: any) => !a.isPo && !a.fileName.startsWith("[PO]"))
+                .map((att) => (
+                  <a
+                    key={att.id}
+                    href={`/api/attachments/${att.id}`}
+                    target="_blank"
+                    className="px-3 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-xs font-medium text-gray-800 flex items-center space-x-1.5 transition-colors"
+                  >
+                    <span>📎</span>
+                    <span className="truncate max-w-[200px]">{att.fileName}</span>
+                    <span className="text-[10px] text-gray-400">({Math.round(att.size / 1024)} KB)</span>
+                  </a>
+                ))}
             </div>
           </div>
         )}

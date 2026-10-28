@@ -403,6 +403,9 @@ export default function RequisitionForm({
 
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
+  const [poNumber, setPoNumber] = useState("");
+  const [poFile, setPoFile] = useState<File | null>(null);
+  const [poError, setPoError] = useState("");
   const [pinOrPassword, setPinOrPassword] = useState("");
   const [showSignModal, setShowSignModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -487,6 +490,27 @@ export default function RequisitionForm({
 
   function removeAttachment(index: number) {
     setAttachments((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function handlePoFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    setPoError("");
+    if (!e.target.files || !e.target.files[0]) return;
+    const file = e.target.files[0];
+    const MAX_KB = 200;
+    if (file.size > MAX_KB * 1024) {
+      setPoError(
+        `Purchase Order file "${file.name}" is ${(file.size / 1024).toFixed(0)} KB. Maximum allowed size is 200 KB. Please compress or resize before attaching.`
+      );
+      e.target.value = "";
+      return;
+    }
+    setPoFile(file);
+    e.target.value = "";
+  }
+
+  function removePoFile() {
+    setPoFile(null);
+    setPoError("");
   }
 
   // Grand Total & Billable vs. IMS Investment Breakdown
@@ -673,6 +697,12 @@ export default function RequisitionForm({
       formData.append("pinOrPassword", pinOrPassword);
 
       if (requisitionMode !== "COMPANY") {
+        if (poNumber.trim()) {
+          formData.append("poNumber", poNumber.trim());
+        }
+        if (poFile) {
+          formData.append("poFile", poFile);
+        }
         formData.append("forMonth", forMonth);
         formData.append("changeReason", changeReason.trim());
         formData.append("billableTotal", String(billableTotal));
@@ -1119,6 +1149,25 @@ export default function RequisitionForm({
               </div>
             </div>
           </div>
+
+          {requisitionMode !== "COMPANY" && (
+            <div className="flex flex-wrap items-center col-span-1 sm:col-span-2 pt-2 border-t border-gray-200 gap-2">
+              <span className="font-semibold text-gray-700 w-24">PO / WO Ref :</span>
+              <input
+                type="text"
+                value={poNumber}
+                onChange={(e) => setPoNumber(e.target.value)}
+                placeholder="Client Purchase Order # or Work Order Ref (Optional / Recommended)"
+                className="max-w-md w-full px-2 py-0.5 border border-gray-300 rounded text-xs font-semibold text-gray-900 bg-white focus:border-[#E42528]"
+              />
+              {poFile && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 rounded text-[11px] font-bold">
+                  <span>📄 PO Document Attached:</span>
+                  <span className="truncate max-w-[140px]">{poFile.name}</span>
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Amount & Purpose Header Line */}
@@ -1369,6 +1418,86 @@ export default function RequisitionForm({
 
       {/* Attachments & Submission Options */}
       <div className="mt-6 bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-4">
+        {/* Dedicated Purchase Order (PO) / Work Order Section for Project & Event Requisitions */}
+        {requisitionMode !== "COMPANY" && (
+          <div className="p-4 rounded-xl border-2 border-blue-200 bg-blue-50/40 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <span className="text-xl">📄</span>
+                <div>
+                  <h4 className="text-xs font-bold text-blue-950 uppercase tracking-wide flex items-center gap-1.5">
+                    <span>Client Purchase Order (PO) / Work Order</span>
+                    <span className="px-1.5 py-0.2 rounded text-[10px] font-extrabold bg-blue-600 text-white">
+                      {requisitionMode === "EVENT" ? "EVENT PO" : "PROJECT PO"}
+                    </span>
+                  </h4>
+                  <p className="text-[11px] text-blue-700 mt-0.5">
+                    Upload the official Purchase Order (PO) or Work Order received from the client for this {requisitionMode === "EVENT" ? "event" : "project"}.
+                  </p>
+                </div>
+              </div>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-white text-blue-800 border border-blue-200 shadow-2xs">
+                Max 200 KB (PDF, PNG, JPG)
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-blue-200/60">
+              <div>
+                <label className="block text-[11px] font-bold text-blue-900 mb-1">
+                  PO / Work Order Reference #
+                </label>
+                <input
+                  type="text"
+                  value={poNumber}
+                  onChange={(e) => setPoNumber(e.target.value)}
+                  placeholder="e.g. PO-BL-2026-101 / WO-GP-442"
+                  className="w-full px-2.5 py-1.5 border border-blue-300 rounded-md text-xs font-semibold text-gray-900 bg-white focus:ring-blue-500 focus:border-blue-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-blue-900 mb-1">
+                  Upload PO File
+                </label>
+                {!poFile ? (
+                  <input
+                    type="file"
+                    accept=".pdf,.png,.jpg,.jpeg"
+                    onChange={handlePoFileChange}
+                    className="w-full text-xs text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
+                  />
+                ) : (
+                  <div className="flex items-center justify-between p-1.5 bg-white border border-blue-300 rounded-md text-xs">
+                    <div className="flex items-center space-x-1.5 truncate">
+                      <span className="text-blue-600 font-bold">📄</span>
+                      <span className="font-bold text-blue-950 truncate max-w-[200px]">
+                        {poFile.name}
+                      </span>
+                      <span className="text-[10px] font-mono text-gray-500">
+                        ({(poFile.size / 1024).toFixed(0)} KB)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={removePoFile}
+                      className="text-red-500 hover:text-red-700 font-bold px-1.5 py-0.5 text-xs cursor-pointer"
+                      title="Remove PO file"
+                    >
+                      ✕ Remove
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {poError && (
+              <div className="p-2 bg-red-50 border border-red-200 rounded text-xs text-red-700 font-medium">
+                ⚠️ {poError}
+              </div>
+            )}
+          </div>
+        )}
+
         <div>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <label className="block text-xs font-semibold text-gray-800">

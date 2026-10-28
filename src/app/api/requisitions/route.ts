@@ -22,6 +22,7 @@ export async function POST(request: Request) {
     const priority = (formData.get("priority") as string) || "NORMAL";
     const disburseOn = formData.get("disburseOn") as string;
     const paymentMode = formData.get("paymentMode") as string;
+    const poNumber = ((formData.get("poNumber") as string) || "").trim() || null;
     const comments = formData.get("comments") as string;
     const action = formData.get("action") as string;
     const pinOrPassword = (formData.get("pinOrPassword") as string) || "";
@@ -43,6 +44,17 @@ export async function POST(request: Request) {
 
     // Validate attachment file sizes (Max 200 KB)
     const MAX_ATTACHMENT_SIZE = 200 * 1024; // 200 KB
+    const poFile = formData.get("poFile") as File | null;
+    if (poFile && poFile.size > MAX_ATTACHMENT_SIZE) {
+      const sizeKb = (poFile.size / 1024).toFixed(0);
+      return NextResponse.json(
+        {
+          error: `Purchase Order file "${poFile.name}" is ${sizeKb} KB. Attachments must be 200 KB or smaller. Please resize or compress the file before uploading.`,
+        },
+        { status: 400 }
+      );
+    }
+
     const files = formData.getAll("files") as File[];
     for (const file of files) {
       if (file && file.size > MAX_ATTACHMENT_SIZE) {
@@ -221,6 +233,7 @@ export async function POST(request: Request) {
         amountInWords: inWords,
         comments,
         paymentMode,
+        poNumber: poNumber || null,
         status: initialWorkflow.status,
         mdStatus: initialWorkflow.mdStatus,
         chain: chain as any,
@@ -270,7 +283,24 @@ export async function POST(request: Request) {
       },
     });
 
-    // Handle uploaded attachments if any
+    // Handle Purchase Order (PO) file if uploaded
+    if (poFile && poFile.size > 0) {
+      const poBytes = Buffer.from(await poFile.arrayBuffer());
+      await prisma.attachment.create({
+        data: {
+          requisitionId: requisition.id,
+          fileName: poFile.name.startsWith("[PO]") ? poFile.name : `[PO] ${poFile.name}`,
+          mimeType: poFile.type || "application/octet-stream",
+          size: poFile.size,
+          data: poBytes,
+          isPo: true,
+          poNumber: poNumber || null,
+          uploadedById: user.id,
+        },
+      });
+    }
+
+    // Handle other uploaded attachments if any
     for (const file of files) {
       if (file && file.size > 0) {
         const bytes = Buffer.from(await file.arrayBuffer());
@@ -281,6 +311,7 @@ export async function POST(request: Request) {
             mimeType: file.type || "application/octet-stream",
             size: file.size,
             data: bytes,
+            isPo: false,
             uploadedById: user.id,
           },
         });

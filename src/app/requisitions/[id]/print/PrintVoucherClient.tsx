@@ -17,6 +17,7 @@ interface Props {
     comments: string | null;
     type: string;
     paymentMode?: string | null;
+    poNumber?: string | null;
     company: {
       name: string;
       legalName: string;
@@ -138,6 +139,12 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
             <span className="font-bold mr-1.5">Disburse on :</span>
             <span className="font-semibold">{req.disburseOn ? new Date(req.disburseOn).toLocaleDateString("en-GB") : "Immediate"}</span>
           </div>
+          {req.poNumber && (
+            <div className="flex col-span-2">
+              <span className="w-24 font-bold">PO / WO Ref</span>
+              <span className="font-bold">: {req.poNumber}</span>
+            </div>
+          )}
         </div>
 
         {/* Amount & Purpose Header */}
