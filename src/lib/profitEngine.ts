@@ -289,13 +289,48 @@ export const DEFAULT_PROJECT_COST_HEADS: CostHeadConfig[] = [
 export const DEFAULT_EVENT_COST_HEADS: CostHeadConfig[] = [
   { id: "evt_venue_stage", name: "Venue & Stage Fabrication", tag: "BILLABLE", isSalary: false },
   { id: "evt_sound_light", name: "Sound, Light & LED/AV System", tag: "BILLABLE", isSalary: false },
+  { id: "evt_booth_decor", name: "Booth, Stall & Decor Setup", tag: "BILLABLE", isSalary: false },
   { id: "evt_promoters", name: "Promoters, Anchors & Event Crew", tag: "BILLABLE", isSalary: false },
+  { id: "evt_artist_guest", name: "Artist, Performer & Guest Honorarium", tag: "BILLABLE", isSalary: false },
   { id: "evt_branding", name: "Printing, Branding & Merchandise", tag: "BILLABLE", isSalary: false },
-  { id: "evt_logistics", name: "Transport, Fuel & Event Logistics", tag: "BILLABLE", isSalary: false },
+  { id: "evt_gifts", name: "Gifts, Crests & Souvenirs", tag: "BILLABLE", isSalary: false },
   { id: "evt_hospitality", name: "Hospitality, Food & Refreshments", tag: "BILLABLE", isSalary: false },
+  { id: "evt_media_photo", name: "Photography, Videography & Media", tag: "BILLABLE", isSalary: false },
+  { id: "evt_logistics", name: "Transport, Fuel & Event Logistics", tag: "BILLABLE", isSalary: false },
   { id: "evt_permissions", name: "Permissions, Security & Misc", tag: "BILLABLE", isSalary: false },
   { id: "evt_ims_inv", name: "IMS Event Supervision / Unbilled Cost", tag: "IMS_INVESTMENT", isSalary: false },
 ];
+
+const PROJECT_DEFAULT_IDS = new Set(DEFAULT_PROJECT_COST_HEADS.map((h) => h.id));
+const PROJECT_DEFAULT_NAMES = new Set(
+  DEFAULT_PROJECT_COST_HEADS.map((h) => h.name.toLowerCase())
+);
+
+/**
+ * Ensures Events never inherit Outsourcing Project salary/house-rent cost heads,
+ * and Projects never inherit Event cost heads unless explicitly customized for that mode.
+ */
+export function resolveCostHeadsForKind(
+  rawCostHeads: unknown,
+  isEvent: boolean
+): CostHeadConfig[] {
+  if (Array.isArray(rawCostHeads) && rawCostHeads.length > 0) {
+    if (isEvent) {
+      // Filter out any accidentally saved Outsourcing Project default cost heads
+      const cleaned = (rawCostHeads as CostHeadConfig[]).filter(
+        (ch) =>
+          ch &&
+          ch.name &&
+          !PROJECT_DEFAULT_IDS.has(ch.id) &&
+          !PROJECT_DEFAULT_NAMES.has(ch.name.toLowerCase())
+      );
+      if (cleaned.length > 0) return cleaned;
+      return DEFAULT_EVENT_COST_HEADS;
+    }
+    return rawCostHeads as CostHeadConfig[];
+  }
+  return isEvent ? DEFAULT_EVENT_COST_HEADS : DEFAULT_PROJECT_COST_HEADS;
+}
 
 /**
  * Default Billing Terms presets for known IMS Projects & Events when not yet customized in DB.

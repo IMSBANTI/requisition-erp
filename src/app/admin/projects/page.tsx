@@ -2,8 +2,7 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import {
-  DEFAULT_PROJECT_COST_HEADS,
-  DEFAULT_EVENT_COST_HEADS,
+  resolveCostHeadsForKind,
   getDefaultProjectTermsByCode,
 } from "@/lib/profitEngine";
 import AppShell from "@/components/AppShell";
@@ -86,11 +85,7 @@ export default async function AdminProjectsPage() {
               maintenanceBudget: p.maintenanceBudget ? Number(p.maintenanceBudget) : Number(fallbackTerms.maintenanceBudget ?? 0),
               monthlyAmortization: p.monthlyAmortization ? Number(p.monthlyAmortization) : Number(fallbackTerms.monthlyAmortization ?? 0),
               varianceThresholdPct: p.varianceThresholdPct ? Number(p.varianceThresholdPct) : 10,
-              costHeads: Array.isArray(p.costHeads) && p.costHeads.length > 0
-                ? p.costHeads
-                : isEvent
-                ? DEFAULT_EVENT_COST_HEADS
-                : DEFAULT_PROJECT_COST_HEADS,
+              costHeads: resolveCostHeadsForKind(p.costHeads, isEvent),
             };
           })}
           companies={companies}

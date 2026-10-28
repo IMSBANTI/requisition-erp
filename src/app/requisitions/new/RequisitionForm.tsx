@@ -9,6 +9,7 @@ import {
   CostHeadConfig,
   DEFAULT_PROJECT_COST_HEADS,
   DEFAULT_EVENT_COST_HEADS,
+  resolveCostHeadsForKind,
   calculateProfitSummary,
   calculateVariance,
 } from "@/lib/profitEngine";
@@ -233,20 +234,48 @@ export default function RequisitionForm({
   const [forMonth, setForMonth] = useState<string>(getCurrentYearMonth());
   const [changeReason, setChangeReason] = useState<string>("");
 
-  // Active Cost Heads for the selected Project or Event
+  // Active Cost Heads for the selected Project or Event (strictly separated)
   const activeCostHeads = useMemo<CostHeadConfig[]>(() => {
     if (requisitionMode === "COMPANY") return [];
-    if (
-      selectedProject?.costHeads &&
-      Array.isArray(selectedProject.costHeads) &&
-      selectedProject.costHeads.length > 0
-    ) {
-      return selectedProject.costHeads;
-    }
-    return requisitionMode === "EVENT"
-      ? DEFAULT_EVENT_COST_HEADS
-      : DEFAULT_PROJECT_COST_HEADS;
+    const isEvt = requisitionMode === "EVENT";
+    return resolveCostHeadsForKind(selectedProject?.costHeads, isEvt);
   }, [requisitionMode, selectedProject]);
+
+  function buildDefaultRowForTarget(
+    mode: "COMPANY" | "PROJECT" | "EVENT",
+    targetProj: any
+  ): ItemRow {
+    if (mode === "COMPANY") {
+      return {
+        sl: 1,
+        costHead: "",
+        costTag: "BILLABLE",
+        forMonth,
+        lastMonthAmount: 0,
+        particulars: "",
+        purpose: "",
+        qty: "1",
+        unitPrice: "0",
+      };
+    }
+    const heads = resolveCostHeadsForKind(targetProj?.costHeads, mode === "EVENT");
+    const firstHead = heads[0];
+    const lag = targetProj?.salaryMonthLag ?? (mode === "EVENT" ? 0 : 1);
+    return {
+      sl: 1,
+      costHead: firstHead?.name || "",
+      costTag: firstHead?.tag || "BILLABLE",
+      forMonth:
+        mode === "PROJECT" && firstHead?.isSalary && lag === 1
+          ? getPreviousYearMonth(forMonth)
+          : forMonth,
+      lastMonthAmount: 0,
+      particulars: firstHead?.name || "",
+      purpose: "",
+      qty: "1",
+      unitPrice: "0",
+    };
+  }
 
   // Switch between IMS Group Company, Project Requisition, & Event Requisition
   function handleModeChange(mode: "COMPANY" | "PROJECT" | "EVENT") {
@@ -268,6 +297,7 @@ export default function RequisitionForm({
           ? "OPERATION"
           : "ADMIN"
       );
+      setItems([buildDefaultRowForTarget("COMPANY", null)]);
     } else if (mode === "PROJECT") {
       const firstProj = onlyProjectsList[0] || projectBasedList[0] || projects[0];
       if (firstProj) {
@@ -279,6 +309,7 @@ export default function RequisitionForm({
             : firstProj.category || "OUTSOURCING"
         );
         setType(firstProj.requisitionTypes?.[0] || "BPO");
+        setItems([buildDefaultRowForTarget("PROJECT", firstProj)]);
       }
     } else if (mode === "EVENT") {
       const firstEvt = onlyEventsList[0] || projectBasedList[0] || projects[0];
@@ -287,6 +318,7 @@ export default function RequisitionForm({
         setCompanyId(firstEvt.companyId);
         setCategory(firstEvt.category || "OPERATIONS_EVENT");
         setType(firstEvt.requisitionTypes?.[0] || "EVENT");
+        setItems([buildDefaultRowForTarget("EVENT", firstEvt)]);
       }
     }
   }
@@ -300,6 +332,11 @@ export default function RequisitionForm({
         p.category === "IMS_OUTSOURCING_STUDIO" ? "OUTSOURCING" : p.category || "OUTSOURCING"
       );
       setType(p.requisitionTypes?.[0] || (requisitionMode === "EVENT" ? "EVENT" : "BPO"));
+      // If user hasn't entered amounts yet, refresh the default Cost Head row for the newly selected Project/Event
+      const hasEnteredPrices = items.some((it) => (parseFloat(it.unitPrice) || 0) > 0);
+      if (!hasEnteredPrices) {
+        setItems([buildDefaultRowForTarget(requisitionMode, p)]);
+      }
     }
   }
 
@@ -588,7 +625,7 @@ export default function RequisitionForm({
   }
 
   function addRow() {
-    const defaultCh = activeCostHeads[0];
+    const defaultCh = requisitionMode === "PROJECT" ? activeCostHeads[0] : undefined;
     setItems((prev) => [
       ...prev,
       {
@@ -1110,6 +1147,13 @@ export default function RequisitionForm({
         </div>
 
         {/* Line Items Table */}
+        {requisitionMode === "EVENT" && (
+          <datalist id="event-cost-heads-datalist">
+            {activeCostHeads.map((ch) => (
+              <option key={ch.id} value={ch.name} />
+            ))}
+          </datalist>
+        )}
         <div className="mt-4 border border-gray-400 rounded overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
@@ -1150,18 +1194,29 @@ export default function RequisitionForm({
                     {requisitionMode !== "COMPANY" && (
                       <>
                         <td className="py-1 px-1.5 border-r border-gray-300">
-                          <select
-                            value={row.costHead}
-                            onChange={(e) => handleRowChange(index, "costHead", e.target.value)}
-                            className="w-full px-1.5 py-0.5 border border-gray-200 rounded text-[11px] font-semibold bg-white"
-                          >
-                            <option value="">-- Custom Item --</option>
-                            {activeCostHeads.map((ch) => (
-                              <option key={ch.id} value={ch.name}>
-                                {ch.name}
-                              </option>
-                            ))}
-                          </select>
+                          {requisitionMode === "EVENT" ? (
+                            <input
+                              type="text"
+                              list="event-cost-heads-datalist"
+                              placeholder="Select or type Event Cost Head..."
+                              value={row.costHead}
+                              onChange={(e) => handleRowChange(index, "costHead", e.target.value)}
+                              className="w-full px-1.5 py-0.5 border border-gray-200 focus:border-[#E42528] rounded text-[11px] font-semibold bg-white"
+                            />
+                          ) : (
+                            <select
+                              value={row.costHead}
+                              onChange={(e) => handleRowChange(index, "costHead", e.target.value)}
+                              className="w-full px-1.5 py-0.5 border border-gray-200 rounded text-[11px] font-semibold bg-white"
+                            >
+                              <option value="">-- Custom Item --</option>
+                              {activeCostHeads.map((ch) => (
+                                <option key={ch.id} value={ch.name}>
+                                  {ch.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
                         </td>
                         <td className="py-1 px-1.5 border-r border-gray-300 text-center">
                           <button

@@ -2,8 +2,7 @@ import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { projectScope } from "@/lib/rbac";
 import {
-  DEFAULT_PROJECT_COST_HEADS,
-  DEFAULT_EVENT_COST_HEADS,
+  resolveCostHeadsForKind,
   getDefaultProjectTermsByCode,
 } from "@/lib/profitEngine";
 import AppShell from "@/components/AppShell";
@@ -263,12 +262,7 @@ export default async function NewRequisitionPage() {
               varianceThresholdPct: p.varianceThresholdPct
                 ? Number(p.varianceThresholdPct)
                 : 10,
-              costHeads:
-                Array.isArray(p.costHeads) && p.costHeads.length > 0
-                  ? p.costHeads
-                  : isEvent
-                  ? DEFAULT_EVENT_COST_HEADS
-                  : DEFAULT_PROJECT_COST_HEADS,
+              costHeads: resolveCostHeadsForKind(p.costHeads, isEvent),
               lastRequisition: latestReq
                 ? {
                     id: latestReq.id,
