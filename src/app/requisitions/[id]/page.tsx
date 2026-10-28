@@ -91,6 +91,11 @@ export default async function RequisitionDetailPage({ params }: Props) {
   const isEventReq =
     !isCompanyDivision &&
     (req.project.kind === "EVENT" || req.project.code?.toUpperCase().startsWith("EVT-"));
+  const isProjectReq = !isCompanyDivision && !isEventReq;
+  const hasDistinctPurpose = (req.items as any[]).some(
+    (it) => it.purpose && it.purpose !== it.particulars
+  );
+  const showPurposeCol = !isProjectReq || hasDistinctPurpose;
 
   // Compute Billable vs IMS Investment & Profit Summary for Project / Event Requisitions
   let billableTotal = 0;
@@ -436,7 +441,9 @@ export default async function RequisitionDetailPage({ params }: Props) {
                 <tr className="bg-gray-100 border-b border-gray-400 text-gray-700 font-bold uppercase text-[10px]">
                   <th className="py-1.5 px-2 w-10 text-center border-r border-gray-300">SL.</th>
                   <th className="py-1.5 px-3 border-r border-gray-300">Particulars</th>
-                  <th className="py-1.5 px-3 border-r border-gray-300 w-1/4">Purpose</th>
+                  {showPurposeCol && (
+                    <th className="py-1.5 px-3 border-r border-gray-300 w-1/4">Purpose</th>
+                  )}
                   <th className="py-1.5 px-2 border-r border-gray-300 w-16 text-right">Qty.</th>
                   <th className="py-1.5 px-2 border-r border-gray-300 w-24 text-right">Unit Price</th>
                   <th className="py-1.5 px-3 w-28 text-right">Amount</th>
@@ -464,9 +471,11 @@ export default async function RequisitionDetailPage({ params }: Props) {
                         </span>
                       )}
                     </td>
-                    <td className="py-1 px-3 text-gray-700 border-r border-gray-300">
-                      {it.purpose || "—"}
-                    </td>
+                    {showPurposeCol && (
+                      <td className="py-1 px-3 text-gray-700 border-r border-gray-300">
+                        {it.purpose || "—"}
+                      </td>
+                    )}
                     <td className="py-1 px-2 text-right font-medium text-gray-900 border-r border-gray-300">
                       {it.qty.toString()}
                     </td>
@@ -479,7 +488,10 @@ export default async function RequisitionDetailPage({ params }: Props) {
                   </tr>
                 ))}
                 <tr className="bg-gray-100 font-bold text-xs border-t-2 border-gray-400">
-                  <td colSpan={5} className="py-2 px-4 text-right uppercase tracking-wider border-r border-gray-300">
+                  <td
+                    colSpan={showPurposeCol ? 5 : 4}
+                    className="py-2 px-4 text-right uppercase tracking-wider border-r border-gray-300"
+                  >
                     Total
                   </td>
                   <td className="py-2 px-3 text-right text-sm text-[#E42528] font-extrabold">

@@ -675,7 +675,7 @@ export default function RequisitionForm({
             lastMonthAmount:
               requisitionMode !== "COMPANY" && it.lastMonthAmount ? Number(it.lastMonthAmount) : null,
             particulars: it.particulars || it.costHead,
-            purpose: it.purpose,
+            purpose: requisitionMode === "PROJECT" ? (it.purpose || it.particulars) : it.purpose,
             qty: parseFloat(it.qty) || 0,
             unitPrice: parseFloat(it.unitPrice) || 0,
           }))
@@ -1278,7 +1278,9 @@ export default function RequisitionForm({
                   </>
                 )}
                 <th className="py-1.5 px-3 border-r border-gray-300">Particulars</th>
-                <th className="py-1.5 px-3 border-r border-gray-300 w-40">Purpose</th>
+                {requisitionMode !== "PROJECT" && (
+                  <th className="py-1.5 px-3 border-r border-gray-300 w-40">Purpose</th>
+                )}
                 {requisitionMode === "PROJECT" && (
                   <th className="py-1.5 px-2 border-r border-gray-300 w-24 text-right">
                     Last Month
@@ -1351,15 +1353,17 @@ export default function RequisitionForm({
                         className="w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E42528] rounded text-xs"
                       />
                     </td>
-                    <td className="py-1 px-2 border-r border-gray-300">
-                      <input
-                        type="text"
-                        placeholder="Specific purpose"
-                        value={row.purpose}
-                        onChange={(e) => handleRowChange(index, "purpose", e.target.value)}
-                        className="w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E42528] rounded text-xs"
-                      />
-                    </td>
+                    {requisitionMode !== "PROJECT" && (
+                      <td className="py-1 px-2 border-r border-gray-300">
+                        <input
+                          type="text"
+                          placeholder="Specific purpose"
+                          value={row.purpose}
+                          onChange={(e) => handleRowChange(index, "purpose", e.target.value)}
+                          className="w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E42528] rounded text-xs"
+                        />
+                      </td>
+                    )}
 
                     {requisitionMode === "PROJECT" && (
                       <td className="py-1 px-2 border-r border-gray-300 text-right font-mono text-[11px] text-gray-500">
@@ -1410,7 +1414,7 @@ export default function RequisitionForm({
                 <td
                   colSpan={
                     requisitionMode === "PROJECT"
-                      ? 8
+                      ? 7
                       : requisitionMode === "EVENT"
                       ? 7
                       : 5
