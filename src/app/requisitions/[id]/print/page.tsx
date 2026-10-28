@@ -39,6 +39,7 @@ export default async function RequisitionPrintPage({ params }: Props) {
         amountInWords: req.amountInWords,
         comments: req.comments,
         type: req.type,
+        paymentMode: req.paymentMode || "CASH",
         company: {
           name: req.company.name,
           legalName: req.company.legalName,

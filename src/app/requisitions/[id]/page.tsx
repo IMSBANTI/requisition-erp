@@ -168,6 +168,13 @@ export default async function RequisitionDetailPage({ params }: Props) {
               <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${STATUS_COLORS[req.status]}`}>
                 {STATUS_LABELS[req.status] || req.status}
               </span>
+              <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                req.paymentMode === "CHEQUE"
+                  ? "bg-blue-50 text-blue-800 border border-blue-200"
+                  : "bg-emerald-50 text-emerald-800 border border-emerald-200"
+              }`}>
+                {req.paymentMode === "CHEQUE" ? "📝 CHEQUE" : "💵 CASH"}
+              </span>
             </div>
             <p className="text-xs text-gray-500 mt-1">
               {isCompanyDivision ? (
@@ -418,6 +425,16 @@ export default async function RequisitionDetailPage({ params }: Props) {
               <span className="font-semibold text-gray-700 mr-2">Disburse on :</span>
               <span className="font-medium text-gray-900">
                 {req.disburseOn ? new Date(req.disburseOn).toLocaleDateString("en-GB") : "Immediate"}
+              </span>
+            </div>
+            <div className="flex items-center">
+              <span className="font-semibold text-gray-700 w-24">Payment Type :</span>
+              <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                req.paymentMode === "CHEQUE"
+                  ? "bg-blue-50 text-blue-800 border border-blue-200"
+                  : "bg-emerald-50 text-emerald-800 border border-emerald-200"
+              }`}>
+                {req.paymentMode === "CHEQUE" ? "📝 CHEQUE" : "💵 CASH"}
               </span>
             </div>
           </div>

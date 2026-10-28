@@ -952,15 +952,41 @@ export default function RequisitionForm({
                 </div>
               )}
 
+              <div className="flex items-center space-x-2">
+                <label className="text-xs font-bold text-gray-700">Payment Type:</label>
+                <div className="inline-flex rounded-md border border-gray-300 p-0.5 bg-white">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMode("CASH")}
+                    className={`px-2.5 py-1 text-xs font-bold rounded transition-colors ${
+                      paymentMode === "CASH"
+                        ? "bg-emerald-600 text-white shadow-xs"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    💵 CASH
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMode("CHEQUE")}
+                    className={`px-2.5 py-1 text-xs font-bold rounded transition-colors ${
+                      paymentMode === "CHEQUE"
+                        ? "bg-blue-600 text-white shadow-xs"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    📝 CHEQUE
+                  </button>
+                </div>
+              </div>
+
               <button
                 type="button"
                 onClick={handlePrefillCostHeads}
                 className="px-3 py-1.5 text-xs font-bold text-gray-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-md shadow-2xs cursor-pointer transition-colors"
               >
                 {requisitionMode === "PROJECT"
-                  ? selectedProject.lastRequisition
-                    ? `↺ Pre-fill from Last Month (${selectedProject.lastRequisition.forMonth || "Prior"})`
-                    : "↺ Load Project Cost Head Lines"
+                  ? "↺ Load Project Cost Head Lines"
                   : "↺ Load Event Cost Head Lines"}
               </button>
             </div>
@@ -1223,16 +1249,46 @@ export default function RequisitionForm({
             <span className="font-semibold text-gray-700 w-24">Designation :</span>
             <span className="text-gray-800">{user.designation}</span>
           </div>
-          <div className="flex items-center sm:justify-end">
-            <span className="font-semibold text-gray-700 mr-2">Priority :</span>
-            <select
-              value={priority}
-              onChange={(e) => setPriority(e.target.value)}
-              className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-semibold text-gray-700"
-            >
-              <option value="NORMAL">Normal</option>
-              <option value="URGENT">Urgent</option>
-            </select>
+          <div className="flex items-center sm:justify-end gap-3">
+            <div className="flex items-center">
+              <span className="font-semibold text-gray-700 mr-1.5">Priority :</span>
+              <select
+                value={priority}
+                onChange={(e) => setPriority(e.target.value)}
+                className="text-xs border border-gray-300 rounded px-1.5 py-0.5 font-semibold text-gray-700"
+              >
+                <option value="NORMAL">Normal</option>
+                <option value="URGENT">Urgent</option>
+              </select>
+            </div>
+
+            <div className="flex items-center">
+              <span className="font-semibold text-gray-700 mr-1.5">Payment Type :</span>
+              <div className="inline-flex rounded-md border border-gray-300 p-0.5 bg-gray-50">
+                <button
+                  type="button"
+                  onClick={() => setPaymentMode("CASH")}
+                  className={`px-2 py-0.5 text-xs font-bold rounded transition-colors ${
+                    paymentMode === "CASH"
+                      ? "bg-emerald-600 text-white shadow-xs"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  💵 CASH
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPaymentMode("CHEQUE")}
+                  className={`px-2 py-0.5 text-xs font-bold rounded transition-colors ${
+                    paymentMode === "CHEQUE"
+                      ? "bg-blue-600 text-white shadow-xs"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  📝 CHEQUE
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -1280,11 +1336,6 @@ export default function RequisitionForm({
                 <th className="py-1.5 px-3 border-r border-gray-300">Particulars</th>
                 {requisitionMode !== "PROJECT" && (
                   <th className="py-1.5 px-3 border-r border-gray-300 w-40">Purpose</th>
-                )}
-                {requisitionMode === "PROJECT" && (
-                  <th className="py-1.5 px-2 border-r border-gray-300 w-24 text-right">
-                    Last Month
-                  </th>
                 )}
                 <th className="py-1.5 px-2 border-r border-gray-300 w-16 text-right">Qty.</th>
                 <th className="py-1.5 px-2 border-r border-gray-300 w-24 text-right">Unit Price</th>
@@ -1365,12 +1416,6 @@ export default function RequisitionForm({
                       </td>
                     )}
 
-                    {requisitionMode === "PROJECT" && (
-                      <td className="py-1 px-2 border-r border-gray-300 text-right font-mono text-[11px] text-gray-500">
-                        {row.lastMonthAmount > 0 ? formatTaka(row.lastMonthAmount) : "—"}
-                      </td>
-                    )}
-
                     <td className="py-1 px-1 border-r border-gray-300">
                       <input
                         type="number"
@@ -1414,7 +1459,7 @@ export default function RequisitionForm({
                 <td
                   colSpan={
                     requisitionMode === "PROJECT"
-                      ? 7
+                      ? 6
                       : requisitionMode === "EVENT"
                       ? 7
                       : 5

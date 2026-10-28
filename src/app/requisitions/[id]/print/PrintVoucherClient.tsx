@@ -16,6 +16,7 @@ interface Props {
     amountInWords: string;
     comments: string | null;
     type: string;
+    paymentMode?: string | null;
     company: {
       name: string;
       legalName: string;
@@ -128,6 +129,14 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
           <div className="flex justify-end">
             <span className="font-bold mr-1.5">Project :</span>
             <span className="font-bold truncate max-w-[170px]">{req.project.name}</span>
+          </div>
+          <div className="flex">
+            <span className="w-24 font-bold">Payment Mode</span>
+            <span className="font-extrabold">: {req.paymentMode === "CHEQUE" ? "CHEQUE" : "CASH"}</span>
+          </div>
+          <div className="flex justify-end">
+            <span className="font-bold mr-1.5">Disburse on :</span>
+            <span className="font-semibold">{req.disburseOn ? new Date(req.disburseOn).toLocaleDateString("en-GB") : "Immediate"}</span>
           </div>
         </div>
 
