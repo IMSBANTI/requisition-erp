@@ -44,15 +44,20 @@ export async function POST(request: Request) {
 
     // Validate attachment file sizes (Max 200 KB)
     const MAX_ATTACHMENT_SIZE = 200 * 1024; // 200 KB
-    const poFile = formData.get("poFile") as File | null;
-    if (poFile && poFile.size > MAX_ATTACHMENT_SIZE) {
-      const sizeKb = (poFile.size / 1024).toFixed(0);
-      return NextResponse.json(
-        {
-          error: `Purchase Order file "${poFile.name}" is ${sizeKb} KB. Attachments must be 200 KB or smaller. Please resize or compress the file before uploading.`,
-        },
-        { status: 400 }
-      );
+    const rawPoFiles = formData.getAll("poFiles") as File[];
+    const singlePoFile = formData.get("poFile") as File | null;
+    const allPoFiles = rawPoFiles.length > 0 ? rawPoFiles : singlePoFile ? [singlePoFile] : [];
+
+    for (const po of allPoFiles) {
+      if (po && po.size > MAX_ATTACHMENT_SIZE) {
+        const sizeKb = (po.size / 1024).toFixed(0);
+        return NextResponse.json(
+          {
+            error: `Purchase Order file "${po.name}" is ${sizeKb} KB. Attachments must be 200 KB or smaller. Please resize or compress the file before uploading.`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const files = formData.getAll("files") as File[];
@@ -283,21 +288,23 @@ export async function POST(request: Request) {
       },
     });
 
-    // Handle Purchase Order (PO) file if uploaded
-    if (poFile && poFile.size > 0) {
-      const poBytes = Buffer.from(await poFile.arrayBuffer());
-      await prisma.attachment.create({
-        data: {
-          requisitionId: requisition.id,
-          fileName: poFile.name.startsWith("[PO]") ? poFile.name : `[PO] ${poFile.name}`,
-          mimeType: poFile.type || "application/octet-stream",
-          size: poFile.size,
-          data: poBytes,
-          isPo: true,
-          poNumber: poNumber || null,
-          uploadedById: user.id,
-        },
-      });
+    // Handle Purchase Order (PO) files if uploaded
+    for (const poFile of allPoFiles) {
+      if (poFile && poFile.size > 0) {
+        const poBytes = Buffer.from(await poFile.arrayBuffer());
+        await prisma.attachment.create({
+          data: {
+            requisitionId: requisition.id,
+            fileName: poFile.name.startsWith("[PO]") ? poFile.name : `[PO] ${poFile.name}`,
+            mimeType: poFile.type || "application/octet-stream",
+            size: poFile.size,
+            data: poBytes,
+            isPo: true,
+            poNumber: poNumber || null,
+            uploadedById: user.id,
+          },
+        });
+      }
     }
 
     // Handle other uploaded attachments if any

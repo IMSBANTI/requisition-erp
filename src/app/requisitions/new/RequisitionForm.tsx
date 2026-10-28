@@ -404,7 +404,7 @@ export default function RequisitionForm({
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
   const [poNumber, setPoNumber] = useState("");
-  const [poFile, setPoFile] = useState<File | null>(null);
+  const [poFiles, setPoFiles] = useState<File[]>([]);
   const [poError, setPoError] = useState("");
   const [pinOrPassword, setPinOrPassword] = useState("");
   const [showSignModal, setShowSignModal] = useState(false);
@@ -494,23 +494,28 @@ export default function RequisitionForm({
 
   function handlePoFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     setPoError("");
-    if (!e.target.files || !e.target.files[0]) return;
-    const file = e.target.files[0];
+    if (!e.target.files) return;
+    const selected = Array.from(e.target.files);
     const MAX_KB = 200;
-    if (file.size > MAX_KB * 1024) {
+    const oversized = selected.filter((f) => f.size > MAX_KB * 1024);
+
+    if (oversized.length > 0) {
+      const names = oversized
+        .map((f) => `"${f.name}" (${(f.size / 1024).toFixed(0)} KB)`)
+        .join(", ");
       setPoError(
-        `Purchase Order file "${file.name}" is ${(file.size / 1024).toFixed(0)} KB. Maximum allowed size is 200 KB. Please compress or resize before attaching.`
+        `PO file size limit exceeded: ${names}. Maximum allowed file size is 200 KB per file. Please compress or resize before attaching.`
       );
       e.target.value = "";
       return;
     }
-    setPoFile(file);
+
+    setPoFiles((prev) => [...prev, ...selected]);
     e.target.value = "";
   }
 
-  function removePoFile() {
-    setPoFile(null);
-    setPoError("");
+  function removePoFile(index: number) {
+    setPoFiles((prev) => prev.filter((_, i) => i !== index));
   }
 
   // Grand Total & Billable vs. IMS Investment Breakdown
@@ -700,8 +705,11 @@ export default function RequisitionForm({
         if (poNumber.trim()) {
           formData.append("poNumber", poNumber.trim());
         }
-        if (poFile) {
-          formData.append("poFile", poFile);
+        poFiles.forEach((file) => {
+          formData.append("poFiles", file);
+        });
+        if (poFiles.length > 0) {
+          formData.append("poFile", poFiles[0]);
         }
         formData.append("forMonth", forMonth);
         formData.append("changeReason", changeReason.trim());
@@ -1160,10 +1168,11 @@ export default function RequisitionForm({
                 placeholder="Client Purchase Order # or Work Order Ref (Optional / Recommended)"
                 className="max-w-md w-full px-2 py-0.5 border border-gray-300 rounded text-xs font-semibold text-gray-900 bg-white focus:border-[#E42528]"
               />
-              {poFile && (
+              {poFiles.length > 0 && (
                 <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 rounded text-[11px] font-bold">
-                  <span>📄 PO Document Attached:</span>
-                  <span className="truncate max-w-[140px]">{poFile.name}</span>
+                  <span>📄 {poFiles.length} PO File{poFiles.length > 1 ? "s" : ""}:</span>
+                  <span className="truncate max-w-[140px]">{poFiles[0].name}</span>
+                  {poFiles.length > 1 && <span>+{poFiles.length - 1}</span>}
                 </span>
               )}
             </div>
@@ -1461,34 +1470,40 @@ export default function RequisitionForm({
 
                   <div>
                     <label className="block text-[11px] font-bold text-blue-900 mb-0.5">
-                      Upload PO Document (PDF / Image)
+                      Upload PO Documents (Multiple allowed)
                     </label>
-                    {!poFile ? (
-                      <input
-                        type="file"
-                        accept=".pdf,.png,.jpg,.jpeg"
-                        onChange={handlePoFileChange}
-                        className="w-full text-xs text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
-                      />
-                    ) : (
-                      <div className="flex items-center justify-between p-1.5 bg-white border border-blue-300 rounded-md text-xs">
-                        <div className="flex items-center space-x-1.5 truncate">
-                          <span className="text-blue-600 font-bold">📄</span>
-                          <span className="font-bold text-blue-950 truncate max-w-[170px]">
-                            {poFile.name}
-                          </span>
-                          <span className="text-[10px] font-mono text-gray-500">
-                            ({(poFile.size / 1024).toFixed(0)} KB)
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={removePoFile}
-                          className="text-red-500 hover:text-red-700 font-bold px-1.5 py-0.5 text-xs cursor-pointer"
-                          title="Remove PO file"
-                        >
-                          ✕ Remove
-                        </button>
+                    <input
+                      type="file"
+                      multiple
+                      accept=".pdf,.png,.jpg,.jpeg"
+                      onChange={handlePoFileChange}
+                      className="w-full text-xs text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-bold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"
+                    />
+
+                    {/* Selected PO files list */}
+                    {poFiles.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-1 mt-1">
+                        {poFiles.map((file, i) => (
+                          <div
+                            key={`${file.name}-${i}`}
+                            className="flex items-center space-x-1.5 px-2 py-0.5 bg-white border border-blue-300 rounded text-xs"
+                          >
+                            <span className="text-blue-600">📄</span>
+                            <span className="font-semibold text-blue-950 max-w-[140px] truncate">
+                              {file.name}
+                            </span>
+                            <span className="text-[10px] font-mono text-gray-500">
+                              ({(file.size / 1024).toFixed(0)} KB)
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => removePoFile(i)}
+                              className="ml-0.5 text-gray-400 hover:text-red-600 font-bold cursor-pointer"
+                            >
+                              &times;
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
