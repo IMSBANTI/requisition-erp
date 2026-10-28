@@ -95,7 +95,7 @@ export default async function RequisitionDetailPage({ params }: Props) {
   const hasDistinctPurpose = (req.items as any[]).some(
     (it) => it.purpose && it.purpose !== it.particulars
   );
-  const showPurposeCol = !isProjectReq || hasDistinctPurpose;
+  const showPurposeCol = isCompanyDivision || hasDistinctPurpose;
 
   // Compute Billable vs IMS Investment & Profit Summary for Project / Event Requisitions
   let billableTotal = 0;

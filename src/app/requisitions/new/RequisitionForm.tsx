@@ -663,7 +663,7 @@ export default function RequisitionForm({
             lastMonthAmount:
               requisitionMode !== "COMPANY" && it.lastMonthAmount ? Number(it.lastMonthAmount) : null,
             particulars: it.particulars || it.costHead,
-            purpose: requisitionMode === "PROJECT" ? (it.purpose || it.particulars) : it.purpose,
+            purpose: requisitionMode !== "COMPANY" ? (it.purpose || it.particulars) : it.purpose,
             qty: parseFloat(it.qty) || 0,
             unitPrice: parseFloat(it.unitPrice) || 0,
           }))
@@ -1126,7 +1126,7 @@ export default function RequisitionForm({
                   </>
                 )}
                 <th className="py-1.5 px-3 border-r border-gray-300">Particulars</th>
-                {requisitionMode !== "PROJECT" && (
+                {requisitionMode === "COMPANY" && (
                   <th className="py-1.5 px-3 border-r border-gray-300 w-40">Purpose</th>
                 )}
                 <th className="py-1.5 px-2 border-r border-gray-300 w-16 text-right">Qty.</th>
@@ -1196,7 +1196,7 @@ export default function RequisitionForm({
                         className="w-full px-1.5 py-0.5 border border-transparent hover:border-gray-300 focus:border-[#E42528] rounded text-xs"
                       />
                     </td>
-                    {requisitionMode !== "PROJECT" && (
+                    {requisitionMode === "COMPANY" && (
                       <td className="py-1 px-2 border-r border-gray-300">
                         <input
                           type="text"
@@ -1249,13 +1249,7 @@ export default function RequisitionForm({
               {/* Total row matching paper layout */}
               <tr className="bg-gray-100 font-bold text-xs border-t-2 border-gray-400">
                 <td
-                  colSpan={
-                    requisitionMode === "PROJECT"
-                      ? 6
-                      : requisitionMode === "EVENT"
-                      ? 7
-                      : 5
-                  }
+                  colSpan={requisitionMode !== "COMPANY" ? 6 : 5}
                   className="py-2 px-4 text-right uppercase tracking-wider border-r border-gray-300"
                 >
                   Total
