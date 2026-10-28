@@ -42,8 +42,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Requisition must contain at least one item" }, { status: 400 });
     }
 
-    // Validate attachment file sizes (Max 200 KB)
-    const MAX_ATTACHMENT_SIZE = 200 * 1024; // 200 KB
+    // Validate attachment file sizes (Max 300 KB)
+    const MAX_ATTACHMENT_SIZE = 300 * 1024; // 300 KB
     const rawPoFiles = formData.getAll("poFiles") as File[];
     const singlePoFile = formData.get("poFile") as File | null;
     const allPoFiles = rawPoFiles.length > 0 ? rawPoFiles : singlePoFile ? [singlePoFile] : [];
@@ -53,7 +53,7 @@ export async function POST(request: Request) {
         const sizeKb = (po.size / 1024).toFixed(0);
         return NextResponse.json(
           {
-            error: `Purchase Order file "${po.name}" is ${sizeKb} KB. Attachments must be 200 KB or smaller. Please resize or compress the file before uploading.`,
+            error: `Purchase Order file "${po.name}" is ${sizeKb} KB. Attachments must be 300 KB or smaller. Please resize or compress the file before uploading.`,
           },
           { status: 400 }
         );
@@ -66,7 +66,7 @@ export async function POST(request: Request) {
         const sizeKb = (file.size / 1024).toFixed(0);
         return NextResponse.json(
           {
-            error: `File "${file.name}" is ${sizeKb} KB. Attachments must be 200 KB or smaller. Please resize or compress the file before uploading.`,
+            error: `File "${file.name}" is ${sizeKb} KB. Attachments must be 300 KB or smaller. Please resize or compress the file before uploading.`,
           },
           { status: 400 }
         );

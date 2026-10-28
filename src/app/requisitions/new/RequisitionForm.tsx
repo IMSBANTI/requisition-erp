@@ -470,7 +470,7 @@ export default function RequisitionForm({
     setAttachmentError("");
     if (!e.target.files) return;
     const selected = Array.from(e.target.files);
-    const MAX_KB = 200;
+    const MAX_KB = 300;
     const oversized = selected.filter((f) => f.size > MAX_KB * 1024);
 
     if (oversized.length > 0) {
@@ -478,7 +478,7 @@ export default function RequisitionForm({
         .map((f) => `"${f.name}" (${(f.size / 1024).toFixed(0)} KB)`)
         .join(", ");
       setAttachmentError(
-        `File size limit exceeded: ${names}. Maximum allowed file size is 200 KB per file. Please compress or resize before attaching.`
+        `File size limit exceeded: ${names}. Maximum allowed file size is 300 KB per file. Please compress or resize before attaching.`
       );
       e.target.value = "";
       return;
@@ -496,7 +496,7 @@ export default function RequisitionForm({
     setPoError("");
     if (!e.target.files) return;
     const selected = Array.from(e.target.files);
-    const MAX_KB = 200;
+    const MAX_KB = 300;
     const oversized = selected.filter((f) => f.size > MAX_KB * 1024);
 
     if (oversized.length > 0) {
@@ -504,7 +504,7 @@ export default function RequisitionForm({
         .map((f) => `"${f.name}" (${(f.size / 1024).toFixed(0)} KB)`)
         .join(", ");
       setPoError(
-        `PO file size limit exceeded: ${names}. Maximum allowed file size is 200 KB per file. Please compress or resize before attaching.`
+        `PO file size limit exceeded: ${names}. Maximum allowed file size is 300 KB per file. Please compress or resize before attaching.`
       );
       e.target.value = "";
       return;
@@ -1450,7 +1450,7 @@ export default function RequisitionForm({
                     </h4>
                   </div>
                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-white text-blue-800 border border-blue-200 shadow-2xs">
-                    Max 200 KB
+                    Max 300 KB
                   </span>
                 </div>
 
@@ -1529,7 +1529,7 @@ export default function RequisitionForm({
                   </h4>
                 </div>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
-                  Max 200 KB per file
+                  Max 300 KB per file
                 </span>
               </div>
 
