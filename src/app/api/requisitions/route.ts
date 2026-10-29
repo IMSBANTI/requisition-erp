@@ -7,6 +7,7 @@ import { generateRequisitionNumber } from "@/lib/reqNumber";
 import { amountInWords } from "@/lib/numberToWords";
 import { grandTotal, formatTaka } from "@/lib/money";
 import { createNotification, notifyUsers, findUsersWithPermission } from "@/lib/notifications";
+import { isR2Configured, uploadToR2 } from "@/lib/r2";
 
 export async function POST(request: Request) {
   try {
@@ -288,17 +289,41 @@ export async function POST(request: Request) {
       },
     });
 
+    const useR2 = isR2Configured();
+
     // Handle Purchase Order (PO) files if uploaded
     for (const poFile of allPoFiles) {
       if (poFile && poFile.size > 0) {
         const poBytes = Buffer.from(await poFile.arrayBuffer());
+        const cleanName = poFile.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const poKey = `requisitions/${requisition.id}/po-${Date.now()}-${cleanName}`;
+        let storageKey: string | null = null;
+        let dataToSave: Uint8Array | null = poBytes;
+
+        if (useR2) {
+          try {
+            await uploadToR2({
+              key: poKey,
+              data: poBytes,
+              mimeType: poFile.type || "application/octet-stream",
+            });
+            storageKey = poKey;
+            dataToSave = null; // Stored in R2, no database bloat!
+          } catch (r2Err) {
+            console.error("Failed to upload PO to R2, falling back to database storage:", r2Err);
+            storageKey = null;
+            dataToSave = poBytes;
+          }
+        }
+
         await prisma.attachment.create({
           data: {
             requisitionId: requisition.id,
             fileName: poFile.name.startsWith("[PO]") ? poFile.name : `[PO] ${poFile.name}`,
             mimeType: poFile.type || "application/octet-stream",
             size: poFile.size,
-            data: poBytes,
+            data: dataToSave ? (dataToSave as any) : null,
+            storageKey,
             isPo: true,
             poNumber: poNumber || null,
             uploadedById: user.id,
@@ -311,13 +336,35 @@ export async function POST(request: Request) {
     for (const file of files) {
       if (file && file.size > 0) {
         const bytes = Buffer.from(await file.arrayBuffer());
+        const cleanName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+        const fileKey = `requisitions/${requisition.id}/att-${Date.now()}-${cleanName}`;
+        let storageKey: string | null = null;
+        let dataToSave: Uint8Array | null = bytes;
+
+        if (useR2) {
+          try {
+            await uploadToR2({
+              key: fileKey,
+              data: bytes,
+              mimeType: file.type || "application/octet-stream",
+            });
+            storageKey = fileKey;
+            dataToSave = null; // Stored in R2, no database bloat!
+          } catch (r2Err) {
+            console.error("Failed to upload attachment to R2, falling back to database storage:", r2Err);
+            storageKey = null;
+            dataToSave = bytes;
+          }
+        }
+
         await prisma.attachment.create({
           data: {
             requisitionId: requisition.id,
             fileName: file.name,
             mimeType: file.type || "application/octet-stream",
             size: file.size,
-            data: bytes,
+            data: dataToSave ? (dataToSave as any) : null,
+            storageKey,
             isPo: false,
             uploadedById: user.id,
           },

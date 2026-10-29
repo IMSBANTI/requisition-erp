@@ -255,7 +255,8 @@ model Attachment {
   fileName      String
   mimeType      String
   size          Int
-  data          Bytes
+  data          Bytes?      // Optional: null when stored in external object storage (e.g. Cloudflare R2)
+  storageKey    String?     // Cloudflare R2 object key (e.g. "requisitions/req123/173000-filename.pdf")
   isManualScan  Boolean     @default(false)
   isPo          Boolean     @default(false) // Tagged as Purchase Order (PO) / Work Order (WO) document
   poNumber      String?     // Associated PO Number
