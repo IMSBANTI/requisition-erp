@@ -43,35 +43,33 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Requisition must contain at least one item" }, { status: 400 });
     }
 
-    // Validate attachment file sizes (Max 300 KB)
+    // Validate attachment file sizes (Max 300 KB total)
     const MAX_ATTACHMENT_SIZE = 300 * 1024; // 300 KB
     const rawPoFiles = formData.getAll("poFiles") as File[];
     const singlePoFile = formData.get("poFile") as File | null;
     const allPoFiles = rawPoFiles.length > 0 ? rawPoFiles : singlePoFile ? [singlePoFile] : [];
 
-    for (const po of allPoFiles) {
-      if (po && po.size > MAX_ATTACHMENT_SIZE) {
-        const sizeKb = (po.size / 1024).toFixed(0);
-        return NextResponse.json(
-          {
-            error: `Purchase Order file "${po.name}" is ${sizeKb} KB. Attachments must be 300 KB or smaller. Please resize or compress the file before uploading.`,
-          },
-          { status: 400 }
-        );
-      }
+    const totalPoSize = allPoFiles.reduce((sum, po) => sum + (po?.size || 0), 0);
+    if (totalPoSize > MAX_ATTACHMENT_SIZE) {
+      const sizeKb = (totalPoSize / 1024).toFixed(0);
+      return NextResponse.json(
+        {
+          error: `Total Purchase Order files size is ${sizeKb} KB. Total PO files must be 300 KB or smaller. Please resize or compress before uploading.`,
+        },
+        { status: 400 }
+      );
     }
 
     const files = formData.getAll("files") as File[];
-    for (const file of files) {
-      if (file && file.size > MAX_ATTACHMENT_SIZE) {
-        const sizeKb = (file.size / 1024).toFixed(0);
-        return NextResponse.json(
-          {
-            error: `File "${file.name}" is ${sizeKb} KB. Attachments must be 300 KB or smaller. Please resize or compress the file before uploading.`,
-          },
-          { status: 400 }
-        );
-      }
+    const totalFileSize = files.reduce((sum, file) => sum + (file?.size || 0), 0);
+    if (totalFileSize > MAX_ATTACHMENT_SIZE) {
+      const sizeKb = (totalFileSize / 1024).toFixed(0);
+      return NextResponse.json(
+        {
+          error: `Total attachments size is ${sizeKb} KB. Total attachments must be 300 KB or smaller. Please resize or compress before uploading.`,
+        },
+        { status: 400 }
+      );
     }
 
     // Verify PIN or password

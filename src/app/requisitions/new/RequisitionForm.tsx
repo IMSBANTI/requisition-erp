@@ -471,14 +471,15 @@ export default function RequisitionForm({
     if (!e.target.files) return;
     const selected = Array.from(e.target.files);
     const MAX_KB = 300;
-    const oversized = selected.filter((f) => f.size > MAX_KB * 1024);
+    const MAX_BYTES = MAX_KB * 1024;
 
-    if (oversized.length > 0) {
-      const names = oversized
-        .map((f) => `"${f.name}" (${(f.size / 1024).toFixed(0)} KB)`)
-        .join(", ");
+    const currentTotal = attachments.reduce((sum, f) => sum + f.size, 0);
+    const addedTotal = selected.reduce((sum, f) => sum + f.size, 0);
+    const newTotal = currentTotal + addedTotal;
+
+    if (newTotal > MAX_BYTES) {
       setAttachmentError(
-        `File size limit exceeded: ${names}. Maximum allowed file size is 300 KB per file. Please compress or resize before attaching.`
+        `Total attachments size exceeds 300 KB (${(newTotal / 1024).toFixed(0)} KB total). Maximum allowed total size is 300 KB. Please compress or resize files before attaching.`
       );
       e.target.value = "";
       return;
@@ -497,14 +498,15 @@ export default function RequisitionForm({
     if (!e.target.files) return;
     const selected = Array.from(e.target.files);
     const MAX_KB = 300;
-    const oversized = selected.filter((f) => f.size > MAX_KB * 1024);
+    const MAX_BYTES = MAX_KB * 1024;
 
-    if (oversized.length > 0) {
-      const names = oversized
-        .map((f) => `"${f.name}" (${(f.size / 1024).toFixed(0)} KB)`)
-        .join(", ");
+    const currentTotal = poFiles.reduce((sum, f) => sum + f.size, 0);
+    const addedTotal = selected.reduce((sum, f) => sum + f.size, 0);
+    const newTotal = currentTotal + addedTotal;
+
+    if (newTotal > MAX_BYTES) {
       setPoError(
-        `PO file size limit exceeded: ${names}. Maximum allowed file size is 300 KB per file. Please compress or resize before attaching.`
+        `Total PO documents size exceeds 300 KB (${(newTotal / 1024).toFixed(0)} KB total). Maximum allowed total size is 300 KB. Please compress or resize files before attaching.`
       );
       e.target.value = "";
       return;
@@ -1482,28 +1484,36 @@ export default function RequisitionForm({
 
                     {/* Selected PO files list */}
                     {poFiles.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-1 mt-1">
-                        {poFiles.map((file, i) => (
-                          <div
-                            key={`${file.name}-${i}`}
-                            className="flex items-center space-x-1.5 px-2 py-0.5 bg-white border border-blue-300 rounded text-xs"
-                          >
-                            <span className="text-blue-600">📄</span>
-                            <span className="font-semibold text-blue-950 max-w-[140px] truncate">
-                              {file.name}
-                            </span>
-                            <span className="text-[10px] font-mono text-gray-500">
-                              ({(file.size / 1024).toFixed(0)} KB)
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => removePoFile(i)}
-                              className="ml-0.5 text-gray-400 hover:text-red-600 font-bold cursor-pointer"
+                      <div className="pt-1 mt-1">
+                        <div className="text-[10px] font-bold text-blue-900 mb-1 flex items-center justify-between">
+                          <span>Attached POs ({poFiles.length})</span>
+                          <span className="font-mono">
+                            {(poFiles.reduce((s, f) => s + f.size, 0) / 1024).toFixed(0)} KB / 300 KB
+                          </span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                          {poFiles.map((file, i) => (
+                            <div
+                              key={`${file.name}-${i}`}
+                              className="flex items-center space-x-1.5 px-2 py-0.5 bg-white border border-blue-300 rounded text-xs"
                             >
-                              &times;
-                            </button>
-                          </div>
-                        ))}
+                              <span className="text-blue-600">📄</span>
+                              <span className="font-semibold text-blue-950 max-w-[140px] truncate">
+                                {file.name}
+                              </span>
+                              <span className="text-[10px] font-mono text-gray-500">
+                                ({(file.size / 1024).toFixed(0)} KB)
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => removePoFile(i)}
+                                className="ml-0.5 text-gray-400 hover:text-red-600 font-bold cursor-pointer"
+                              >
+                                &times;
+                              </button>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -1529,7 +1539,7 @@ export default function RequisitionForm({
                   </h4>
                 </div>
                 <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 shadow-2xs">
-                  Max 300 KB per file
+                  Max 300 KB
                 </span>
               </div>
 
@@ -1577,28 +1587,36 @@ export default function RequisitionForm({
 
                 {/* List of currently selected attachments */}
                 {attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pt-1">
-                    {attachments.map((file, i) => (
-                      <div
-                        key={`${file.name}-${i}`}
-                        className="flex items-center space-x-1.5 px-2 py-0.5 bg-white border border-gray-200 rounded text-xs"
-                      >
-                        <span className="text-gray-400">📎</span>
-                        <span className="font-semibold text-gray-800 max-w-[140px] truncate">
-                          {file.name}
-                        </span>
-                        <span className="text-[10px] font-mono text-gray-500">
-                          ({(file.size / 1024).toFixed(0)} KB)
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => removeAttachment(i)}
-                          className="ml-0.5 text-gray-400 hover:text-red-600 font-bold cursor-pointer"
+                  <div className="pt-1">
+                    <div className="text-[10px] font-bold text-gray-700 mb-1 flex items-center justify-between">
+                      <span>Attached Files ({attachments.length})</span>
+                      <span className="font-mono">
+                        {(attachments.reduce((s, f) => s + f.size, 0) / 1024).toFixed(0)} KB / 300 KB
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto">
+                      {attachments.map((file, i) => (
+                        <div
+                          key={`${file.name}-${i}`}
+                          className="flex items-center space-x-1.5 px-2 py-0.5 bg-white border border-gray-200 rounded text-xs"
                         >
-                          &times;
-                        </button>
-                      </div>
-                    ))}
+                          <span className="text-gray-400">📎</span>
+                          <span className="font-semibold text-gray-800 max-w-[140px] truncate">
+                            {file.name}
+                          </span>
+                          <span className="text-[10px] font-mono text-gray-500">
+                            ({(file.size / 1024).toFixed(0)} KB)
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => removeAttachment(i)}
+                            className="ml-0.5 text-gray-400 hover:text-red-600 font-bold cursor-pointer"
+                          >
+                            &times;
+                          </button>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
