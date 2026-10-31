@@ -371,45 +371,52 @@ export default function ProfileClient({ user }: ProfileClientProps) {
 
       {/* Bottom Row: Signature Setup Card */}
       <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-          <div>
-            <h2 className="text-sm font-bold text-gray-900 flex items-center space-x-1.5">
-              <span>✍️</span>
-              <span>Digital Signature</span>
-            </h2>
-            <p className="text-xs text-gray-500 mt-0.5">
-              This digital signature will be embedded onto approved and executed vouchers.
-            </p>
+        <div className="mb-4">
+          <h2 className="text-sm font-bold text-gray-900 flex items-center space-x-1.5">
+            <span>✍️</span>
+            <span>Digital Signature</span>
+          </h2>
+          <p className="text-xs text-gray-500 mt-0.5">
+            This digital signature will be embedded onto approved and executed vouchers.
+          </p>
+          {sigMsg && (
+            <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
+              {sigMsg}
+            </div>
+          )}
+        </div>
 
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+          {/* Current Signature & Upload */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-700 mb-1">
+              Current Signature on Record:
+            </label>
             {signature ? (
-              <div className="mt-4 p-3 bg-gray-50 border border-gray-200 rounded-lg flex flex-col items-center">
-                <p className="text-[11px] font-semibold text-gray-600 mb-1">Current Signature on Record:</p>
-                <div className="bg-white p-2 border border-gray-300 rounded shadow-inner max-w-full">
-                  <img src={signature} alt="User Signature" className="h-16 w-auto object-contain mx-auto" />
+              <div className="h-32 p-3 bg-gray-50 border border-gray-300 rounded-lg shadow-inner flex items-center justify-center">
+                <div className="bg-white px-4 py-2 border border-gray-200 rounded shadow-2xs max-w-full">
+                  <img
+                    src={signature}
+                    alt="User Signature"
+                    className="h-20 w-auto object-contain mx-auto"
+                  />
                 </div>
               </div>
             ) : (
-              <div className="mt-4 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+              <div className="h-32 p-3 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800 flex items-center justify-center text-center">
                 ⚠️ You do not have a digital signature saved yet. Please draw or upload one.
               </div>
             )}
 
-            {sigMsg && (
-              <div className="mt-3 p-2 bg-blue-50 border border-blue-200 rounded text-xs text-blue-800">
-                {sigMsg}
-              </div>
-            )}
-
-            {/* Or Upload Image */}
-            <div className="mt-4 pt-4 border-t border-gray-200">
-              <label className="block text-xs font-semibold text-gray-700 mb-1">
+            <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2">
+              <label className="text-xs font-semibold text-gray-700">
                 Upload Scanned Signature (PNG/JPG):
               </label>
               <input
                 type="file"
                 accept="image/png, image/jpeg"
                 onChange={handleFileUpload}
-                className="text-xs text-gray-600 file:mr-2 file:py-1 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer"
+                className="text-xs text-gray-600 file:mr-2 file:py-1.5 file:px-2.5 file:rounded file:border-0 file:text-xs file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200 cursor-pointer"
               />
             </div>
           </div>
@@ -419,19 +426,19 @@ export default function ProfileClient({ user }: ProfileClientProps) {
             <label className="block text-xs font-semibold text-gray-700 mb-1">
               Or Draw New Signature:
             </label>
-            <div className="border border-gray-300 rounded-lg bg-white overflow-hidden shadow-inner">
+            <div className="h-32 border border-gray-300 rounded-lg bg-white overflow-hidden shadow-inner">
               <canvas
                 ref={canvasRef}
                 width={380}
-                height={140}
-                className="w-full h-32 touch-none cursor-crosshair"
+                height={128}
+                className="w-full h-full touch-none cursor-crosshair"
               />
             </div>
-            <div className="mt-2 flex items-center justify-between">
+            <div className="mt-2.5 flex items-center justify-between">
               <button
                 type="button"
                 onClick={handleClear}
-                className="text-xs text-gray-600 hover:text-gray-900 font-medium px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 cursor-pointer"
+                className="text-xs text-gray-600 hover:text-gray-900 font-medium px-2.5 py-1.5 rounded bg-gray-100 hover:bg-gray-200 cursor-pointer"
               >
                 Clear Pad
               </button>
