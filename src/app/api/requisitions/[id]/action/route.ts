@@ -41,7 +41,7 @@ export async function POST(
     if (!authenticated) {
       authenticated = await verifySecret(cleanPin, user.passwordHash);
     }
-    if (!authenticated) {
+    if (!authenticated && user.mustChangePassword) {
       authenticated =
         cleanPin.toLowerCase() === user.email.toLowerCase() ||
         cleanPin === "Ims@12345" ||

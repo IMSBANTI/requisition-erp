@@ -185,8 +185,8 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
           href="/profile"
           className="flex items-center text-xs font-medium text-gray-700 hover:text-[#E42528]"
         >
-          <span className="mr-1.5 text-sm">⚙️</span>
-          Signature & PIN
+          <span className="mr-1.5 text-sm">🔑</span>
+          Password &amp; Profile
         </Link>
         <button
           type="button"

@@ -15,6 +15,7 @@ export default async function ProfilePage() {
       designation: true,
       signature: true,
       pinHash: true,
+      mustChangePassword: true,
       company: { select: { name: true, code: true } },
       role: { select: { name: true } },
     },
@@ -24,13 +25,13 @@ export default async function ProfilePage() {
 
   return (
     <AppShell>
-      <div className="p-6 max-w-4xl mx-auto w-full">
+      <div className="p-6 max-w-5xl mx-auto w-full">
         <div className="pb-4 border-b border-gray-200">
           <h1 className="text-xl font-bold text-gray-900 tracking-tight">
-            My Profile & Signature Setup
+            My Profile, Password & Signature Setup
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            Manage your digital signature and 4-digit PIN for signing requisitions.
+            Manage your account login password, 4-digit approval PIN, and digital signature.
           </p>
         </div>
 
@@ -42,6 +43,7 @@ export default async function ProfilePage() {
             designation: fullUser.designation,
             signature: fullUser.signature,
             hasPin: !!fullUser.pinHash,
+            mustChangePassword: fullUser.mustChangePassword,
             companyName: fullUser.company?.name,
             roleName: fullUser.role.name,
           }}

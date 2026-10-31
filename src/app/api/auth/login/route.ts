@@ -46,10 +46,11 @@ export async function POST(request: Request) {
 
     const matchesHash = await verifySecret(cleanPass, user.passwordHash);
     const matchesEmail =
-      cleanPassLower === user.email.toLowerCase() ||
-      cleanPassLower === rawIdentifier ||
-      (user.email.includes("officestuff@ims.net.bd") && cleanPassLower === "officestuff@ims.net.bd");
-    const matchesDefault = cleanPass === "Ims@12345";
+      user.mustChangePassword &&
+      (cleanPassLower === user.email.toLowerCase() ||
+        cleanPassLower === rawIdentifier ||
+        (user.email.includes("officestuff@ims.net.bd") && cleanPassLower === "officestuff@ims.net.bd"));
+    const matchesDefault = user.mustChangePassword && cleanPass === "Ims@12345";
 
     if (!matchesHash && !matchesEmail && !matchesDefault) {
       return NextResponse.json({ error: "Invalid password" }, { status: 401 });
