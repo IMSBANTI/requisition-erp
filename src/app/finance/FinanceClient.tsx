@@ -1397,49 +1397,38 @@ export default function FinanceClient({
             </button>
           </div>
 
-          {/* 1B. View Mode Switcher */}
-          <div className="inline-flex flex-wrap bg-slate-100 p-1 rounded-xl border border-slate-200 gap-1">
-            <button
-              type="button"
-              onClick={() => setViewMode("SINGLE")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                viewMode === "SINGLE"
-                  ? "bg-blue-700 text-white shadow-sm"
-                  : "text-gray-700 hover:text-gray-900"
-              }`}
+          {/* 1B. Compact View Mode Dropdown */}
+          <div className="flex items-center gap-2 shrink-0">
+            <label className="text-xs font-bold text-gray-700 whitespace-nowrap">
+              View:
+            </label>
+            <select
+              value={viewMode}
+              onChange={(e) =>
+                setViewMode(
+                  e.target.value as "SINGLE" | "SUMMARY_MATRIX" | "AGEING"
+                )
+              }
+              className="h-9 rounded-lg border-2 border-blue-600 bg-blue-50/60 px-3 text-xs font-bold text-blue-950 shadow-sm focus:border-blue-700 focus:outline-none cursor-pointer"
             >
-              🔍 Single{" "}
-              {activeType === "PERMANENT"
-                ? "Project"
-                : activeType === "EVENT"
-                ? "Event"
-                : "Division"}{" "}
-              View
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("SUMMARY_MATRIX")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                viewMode === "SUMMARY_MATRIX"
-                  ? "bg-blue-700 text-white shadow-sm"
-                  : "text-gray-700 hover:text-gray-900"
-              }`}
-            >
-              📊 Management Summary (12M & Group P&L)
-            </button>
-            {activeType !== "COMPANY" && (
-              <button
-                type="button"
-                onClick={() => setViewMode("AGEING")}
-                className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                  viewMode === "AGEING"
-                    ? "bg-blue-700 text-white shadow-sm"
-                    : "text-gray-700 hover:text-gray-900"
-                }`}
-              >
-                ⏰ Receivables & Overdue Ageing
-              </button>
-            )}
+              <option value="SINGLE">
+                🔍 Single{" "}
+                {activeType === "PERMANENT"
+                  ? "Project"
+                  : activeType === "EVENT"
+                  ? "Event"
+                  : "Division"}{" "}
+                View
+              </option>
+              <option value="SUMMARY_MATRIX">
+                📊 Management Summary (12M &amp; Group P&amp;L)
+              </option>
+              {activeType !== "COMPANY" && (
+                <option value="AGEING">
+                  ⏰ Receivables &amp; Overdue Ageing
+                </option>
+              )}
+            </select>
           </div>
         </div>
 
