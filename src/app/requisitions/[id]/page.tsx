@@ -6,7 +6,6 @@ import { requisitionScope } from "@/lib/rbac";
 import { allowedActions } from "@/lib/workflow";
 import { formatTaka } from "@/lib/money";
 import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
-import { calculateProfitSummary, getDefaultProjectTermsByCode } from "@/lib/profitEngine";
 import AppShell from "@/components/AppShell";
 import RequisitionActionPanel from "./RequisitionActionPanel";
 
@@ -96,54 +95,6 @@ export default async function RequisitionDetailPage({ params }: Props) {
     (it) => it.purpose && it.purpose !== it.particulars
   );
   const showPurposeCol = isCompanyDivision || hasDistinctPurpose;
-
-  // Compute Billable vs IMS Investment & Profit Summary for Project / Event Requisitions
-  let billableTotal = 0;
-  let imsInvestmentTotal = 0;
-  for (const it of req.items as any[]) {
-    if (it.costTag === "IMS_INVESTMENT") {
-      imsInvestmentTotal += Number(it.amount || 0);
-    } else {
-      billableTotal += Number(it.amount || 0);
-    }
-  }
-
-  const projAny = req.project as any;
-  const fallbackTerms = getDefaultProjectTermsByCode(req.project.code, req.project.kind);
-  const effectiveFixedBill =
-    projAny.fixedMonthlyBill && Number(projAny.fixedMonthlyBill) > 0
-      ? Number(projAny.fixedMonthlyBill)
-      : (projAny.billingProfile || fallbackTerms.billingProfile) === "FIXED_QUOTE" &&
-        req.project.budget
-      ? Number(req.project.budget)
-      : Number(fallbackTerms.fixedMonthlyBill || 0);
-
-  const profitSummary = !isCompanyDivision
-    ? calculateProfitSummary({
-        terms: {
-          billingProfile: projAny.billingProfile || fallbackTerms.billingProfile,
-          feeRate:
-            projAny.feeRate !== undefined && projAny.feeRate !== null
-              ? Number(projAny.feeRate)
-              : Number(fallbackTerms.feeRate),
-          aitRate:
-            projAny.aitRate !== undefined && projAny.aitRate !== null
-              ? Number(projAny.aitRate)
-              : Number(fallbackTerms.aitRate),
-          vatRate:
-            projAny.vatRate !== undefined && projAny.vatRate !== null
-              ? Number(projAny.vatRate)
-              : Number(fallbackTerms.vatRate ?? 0.15),
-          fixedMonthlyBill: effectiveFixedBill,
-          maintenanceBudget: projAny.maintenanceBudget ? Number(projAny.maintenanceBudget) : 0,
-          monthlyAmortization: projAny.monthlyAmortization
-            ? Number(projAny.monthlyAmortization)
-            : 0,
-        },
-        billableCost: billableTotal,
-        imsInvestment: imsInvestmentTotal,
-      })
-    : null;
 
   const reqAny = req as any;
   const poAttachments = (req.attachments || []).filter(
@@ -325,115 +276,10 @@ export default async function RequisitionDetailPage({ params }: Props) {
           }))}
         />
 
-        {/* Project / Event Financial & Profit Analysis Card for Approvers & Management */}
-        {!isCompanyDivision && profitSummary && (
-          <div className="mt-4 bg-white p-4 rounded-xl border border-gray-200 shadow-xs space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-gray-100">
-              <div>
-                <h3 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                  {isEventReq
-                    ? `🎪 Event Billing & Profit Analysis — ${req.project.name}`
-                    : `📊 Project Billing & Profit Analysis — ${req.project.name}${
-                        reqAny.forMonth ? ` (${reqAny.forMonth})` : ""
-                      }`}
-                </h3>
-                <p className="text-[11px] text-gray-500">
-                  Billing Profile: <strong>{profitSummary.billingProfile}</strong> &bull; Fee:{" "}
-                  <strong>{profitSummary.feeRatePct}%</strong> &bull; AIT:{" "}
-                  <strong>{profitSummary.aitRatePct}%</strong> &bull; VAT:{" "}
-                  <strong>{profitSummary.vatRatePct}%</strong>
-                </p>
-              </div>
-              {reqAny.variancePct !== null && reqAny.variancePct !== undefined && (
-                <span
-                  className={`px-2.5 py-0.5 rounded text-xs font-bold border ${
-                    Math.abs(Number(reqAny.variancePct)) > 10
-                      ? "bg-red-50 text-red-700 border-red-200"
-                      : "bg-emerald-50 text-emerald-800 border-emerald-200"
-                  }`}
-                >
-                  {isEventReq ? "vs. Budget: " : "vs. Last Month: "}
-                  {Number(reqAny.variancePct) > 0 ? "+" : ""}
-                  {Number(reqAny.variancePct).toFixed(1)}%
-                </span>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-xs">
-              <div className="p-2 rounded bg-green-50 border border-green-200">
-                <span className="text-[10px] text-green-800 font-semibold uppercase block">
-                  Billable Cost
-                </span>
-                <span className="font-mono font-bold text-gray-900">
-                  Tk {formatTaka(billableTotal)}
-                </span>
-              </div>
-              <div className="p-2 rounded bg-amber-50 border border-amber-200">
-                <span className="text-[10px] text-amber-800 font-semibold uppercase block">
-                  IMS Investment
-                </span>
-                <span className="font-mono font-bold text-gray-900">
-                  Tk {formatTaka(imsInvestmentTotal)}
-                </span>
-              </div>
-              <div className="p-2 rounded bg-blue-50 border border-blue-200">
-                <span className="text-[10px] text-blue-800 font-semibold uppercase block">
-                  Bill (Ex-VAT)
-                </span>
-                <span className="font-mono font-bold text-gray-900">
-                  Tk {formatTaka(profitSummary.billExVat)}
-                </span>
-              </div>
-              <div className="p-2 rounded bg-gray-50 border border-gray-200">
-                <span className="text-[10px] text-gray-500 font-semibold uppercase block">
-                  VAT ({profitSummary.vatRatePct}%)
-                </span>
-                <span className="font-mono font-semibold text-gray-800">
-                  Tk {formatTaka(profitSummary.vatAmount)}
-                </span>
-              </div>
-              <div className="p-2 rounded bg-indigo-50 border border-indigo-200">
-                <span className="text-[10px] text-indigo-800 font-semibold uppercase block">
-                  Bill With VAT
-                </span>
-                <span className="font-mono font-bold text-indigo-900">
-                  Tk {formatTaka(profitSummary.billWithVat)}
-                </span>
-              </div>
-              <div className="p-2 rounded bg-gray-50 border border-gray-200">
-                <span className="text-[10px] text-gray-500 font-semibold uppercase block">
-                  Expected Inflow (-AIT)
-                </span>
-                <span className="font-mono font-bold text-gray-900">
-                  Tk {formatTaka(profitSummary.expectedInflow)}
-                </span>
-              </div>
-              <div
-                className={`p-2 rounded border ${
-                  profitSummary.netProfit >= 0
-                    ? "bg-emerald-50 border-emerald-300"
-                    : "bg-red-50 border-red-300"
-                }`}
-              >
-                <span className="text-[10px] text-gray-700 font-bold uppercase block">
-                  Projected Net Profit
-                </span>
-                <span
-                  className={`font-mono font-extrabold ${
-                    profitSummary.netProfit >= 0 ? "text-emerald-800" : "text-red-700"
-                  }`}
-                >
-                  Tk {formatTaka(profitSummary.netProfit)} ({profitSummary.netMarginPct}%)
-                </span>
-              </div>
-            </div>
-
-            {reqAny.changeReason && (
-              <div className="p-2.5 bg-amber-50/70 border border-amber-200 rounded text-xs text-gray-800">
-                <strong className="text-amber-900">Variance / Budget Justification: </strong>
-                <span>{reqAny.changeReason}</span>
-              </div>
-            )}
+        {reqAny.changeReason && (
+          <div className="mt-4 p-3 bg-amber-50/70 border border-amber-200 rounded-xl text-xs text-gray-800">
+            <strong className="text-amber-900">Variance / Budget Justification: </strong>
+            <span>{reqAny.changeReason}</span>
           </div>
         )}
 
