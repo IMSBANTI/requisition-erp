@@ -186,69 +186,6 @@ export default async function RequisitionDetailPage({ params }: Props) {
           </div>
         </div>
 
-        {/* High-Visibility Purchase Order (PO) Banner at Top for Director & Accounts */}
-        {hasPo && (
-          <div className="mt-4 bg-gradient-to-r from-blue-50 via-blue-50/80 to-indigo-50/60 p-4 rounded-xl border-2 border-blue-400 shadow-sm">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="flex items-start sm:items-center space-x-2.5">
-                <span className="text-2xl leading-none">📄</span>
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-extrabold uppercase tracking-wider">
-                      PO Attached
-                    </span>
-                    <h3 className="text-xs font-extrabold text-blue-950 uppercase tracking-wide">
-                      Client Purchase Order (PO) / Work Order
-                    </h3>
-                    {reqAny.poNumber && (
-                      <span className="font-mono px-2 py-0.5 rounded bg-white text-blue-900 border border-blue-300 text-xs font-bold">
-                        Ref: {reqAny.poNumber}
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-blue-800 mt-0.5">
-                    Client PO is attached to this requisition. Director and Accounts can view or download the PO below:
-                  </p>
-                </div>
-              </div>
-
-              {poAttachments.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  {poAttachments.map((att: any) => (
-                    <div
-                      key={att.id}
-                      className="inline-flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-blue-300 shadow-2xs"
-                    >
-                      <span className="text-xs font-bold text-blue-950 truncate max-w-[160px]" title={att.fileName}>
-                        {att.fileName}
-                      </span>
-                      <span className="text-[10px] text-gray-500 font-mono whitespace-nowrap shrink-0">
-                        ({Math.max(1, Math.round(att.size / 1024))} KB)
-                      </span>
-                      <a
-                        href={`/api/attachments/${att.id}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="px-2.5 py-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 text-[11px] font-bold transition-colors inline-flex items-center gap-1 whitespace-nowrap shrink-0"
-                      >
-                        <span>👁️</span>
-                        <span>View PO</span>
-                      </a>
-                      <a
-                        href={`/api/attachments/${att.id}?download=1`}
-                        className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition-colors inline-flex items-center gap-1 whitespace-nowrap shrink-0"
-                      >
-                        <span>⬇️</span>
-                        <span>Download</span>
-                      </a>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
         {/* Action Panel if user can act */}
         <RequisitionActionPanel
           requisitionId={req.id}
