@@ -146,6 +146,13 @@ export default async function RequisitionDetailPage({ params }: Props) {
     : null;
 
   const reqAny = req as any;
+  const poAttachments = (req.attachments || []).filter(
+    (a: any) => a.isPo || a.fileName.startsWith("[PO]")
+  );
+  const otherAttachments = (req.attachments || []).filter(
+    (a: any) => !a.isPo && !a.fileName.startsWith("[PO]")
+  );
+  const hasPo = Boolean(reqAny.poNumber || poAttachments.length > 0);
   const canDelete =
     (req.makerId === user.id && req.status !== "EXECUTED") ||
     user.permissions.includes("admin.users") ||
@@ -159,7 +166,7 @@ export default async function RequisitionDetailPage({ params }: Props) {
         {/* Top Header */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-gray-200 gap-4">
           <div>
-            <div className="flex items-center space-x-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Link href="/requisitions" className="text-xs text-gray-500 hover:text-gray-800">
                 &larr; Requisitions
               </Link>
@@ -175,6 +182,11 @@ export default async function RequisitionDetailPage({ params }: Props) {
               }`}>
                 {req.paymentMode === "CHEQUE" ? "📝 CHEQUE" : "💵 CASH"}
               </span>
+              {hasPo && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-600 text-white shadow-2xs flex items-center gap-1">
+                  <span>📄 PO ATTACHED{reqAny.poNumber ? `: ${reqAny.poNumber}` : ""}</span>
+                </span>
+              )}
             </div>
             <p className="text-xs text-gray-500 mt-1">
               {isCompanyDivision ? (
@@ -222,6 +234,69 @@ export default async function RequisitionDetailPage({ params }: Props) {
             </Link>
           </div>
         </div>
+
+        {/* High-Visibility Purchase Order (PO) Banner at Top for Director & Accounts */}
+        {hasPo && (
+          <div className="mt-4 bg-gradient-to-r from-blue-50 via-blue-50/80 to-indigo-50/60 p-4 rounded-xl border-2 border-blue-400 shadow-sm">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="flex items-start sm:items-center space-x-2.5">
+                <span className="text-2xl leading-none">📄</span>
+                <div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="px-2 py-0.5 rounded bg-blue-600 text-white text-[10px] font-extrabold uppercase tracking-wider">
+                      PO Attached
+                    </span>
+                    <h3 className="text-xs font-extrabold text-blue-950 uppercase tracking-wide">
+                      Client Purchase Order (PO) / Work Order
+                    </h3>
+                    {reqAny.poNumber && (
+                      <span className="font-mono px-2 py-0.5 rounded bg-white text-blue-900 border border-blue-300 text-xs font-bold">
+                        Ref: {reqAny.poNumber}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-blue-800 mt-0.5">
+                    Client PO is attached to this requisition. Director and Accounts can view or download the PO below:
+                  </p>
+                </div>
+              </div>
+
+              {poAttachments.length > 0 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {poAttachments.map((att: any) => (
+                    <div
+                      key={att.id}
+                      className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-blue-300 shadow-2xs"
+                    >
+                      <span className="text-xs font-bold text-blue-950 truncate max-w-[160px]" title={att.fileName}>
+                        {att.fileName}
+                      </span>
+                      <span className="text-[10px] text-gray-500 font-mono mr-1">
+                        ({Math.max(1, Math.round(att.size / 1024))} KB)
+                      </span>
+                      <a
+                        href={`/api/attachments/${att.id}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2 py-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 text-[11px] font-bold transition-colors flex items-center gap-1"
+                      >
+                        <span>👁️</span>
+                        <span>View PO</span>
+                      </a>
+                      <a
+                        href={`/api/attachments/${att.id}?download=1`}
+                        className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition-colors flex items-center gap-1"
+                      >
+                        <span>⬇️</span>
+                        <span>Download</span>
+                      </a>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Action Panel if user can act */}
         <RequisitionActionPanel
@@ -692,7 +767,7 @@ export default async function RequisitionDetailPage({ params }: Props) {
         </div>
 
         {/* Purchase Order (PO) Section */}
-        {((req as any).poNumber || (req.attachments || []).some((a: any) => a.isPo || a.fileName.startsWith("[PO]"))) && (
+        {hasPo && (
           <div className="mt-6 bg-gradient-to-r from-blue-50/70 to-indigo-50/50 p-4 rounded-xl border border-blue-200 shadow-sm space-y-2.5">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center space-x-2">
@@ -700,9 +775,9 @@ export default async function RequisitionDetailPage({ params }: Props) {
                 <div>
                   <h3 className="text-xs font-extrabold text-blue-950 uppercase tracking-wider flex items-center gap-2">
                     <span>Client Purchase Order (PO) / Work Order</span>
-                    {(req as any).poNumber && (
+                    {reqAny.poNumber && (
                       <span className="font-mono px-2 py-0.5 rounded bg-blue-600 text-white text-[11px] font-bold">
-                        {(req as any).poNumber}
+                        {reqAny.poNumber}
                       </span>
                     )}
                   </h3>
@@ -713,52 +788,76 @@ export default async function RequisitionDetailPage({ params }: Props) {
               </div>
             </div>
 
-            {req.attachments.filter((a: any) => a.isPo || a.fileName.startsWith("[PO]")).length > 0 ? (
+            {poAttachments.length > 0 ? (
               <div className="flex flex-wrap gap-2 pt-2 border-t border-blue-200/60">
-                {req.attachments
-                  .filter((a: any) => a.isPo || a.fileName.startsWith("[PO]"))
-                  .map((att: any) => (
+                {poAttachments.map((att: any) => (
+                  <div
+                    key={att.id}
+                    className="px-3 py-1.5 rounded-lg border border-blue-300 bg-white text-xs font-bold text-blue-900 flex items-center space-x-2 shadow-2xs"
+                  >
+                    <span>📄</span>
+                    <span className="truncate max-w-[200px]">{att.fileName}</span>
+                    <span className="text-[10px] text-blue-500 font-mono">
+                      ({Math.max(1, Math.round(att.size / 1024))} KB)
+                    </span>
                     <a
-                      key={att.id}
                       href={`/api/attachments/${att.id}`}
                       target="_blank"
-                      className="px-3 py-1.5 rounded-lg border border-blue-300 bg-white hover:bg-blue-50 text-xs font-bold text-blue-900 flex items-center space-x-2 shadow-2xs transition-colors"
+                      rel="noreferrer"
+                      className="px-2 py-0.5 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 text-[11px] font-bold transition-colors"
                     >
-                      <span>📥</span>
-                      <span className="truncate max-w-[220px]">{att.fileName}</span>
-                      <span className="text-[10px] text-blue-500 font-mono">({Math.round(att.size / 1024)} KB)</span>
+                      👁️ View
                     </a>
-                  ))}
+                    <a
+                      href={`/api/attachments/${att.id}?download=1`}
+                      className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition-colors"
+                    >
+                      ⬇️ Download
+                    </a>
+                  </div>
+                ))}
               </div>
             ) : (
               <p className="text-[11px] text-gray-500 italic pt-1">
-                PO Reference recorded: {(req as any).poNumber} (no digital file attached).
+                PO Reference recorded: {reqAny.poNumber} (no digital file attached).
               </p>
             )}
           </div>
         )}
 
         {/* Other Attachments Section */}
-        {req.attachments.filter((a: any) => !a.isPo && !a.fileName.startsWith("[PO]")).length > 0 && (
+        {otherAttachments.length > 0 && (
           <div className="mt-4 bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
             <h3 className="text-xs font-bold text-gray-800 uppercase tracking-wider mb-2">
-              Attached Quotations & Invoices ({req.attachments.filter((a: any) => !a.isPo && !a.fileName.startsWith("[PO]")).length})
+              Attached Quotations & Invoices ({otherAttachments.length})
             </h3>
             <div className="flex flex-wrap gap-2">
-              {req.attachments
-                .filter((a: any) => !a.isPo && !a.fileName.startsWith("[PO]"))
-                .map((att) => (
+              {otherAttachments.map((att) => (
+                <div
+                  key={att.id}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 bg-gray-50 text-xs font-medium text-gray-800 flex items-center space-x-2"
+                >
+                  <span>📎</span>
+                  <span className="truncate max-w-[200px]">{att.fileName}</span>
+                  <span className="text-[10px] text-gray-400">
+                    ({Math.max(1, Math.round(att.size / 1024))} KB)
+                  </span>
                   <a
-                    key={att.id}
                     href={`/api/attachments/${att.id}`}
                     target="_blank"
-                    className="px-3 py-1.5 rounded-lg border border-gray-200 bg-gray-50 hover:bg-gray-100 text-xs font-medium text-gray-800 flex items-center space-x-1.5 transition-colors"
+                    rel="noreferrer"
+                    className="px-2 py-0.5 rounded bg-gray-200 hover:bg-gray-300 text-gray-800 text-[11px] font-semibold transition-colors"
                   >
-                    <span>📎</span>
-                    <span className="truncate max-w-[200px]">{att.fileName}</span>
-                    <span className="text-[10px] text-gray-400">({Math.round(att.size / 1024)} KB)</span>
+                    👁️ View
                   </a>
-                ))}
+                  <a
+                    href={`/api/attachments/${att.id}?download=1`}
+                    className="px-2 py-0.5 rounded bg-gray-800 hover:bg-black text-white text-[11px] font-semibold transition-colors"
+                  >
+                    ⬇️ Download
+                  </a>
+                </div>
+              ))}
             </div>
           </div>
         )}

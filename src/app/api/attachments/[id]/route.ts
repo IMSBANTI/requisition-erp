@@ -44,11 +44,13 @@ export async function GET(
     }
 
     const safeFileName = attachment.fileName.replace(/"/g, "");
+    const url = new URL(request.url);
+    const isDownload = url.searchParams.get("download") === "1";
 
     return new NextResponse(fileBuffer as any, {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `inline; filename="${safeFileName}"`,
+        "Content-Disposition": `${isDownload ? "attachment" : "inline"}; filename="${safeFileName}"`,
       },
     });
   } catch (err: any) {

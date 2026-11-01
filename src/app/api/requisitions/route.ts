@@ -370,21 +370,52 @@ export async function POST(request: Request) {
       }
     }
 
-    // Dispatch in-app notification to the assigned approver
+    // Dispatch in-app notification to the assigned approver, plus notify Director & Accounts when a PO is attached
     if (!isDraft) {
+      const hasPoFiles = allPoFiles.some((f) => f && f.size > 0);
+      const hasPo = Boolean(poNumber || hasPoFiles);
+      const poTag = hasPo ? ` [📄 PO Attached${poNumber ? `: ${poNumber}` : ""}]` : "";
+      const notifiedUserIds = new Set<string>([user.id]);
+
       if (initialWorkflow.assigneeId) {
+        notifiedUserIds.add(initialWorkflow.assigneeId);
         await createNotification({
           userId: initialWorkflow.assigneeId,
-          message: `New requisition ${number} (${project.name}, Tk ${formatTaka(total)}) submitted by ${user.name} requires your signature.`,
+          message: `New requisition ${number} (${project.name}, Tk ${formatTaka(total)})${poTag} submitted by ${user.name} requires your signature.`,
           link: `/requisitions/${requisition.id}`,
         });
       } else if (initialWorkflow.status === "PENDING_ACCOUNTS") {
         const accountsUserIds = await findUsersWithPermission("req.accounts.check");
+        accountsUserIds.forEach((uid) => notifiedUserIds.add(uid));
         await notifyUsers({
           userIds: accountsUserIds,
-          message: `Requisition ${number} (${project.name}, Tk ${formatTaka(total)}) requires Accounts vetting.`,
+          message: `Requisition ${number} (${project.name}, Tk ${formatTaka(total)})${poTag} requires Accounts vetting.`,
           link: `/requisitions/${requisition.id}`,
         });
+      }
+
+      // When a PO is attached, immediately alert Director and Accounts so they know a PO is available to view/download
+      if (hasPo) {
+        const accountsUserIds = await findUsersWithPermission("req.accounts.check");
+        const directorUserIds: string[] = [];
+        if (project.directorId) {
+          directorUserIds.push(project.directorId);
+        } else {
+          const allDirs = await findUsersWithPermission("req.director");
+          directorUserIds.push(...allDirs);
+        }
+
+        const poAlertTargets = Array.from(
+          new Set([...accountsUserIds, ...directorUserIds])
+        ).filter((uid) => !notifiedUserIds.has(uid));
+
+        if (poAlertTargets.length > 0) {
+          await notifyUsers({
+            userIds: poAlertTargets,
+            message: `📄 PO Attached${poNumber ? ` (${poNumber})` : ""} on Requisition ${number} (${project.name}, Tk ${formatTaka(total)}) by ${user.name}. Click to view or download PO.`,
+            link: `/requisitions/${requisition.id}`,
+          });
+        }
       }
     }
 

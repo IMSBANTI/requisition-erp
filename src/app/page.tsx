@@ -55,6 +55,9 @@ export default async function DashboardPage() {
         company: true,
         project: true,
         maker: true,
+        attachments: {
+          select: { id: true, fileName: true, isPo: true },
+        },
       },
     }),
   ]);
@@ -167,7 +170,12 @@ export default async function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {recentRequisitions.map((req) => (
+                  {recentRequisitions.map((req) => {
+                    const poFiles = (req.attachments || []).filter(
+                      (a: any) => a.isPo || a.fileName.startsWith("[PO]")
+                    );
+                    const hasPo = Boolean((req as any).poNumber || poFiles.length > 0);
+                    return (
                     <tr key={req.id} className="hover:bg-gray-50/80 transition-colors">
                       <td className="py-3 px-4">
                         <Link href={`/requisitions/${req.id}`} className="font-semibold text-gray-900 hover:text-[#E42528]">
@@ -182,6 +190,33 @@ export default async function DashboardPage() {
                         <span className="block text-[11px] text-gray-500 truncate max-w-[180px]">
                           {req.project.name}
                         </span>
+                        {hasPo && (
+                          <div className="mt-1 flex flex-wrap items-center gap-1">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-blue-600 text-white">
+                              📄 PO{(req as any).poNumber ? `: ${(req as any).poNumber}` : " Attached"}
+                            </span>
+                            {poFiles[0] && (
+                              <>
+                                <a
+                                  href={`/api/attachments/${poFiles[0].id}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200"
+                                  title="View PO in browser"
+                                >
+                                  👁️ View PO
+                                </a>
+                                <a
+                                  href={`/api/attachments/${poFiles[0].id}?download=1`}
+                                  className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200"
+                                  title="Download PO"
+                                >
+                                  ⬇️ Download
+                                </a>
+                              </>
+                            )}
+                          </div>
+                        )}
                       </td>
                       <td className="py-3 px-4">
                         <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700 border border-gray-200">
@@ -217,7 +252,8 @@ export default async function DashboardPage() {
                         </Link>
                       </td>
                     </tr>
-                  ))}
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

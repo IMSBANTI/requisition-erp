@@ -67,12 +67,26 @@ export async function POST(
 
     const req = await prisma.requisition.findUnique({
       where: { id },
-      include: { project: true, company: true, approvals: true, items: true },
+      include: {
+        project: true,
+        company: true,
+        approvals: true,
+        items: true,
+        attachments: { select: { id: true, isPo: true, fileName: true } },
+      },
     });
 
     if (!req) {
       return NextResponse.json({ error: "Requisition not found" }, { status: 404 });
     }
+
+    const hasPo = Boolean(
+      (req as any).poNumber ||
+        req.attachments.some((a) => a.isPo || a.fileName.startsWith("[PO]"))
+    );
+    const poTag = hasPo
+      ? ` [📄 PO Attached${(req as any).poNumber ? `: ${(req as any).poNumber}` : ""}]`
+      : "";
 
     const ip = await clientIp();
     const currentStep = STATUS_STEP[req.status];
@@ -184,28 +198,28 @@ export async function POST(
       if (nextWorkflow.assigneeId) {
         await createNotification({
           userId: nextWorkflow.assigneeId,
-          message: `Requisition ${req.number || req.id} (${req.project.name}) was approved by ${user.name} and requires your approval.`,
+          message: `Requisition ${req.number || req.id} (${req.project.name})${poTag} was approved by ${user.name} and requires your approval.`,
           link: `/requisitions/${req.id}`,
         });
       } else if (nextWorkflow.status === "PENDING_ACCOUNTS") {
         const accountsUserIds = await findUsersWithPermission("req.accounts.check");
         await notifyUsers({
           userIds: accountsUserIds,
-          message: `Requisition ${req.number || req.id} (${req.project.name}) requires Accounts vetting.`,
+          message: `Requisition ${req.number || req.id} (${req.project.name})${poTag} requires Accounts vetting.`,
           link: `/requisitions/${req.id}`,
         });
       } else if (nextWorkflow.status === "PENDING_MD") {
         const mdUserIds = await findUsersWithPermission("req.md");
         await notifyUsers({
           userIds: mdUserIds,
-          message: `Requisition ${req.number || req.id} (${req.project.name}) requires MD approval.`,
+          message: `Requisition ${req.number || req.id} (${req.project.name})${poTag} requires MD approval.`,
           link: `/requisitions/${req.id}`,
         });
       } else if (nextWorkflow.status === "APPROVED") {
         const accountsUserIds = await findUsersWithPermission("req.forward");
         await notifyUsers({
           userIds: accountsUserIds,
-          message: `Requisition ${req.number || req.id} (${req.project.name}) is approved by management and ready for Accounts payment/execution.`,
+          message: `Requisition ${req.number || req.id} (${req.project.name})${poTag} is approved by management and ready for Accounts payment/execution.`,
           link: `/requisitions/${req.id}`,
         });
       }
@@ -267,7 +281,7 @@ export async function POST(
       const accountsUserIds = await findUsersWithPermission("req.accounts.check");
       await notifyUsers({
         userIds: accountsUserIds,
-        message: `Requisition ${req.number || req.id} (${req.project.name}) was signed by ${user.name} and sent to Accounts.`,
+        message: `Requisition ${req.number || req.id} (${req.project.name})${poTag} was signed by ${user.name} and sent to Accounts.`,
         link: `/requisitions/${req.id}`,
       });
 
@@ -332,14 +346,14 @@ export async function POST(
       if (resolvedDirectorId) {
         await createNotification({
           userId: resolvedDirectorId,
-          message: `Requisition ${req.number || req.id} (${req.project.name}) was signed by ${user.name} and requires your Director approval.`,
+          message: `Requisition ${req.number || req.id} (${req.project.name})${poTag} was signed by ${user.name} and requires your Director approval.`,
           link: `/requisitions/${req.id}`,
         });
       } else {
         const dirUserIds = await findUsersWithPermission("req.director");
         await notifyUsers({
           userIds: dirUserIds,
-          message: `Requisition ${req.number || req.id} (${req.project.name}) requires Director approval.`,
+          message: `Requisition ${req.number || req.id} (${req.project.name})${poTag} requires Director approval.`,
           link: `/requisitions/${req.id}`,
         });
       }
