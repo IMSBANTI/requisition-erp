@@ -201,7 +201,7 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
                         </span>
                         {hasPo && (
                           <div className="mt-1 flex flex-wrap items-center gap-1">
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-blue-600 text-white">
+                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-blue-600 text-white whitespace-nowrap shrink-0">
                               📄 PO{(req as any).poNumber ? `: ${(req as any).poNumber}` : " Attached"}
                             </span>
                             {poFiles[0] && (
@@ -210,17 +210,19 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
                                   href={`/api/attachments/${poFiles[0].id}`}
                                   target="_blank"
                                   rel="noreferrer"
-                                  className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200"
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 whitespace-nowrap shrink-0"
                                   title="View PO in browser"
                                 >
-                                  👁️ View PO
+                                  <span>👁️</span>
+                                  <span>View PO</span>
                                 </a>
                                 <a
                                   href={`/api/attachments/${poFiles[0].id}?download=1`}
-                                  className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200"
+                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 whitespace-nowrap shrink-0"
                                   title="Download PO"
                                 >
-                                  ⬇️ Download
+                                  <span>⬇️</span>
+                                  <span>Download</span>
                                 </a>
                               </>
                             )}

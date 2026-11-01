@@ -213,30 +213,30 @@ export default async function RequisitionDetailPage({ params }: Props) {
               </div>
 
               {poAttachments.length > 0 && (
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
                   {poAttachments.map((att: any) => (
                     <div
                       key={att.id}
-                      className="flex items-center gap-1.5 bg-white px-2.5 py-1.5 rounded-lg border border-blue-300 shadow-2xs"
+                      className="inline-flex items-center gap-2 bg-white px-3 py-1.5 rounded-lg border border-blue-300 shadow-2xs"
                     >
                       <span className="text-xs font-bold text-blue-950 truncate max-w-[160px]" title={att.fileName}>
                         {att.fileName}
                       </span>
-                      <span className="text-[10px] text-gray-500 font-mono mr-1">
+                      <span className="text-[10px] text-gray-500 font-mono whitespace-nowrap shrink-0">
                         ({Math.max(1, Math.round(att.size / 1024))} KB)
                       </span>
                       <a
                         href={`/api/attachments/${att.id}`}
                         target="_blank"
                         rel="noreferrer"
-                        className="px-2 py-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 text-[11px] font-bold transition-colors flex items-center gap-1"
+                        className="px-2.5 py-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 text-[11px] font-bold transition-colors inline-flex items-center gap-1 whitespace-nowrap shrink-0"
                       >
                         <span>👁️</span>
                         <span>View PO</span>
                       </a>
                       <a
                         href={`/api/attachments/${att.id}?download=1`}
-                        className="px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition-colors flex items-center gap-1"
+                        className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition-colors inline-flex items-center gap-1 whitespace-nowrap shrink-0"
                       >
                         <span>⬇️</span>
                         <span>Download</span>
@@ -639,26 +639,28 @@ export default async function RequisitionDetailPage({ params }: Props) {
                 {poAttachments.map((att: any) => (
                   <div
                     key={att.id}
-                    className="px-3 py-1.5 rounded-lg border border-blue-300 bg-white text-xs font-bold text-blue-900 flex items-center space-x-2 shadow-2xs"
+                    className="px-3 py-1.5 rounded-lg border border-blue-300 bg-white text-xs font-bold text-blue-900 inline-flex items-center gap-2 shadow-2xs"
                   >
-                    <span>📄</span>
+                    <span className="shrink-0">📄</span>
                     <span className="truncate max-w-[200px]">{att.fileName}</span>
-                    <span className="text-[10px] text-blue-500 font-mono">
+                    <span className="text-[10px] text-blue-500 font-mono whitespace-nowrap shrink-0">
                       ({Math.max(1, Math.round(att.size / 1024))} KB)
                     </span>
                     <a
                       href={`/api/attachments/${att.id}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="px-2 py-0.5 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 text-[11px] font-bold transition-colors"
+                      className="px-2.5 py-1 rounded bg-blue-100 hover:bg-blue-200 text-blue-900 text-[11px] font-bold transition-colors inline-flex items-center gap-1 whitespace-nowrap shrink-0"
                     >
-                      👁️ View
+                      <span>👁️</span>
+                      <span>View PO</span>
                     </a>
                     <a
                       href={`/api/attachments/${att.id}?download=1`}
-                      className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition-colors"
+                      className="px-2.5 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold transition-colors inline-flex items-center gap-1 whitespace-nowrap shrink-0"
                     >
-                      ⬇️ Download
+                      <span>⬇️</span>
+                      <span>Download</span>
                     </a>
                   </div>
                 ))}
@@ -681,26 +683,28 @@ export default async function RequisitionDetailPage({ params }: Props) {
               {otherAttachments.map((att) => (
                 <div
                   key={att.id}
-                  className="px-3 py-1.5 rounded-lg border border-gray-200 bg-gray-50 text-xs font-medium text-gray-800 flex items-center space-x-2"
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 bg-gray-50 text-xs font-medium text-gray-800 inline-flex items-center gap-2"
                 >
-                  <span>📎</span>
+                  <span className="shrink-0">📎</span>
                   <span className="truncate max-w-[200px]">{att.fileName}</span>
-                  <span className="text-[10px] text-gray-400">
+                  <span className="text-[10px] text-gray-400 whitespace-nowrap shrink-0">
                     ({Math.max(1, Math.round(att.size / 1024))} KB)
                   </span>
                   <a
                     href={`/api/attachments/${att.id}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="px-2 py-0.5 rounded bg-gray-200 hover:bg-gray-300 text-gray-800 text-[11px] font-semibold transition-colors"
+                    className="px-2.5 py-1 rounded bg-gray-200 hover:bg-gray-300 text-gray-800 text-[11px] font-semibold transition-colors inline-flex items-center gap-1 whitespace-nowrap shrink-0"
                   >
-                    👁️ View
+                    <span>👁️</span>
+                    <span>View</span>
                   </a>
                   <a
                     href={`/api/attachments/${att.id}?download=1`}
-                    className="px-2 py-0.5 rounded bg-gray-800 hover:bg-black text-white text-[11px] font-semibold transition-colors"
+                    className="px-2.5 py-1 rounded bg-gray-800 hover:bg-black text-white text-[11px] font-semibold transition-colors inline-flex items-center gap-1 whitespace-nowrap shrink-0"
                   >
-                    ⬇️ Download
+                    <span>⬇️</span>
+                    <span>Download</span>
                   </a>
                 </div>
               ))}
