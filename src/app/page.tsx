@@ -64,11 +64,11 @@ export default async function DashboardPage() {
 
   return (
     <AppShell>
-      <div className="p-6 max-w-7xl mx-auto w-full">
+      <div className="p-3 sm:p-6 max-w-7xl mx-auto w-full">
         {/* Top welcome */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-6 border-b border-gray-200 gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 sm:pb-6 border-b border-gray-200 gap-3 sm:gap-4">
           <div>
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
               Welcome back, {user.name}
             </h1>
             <p className="text-xs text-gray-500 mt-0.5">
@@ -94,18 +94,18 @@ export default async function DashboardPage() {
         </div>
 
         {/* KPI Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-          <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4 mt-4 sm:mt-6">
+          <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-gray-200 shadow-sm">
             <p className="text-xs font-medium text-gray-500">My Requisitions</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{myCount}</p>
+            <p className="text-xl sm:text-2xl font-bold text-gray-900 mt-1">{myCount}</p>
             <Link href="/requisitions?filter=my" className="text-[11px] text-[#E42528] hover:underline font-medium mt-1 inline-block">
               View my postings &rarr;
             </Link>
           </div>
 
-          <div className={`p-4 rounded-xl border shadow-sm ${totalPending > 0 ? "bg-red-50/50 border-red-200" : "bg-white border-gray-200"}`}>
+          <div className={`p-3.5 sm:p-4 rounded-xl border shadow-sm ${totalPending > 0 ? "bg-red-50/50 border-red-200" : "bg-white border-gray-200"}`}>
             <p className="text-xs font-medium text-gray-500">Pending My Signature</p>
-            <p className={`text-2xl font-bold mt-1 ${totalPending > 0 ? "text-[#E42528]" : "text-gray-900"}`}>
+            <p className={`text-xl sm:text-2xl font-bold mt-1 ${totalPending > 0 ? "text-[#E42528]" : "text-gray-900"}`}>
               {totalPending}
             </p>
             <Link href="/requisitions?filter=pending" className="text-[11px] text-[#E42528] hover:underline font-medium mt-1 inline-block">
@@ -114,9 +114,9 @@ export default async function DashboardPage() {
           </div>
 
           {user.permissions.includes("req.md") && (
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-gray-200 shadow-sm">
               <p className="text-xs font-medium text-gray-500">MD Batch Queue</p>
-              <p className="text-2xl font-bold text-purple-700 mt-1">{batchCount}</p>
+              <p className="text-xl sm:text-2xl font-bold text-purple-700 mt-1">{batchCount}</p>
               <Link href="/md/batch" className="text-[11px] text-purple-600 hover:underline font-medium mt-1 inline-block">
                 Open batch approval &rarr;
               </Link>
@@ -124,27 +124,27 @@ export default async function DashboardPage() {
           )}
 
           {user.permissions.includes("req.execute") && (
-            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+            <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-gray-200 shadow-sm">
               <p className="text-xs font-medium text-gray-500">To Execute / Disburse</p>
-              <p className="text-2xl font-bold text-emerald-700 mt-1">{toExecuteCount}</p>
+              <p className="text-xl sm:text-2xl font-bold text-emerald-700 mt-1">{toExecuteCount}</p>
               <Link href="/requisitions?filter=to_execute" className="text-[11px] text-emerald-600 hover:underline font-medium mt-1 inline-block">
                 Accounts queue &rarr;
               </Link>
             </div>
           )}
 
-          <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm">
+          <div className="bg-white p-3.5 sm:p-4 rounded-xl border border-gray-200 shadow-sm">
             <p className="text-xs font-medium text-gray-500">Total In Scope</p>
-            <p className="text-2xl font-bold text-gray-900 mt-1">{totalCount}</p>
+            <p className="text-xl sm:text-2xl font-bold text-gray-900 mt-1">{totalCount}</p>
             <Link href="/requisitions" className="text-[11px] text-gray-600 hover:underline font-medium mt-1 inline-block">
               Browse all &rarr;
             </Link>
           </div>
         </div>
 
-        {/* Recent Requisitions Table */}
-        <div className="mt-8 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-          <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+        {/* Recent Requisitions */}
+        <div className="mt-6 sm:mt-8 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-4 sm:px-5 py-3.5 sm:py-4 border-b border-gray-200 flex items-center justify-between">
             <h2 className="text-sm font-bold text-gray-900">Recent Requisitions</h2>
             <Link href="/requisitions" className="text-xs text-[#E42528] font-semibold hover:underline">
               View All ({totalCount}) &rarr;
@@ -156,109 +156,206 @@ export default async function DashboardPage() {
               No requisitions found yet. Click <strong>+ New Requisition</strong> to raise one.
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
-                    <th className="py-2.5 px-4">Req # / Date</th>
-                    <th className="py-2.5 px-4">Company & Project</th>
-                    <th className="py-2.5 px-4">Type</th>
-                    <th className="py-2.5 px-4">Requested By</th>
-                    <th className="py-2.5 px-4 text-right">Amount (Tk)</th>
-                    <th className="py-2.5 px-4 text-center">Status</th>
-                    <th className="py-2.5 px-4 text-right">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {recentRequisitions.map((req) => {
-                    const poFiles = (req.attachments || []).filter(
-                      (a: any) => a.isPo || a.fileName.startsWith("[PO]")
-                    );
-                    const hasPo = Boolean((req as any).poNumber || poFiles.length > 0);
-                    return (
-                    <tr key={req.id} className="hover:bg-gray-50/80 transition-colors">
-                      <td className="py-3 px-4">
-                        <Link href={`/requisitions/${req.id}`} className="font-semibold text-gray-900 hover:text-[#E42528]">
-                          {req.number || "Draft"}
-                        </Link>
-                        <span className="block text-[11px] text-gray-400">
-                          {new Date(req.date).toLocaleDateString("en-GB")}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-medium text-gray-800">{req.company.name}</span>
-                        <span className="block text-[11px] text-gray-500 truncate max-w-[180px]">
-                          {req.project.name}
-                        </span>
-                        {hasPo && (
-                          <div className="mt-1 flex flex-wrap items-center gap-1">
-                            <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-blue-600 text-white whitespace-nowrap shrink-0">
-                              📄 PO{(req as any).poNumber ? `: ${(req as any).poNumber}` : " Attached"}
+            <>
+              {/* Mobile Card List (< md) */}
+              <div className="md:hidden divide-y divide-gray-200">
+                {recentRequisitions.map((req) => {
+                  const poFiles = (req.attachments || []).filter(
+                    (a: any) => a.isPo || a.fileName.startsWith("[PO]")
+                  );
+                  const hasPo = Boolean((req as any).poNumber || poFiles.length > 0);
+                  return (
+                    <div key={req.id} className="p-3.5 space-y-2 hover:bg-gray-50/70">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <Link
+                              href={`/requisitions/${req.id}`}
+                              className="text-xs font-bold text-gray-900 hover:text-[#E42528]"
+                            >
+                              {req.number || "Draft"}
+                            </Link>
+                            <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700 border border-gray-200">
+                              {req.type}
                             </span>
-                            {poFiles[0] && (
-                              <>
-                                <a
-                                  href={`/api/attachments/${poFiles[0].id}`}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 whitespace-nowrap shrink-0"
-                                  title="View PO in browser"
-                                >
-                                  <span>👁️</span>
-                                  <span>View PO</span>
-                                </a>
-                                <a
-                                  href={`/api/attachments/${poFiles[0].id}?download=1`}
-                                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 whitespace-nowrap shrink-0"
-                                  title="Download PO"
-                                >
-                                  <span>⬇️</span>
-                                  <span>Download</span>
-                                </a>
-                              </>
-                            )}
+                            <span
+                              className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                                STATUS_COLORS[req.status] || "bg-gray-100"
+                              }`}
+                            >
+                              {STATUS_LABELS[req.status] || req.status}
+                            </span>
                           </div>
-                        )}
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700 border border-gray-200">
-                          {req.type}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4">
-                        <span className="font-medium text-gray-800">{req.makerName}</span>
-                        <span className="block text-[11px] text-gray-500">{req.makerDesignation}</span>
-                      </td>
-                      <td className="py-3 px-4 text-right font-semibold text-gray-900">
-                        {formatTaka(req.total)}
-                      </td>
-                      <td className="py-3 px-4 text-center">
-                        <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_COLORS[req.status] || "bg-gray-100"}`}>
-                          {STATUS_LABELS[req.status] || req.status}
-                        </span>
-                      </td>
-                      <td className="py-3 px-4 text-right space-x-2">
+                          <p className="text-[11px] text-gray-500 mt-0.5">
+                            {new Date(req.date).toLocaleDateString("en-GB")} &bull; {req.makerName}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <span className="text-xs font-extrabold text-gray-900">
+                            Tk {formatTaka(req.total)}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="text-xs text-gray-700">
+                        <span className="font-semibold text-gray-900">{req.company.name}</span>
+                        {" — "}
+                        <span>{req.project.name}</span>
+                      </div>
+
+                      {hasPo && (
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-blue-600 text-white whitespace-nowrap shrink-0">
+                            📄 PO{(req as any).poNumber ? `: ${(req as any).poNumber}` : " Attached"}
+                          </span>
+                          {poFiles[0] && (
+                            <>
+                              <a
+                                href={`/api/attachments/${poFiles[0].id}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200 whitespace-nowrap"
+                              >
+                                <span>👁️</span>
+                                <span>View PO</span>
+                              </a>
+                              <a
+                                href={`/api/attachments/${poFiles[0].id}?download=1`}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200 whitespace-nowrap"
+                              >
+                                <span>⬇️</span>
+                                <span>Download</span>
+                              </a>
+                            </>
+                          )}
+                        </div>
+                      )}
+
+                      <div className="flex items-center justify-between pt-1">
                         <Link
                           href={`/requisitions/${req.id}`}
-                          className="font-semibold text-[#E42528] hover:underline"
+                          className="inline-flex items-center px-3 py-1.5 rounded-lg bg-red-50 text-[#E42528] border border-red-200 text-xs font-bold"
                         >
-                          View
+                          Open / Sign Requisition &rarr;
                         </Link>
                         <Link
                           href={`/requisitions/${req.id}/print`}
                           target="_blank"
-                          className="text-gray-500 hover:text-gray-700"
-                          title="Print Voucher"
+                          className="px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-xs font-semibold"
                         >
-                          🖨️
+                          🖨️ Print
                         </Link>
-                      </td>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Desktop Table (>= md) */}
+              <div className="hidden md:block overflow-x-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
+                      <th className="py-2.5 px-4">Req # / Date</th>
+                      <th className="py-2.5 px-4">Company & Project</th>
+                      <th className="py-2.5 px-4">Type</th>
+                      <th className="py-2.5 px-4">Requested By</th>
+                      <th className="py-2.5 px-4 text-right">Amount (Tk)</th>
+                      <th className="py-2.5 px-4 text-center">Status</th>
+                      <th className="py-2.5 px-4 text-right">Actions</th>
                     </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {recentRequisitions.map((req) => {
+                      const poFiles = (req.attachments || []).filter(
+                        (a: any) => a.isPo || a.fileName.startsWith("[PO]")
+                      );
+                      const hasPo = Boolean((req as any).poNumber || poFiles.length > 0);
+                      return (
+                      <tr key={req.id} className="hover:bg-gray-50/80 transition-colors">
+                        <td className="py-3 px-4">
+                          <Link href={`/requisitions/${req.id}`} className="font-semibold text-gray-900 hover:text-[#E42528]">
+                            {req.number || "Draft"}
+                          </Link>
+                          <span className="block text-[11px] text-gray-400">
+                            {new Date(req.date).toLocaleDateString("en-GB")}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-medium text-gray-800">{req.company.name}</span>
+                          <span className="block text-[11px] text-gray-500 truncate max-w-[180px]">
+                            {req.project.name}
+                          </span>
+                          {hasPo && (
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                              <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-extrabold bg-blue-600 text-white whitespace-nowrap shrink-0">
+                                📄 PO{(req as any).poNumber ? `: ${(req as any).poNumber}` : " Attached"}
+                              </span>
+                              {poFiles[0] && (
+                                <>
+                                  <a
+                                    href={`/api/attachments/${poFiles[0].id}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 whitespace-nowrap shrink-0"
+                                    title="View PO in browser"
+                                  >
+                                    <span>👁️</span>
+                                    <span>View PO</span>
+                                  </a>
+                                  <a
+                                    href={`/api/attachments/${poFiles[0].id}?download=1`}
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-50 hover:bg-blue-100 text-blue-800 border border-blue-200 whitespace-nowrap shrink-0"
+                                    title="Download PO"
+                                  >
+                                    <span>⬇️</span>
+                                    <span>Download</span>
+                                  </a>
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="inline-block px-1.5 py-0.5 rounded text-[10px] font-bold bg-gray-100 text-gray-700 border border-gray-200">
+                            {req.type}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4">
+                          <span className="font-medium text-gray-800">{req.makerName}</span>
+                          <span className="block text-[11px] text-gray-500">{req.makerDesignation}</span>
+                        </td>
+                        <td className="py-3 px-4 text-right font-semibold text-gray-900">
+                          {formatTaka(req.total)}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_COLORS[req.status] || "bg-gray-100"}`}>
+                            {STATUS_LABELS[req.status] || req.status}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right space-x-2">
+                          <Link
+                            href={`/requisitions/${req.id}`}
+                            className="font-semibold text-[#E42528] hover:underline"
+                          >
+                            View
+                          </Link>
+                          <Link
+                            href={`/requisitions/${req.id}/print`}
+                            target="_blank"
+                            className="text-gray-500 hover:text-gray-700"
+                            title="Print Voucher"
+                          >
+                            🖨️
+                          </Link>
+                        </td>
+                      </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       </div>

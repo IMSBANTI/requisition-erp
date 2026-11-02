@@ -109,7 +109,7 @@ export default function NotificationBell() {
 
       {/* Notifications Dropdown */}
       {isOpen && (
-        <div className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
+        <div className="fixed sm:absolute inset-x-3 sm:inset-x-auto sm:right-0 top-14 sm:top-auto sm:mt-2 w-auto sm:w-96 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden animate-in fade-in slide-in-from-top-1 duration-150">
           <div className="p-3 border-b border-gray-200 flex items-center justify-between bg-gray-50/80">
             <div className="flex items-center space-x-1.5">
               <span className="font-bold text-xs text-gray-900">Notifications</span>

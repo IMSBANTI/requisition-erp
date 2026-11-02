@@ -45,7 +45,7 @@ export default async function AdminUsersPage() {
 
   return (
     <AppShell>
-      <div className="p-6 max-w-7xl mx-auto w-full">
+      <div className="p-3 sm:p-6 max-w-7xl mx-auto w-full">
         <AdminUsersClient
           users={users.map((u) => ({
             id: u.id,

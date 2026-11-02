@@ -113,9 +113,9 @@ export default async function RequisitionDetailPage({ params }: Props) {
 
   return (
     <AppShell>
-      <div className="p-6 max-w-5xl mx-auto w-full">
+      <div className="p-3 sm:p-6 max-w-5xl mx-auto w-full">
         {/* Top Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-gray-200 gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-gray-200 gap-3 sm:gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <Link href="/requisitions" className="text-xs text-gray-500 hover:text-gray-800">
@@ -222,18 +222,18 @@ export default async function RequisitionDetailPage({ params }: Props) {
 
         {/* Paper Voucher Replica */}
         <div
-          className="mt-6 bg-white p-6 sm:p-8 rounded-xl border-2 border-gray-300 shadow-md"
+          className="mt-6 bg-white p-3.5 sm:p-8 rounded-xl border-2 border-gray-300 shadow-md"
           style={{
             backgroundColor: req.company.paperTint === "#FFF4C2" ? "#FFFAE0" : "#FFFFFF",
           }}
         >
           {/* Header */}
-          <div className="flex items-start justify-between pb-4 border-b border-gray-300">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between pb-4 border-b border-gray-300 gap-3">
             <div className="flex items-center space-x-3">
               <img
                 src={req.company.logo || "/logos/ims.png"}
                 alt={req.company.name}
-                className="h-12 w-auto object-contain"
+                className="h-10 sm:h-12 w-auto object-contain"
               />
               <div className="leading-tight">
                 <span className="text-sm font-bold text-gray-900 tracking-tight">
@@ -246,7 +246,7 @@ export default async function RequisitionDetailPage({ params }: Props) {
               </div>
             </div>
 
-            <div className="text-right max-w-sm">
+            <div className="text-left sm:text-right max-w-sm">
               <h2 className="text-xs font-bold text-gray-900">
                 {req.company.legalName}
               </h2>
@@ -264,29 +264,29 @@ export default async function RequisitionDetailPage({ params }: Props) {
           </div>
 
           {/* Body Info */}
-          <div className="mt-4 grid grid-cols-2 gap-y-2 text-xs">
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-y-1.5 sm:gap-y-2 text-xs">
             <div className="flex items-center">
-              <span className="font-semibold text-gray-700 w-24">Name :</span>
+              <span className="font-semibold text-gray-700 w-24 shrink-0">Name :</span>
               <span className="font-bold text-gray-900">{req.makerName}</span>
             </div>
-            <div className="flex items-center justify-end">
-              <span className="font-semibold text-gray-700 mr-2">Date :</span>
+            <div className="flex items-center sm:justify-end">
+              <span className="font-semibold text-gray-700 w-24 sm:w-auto sm:mr-2 shrink-0">Date :</span>
               <span className="font-medium text-gray-900">
                 {new Date(req.date).toLocaleDateString("en-GB")}
               </span>
             </div>
             <div className="flex items-center">
-              <span className="font-semibold text-gray-700 w-24">Designation :</span>
+              <span className="font-semibold text-gray-700 w-24 shrink-0">Designation :</span>
               <span className="text-gray-800">{req.makerDesignation}</span>
             </div>
-            <div className="flex items-center justify-end">
-              <span className="font-semibold text-gray-700 mr-2">Disburse on :</span>
+            <div className="flex items-center sm:justify-end">
+              <span className="font-semibold text-gray-700 w-24 sm:w-auto sm:mr-2 shrink-0">Disburse on :</span>
               <span className="font-medium text-gray-900">
                 {req.disburseOn ? new Date(req.disburseOn).toLocaleDateString("en-GB") : "Immediate"}
               </span>
             </div>
             <div className="flex items-center">
-              <span className="font-semibold text-gray-700 w-24">Payment Type :</span>
+              <span className="font-semibold text-gray-700 w-24 shrink-0">Payment Type :</span>
               <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
                 req.paymentMode === "CHEQUE"
                   ? "bg-blue-50 text-blue-800 border border-blue-200"
@@ -296,8 +296,8 @@ export default async function RequisitionDetailPage({ params }: Props) {
               </span>
             </div>
             {(req as any).poNumber && (
-              <div className="flex items-center justify-end">
-                <span className="font-semibold text-gray-700 mr-2">PO / WO Ref :</span>
+              <div className="flex items-center sm:justify-end">
+                <span className="font-semibold text-gray-700 w-24 sm:w-auto sm:mr-2 shrink-0">PO / WO Ref :</span>
                 <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
                   📄 {(req as any).poNumber}
                 </span>
@@ -318,8 +318,8 @@ export default async function RequisitionDetailPage({ params }: Props) {
           </div>
 
           {/* Line Items Table */}
-          <div className="mt-4 border border-gray-400 rounded overflow-hidden">
-            <table className="w-full text-left text-xs border-collapse">
+          <div className="mt-4 border border-gray-400 rounded overflow-x-auto">
+            <table className="w-full min-w-[480px] text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-gray-100 border-b border-gray-400 text-gray-700 font-bold uppercase text-[10px]">
                   <th className="py-1.5 px-2 w-10 text-center border-r border-gray-300">SL.</th>
@@ -394,8 +394,8 @@ export default async function RequisitionDetailPage({ params }: Props) {
           )}
 
           {/* 5 Paper Signature Boxes with Digital Signatures */}
-          <div className="mt-8 pt-4 border-t border-gray-400">
-            <div className="grid grid-cols-5 gap-2 text-center text-[10px]">
+          <div className="mt-6 sm:mt-8 pt-4 border-t border-gray-400">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-2 text-center text-[10px]">
               {/* Box 1: Requested by */}
               <div className="border-t border-gray-800 pt-1 flex flex-col justify-between min-h-[75px]">
                 <div>

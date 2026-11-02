@@ -295,9 +295,9 @@ export default async function FinancePnlPage() {
 
   return (
     <AppShell>
-      <div className="p-6 max-w-7xl mx-auto w-full">
+      <div className="p-3 sm:p-6 max-w-7xl mx-auto w-full">
         <div className="pb-4 border-b border-gray-200">
-          <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+          <h1 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
             Projects, Events & IMS Group Expenses — P&L & Client Collections
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">

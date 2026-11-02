@@ -1061,18 +1061,18 @@ export default function RequisitionForm({
 
       {/* Actual Paper-Style Requisition Form Frame */}
       <div
-        className="bg-white p-6 sm:p-8 rounded-xl border-2 border-gray-300 shadow-md"
+        className="bg-white p-3.5 sm:p-8 rounded-xl border-2 border-gray-300 shadow-md"
         style={{
           backgroundColor: selectedCompany?.paperTint === "#FFF4C2" ? "#FFFAE0" : "#FFFFFF",
         }}
       >
         {/* Paper Header */}
-        <div className="flex items-start justify-between pb-4 border-b border-gray-300">
+        <div className="flex flex-col sm:flex-row sm:items-start justify-between pb-4 border-b border-gray-300 gap-3">
           <div className="flex items-center space-x-3">
             <img
               src={selectedCompany?.logo || "/logos/ims.png"}
               alt={selectedCompany?.name || "Company"}
-              className="h-12 w-auto object-contain"
+              className="h-10 sm:h-12 w-auto object-contain"
             />
             <div className="leading-tight">
               <span className="text-sm font-bold text-gray-900 tracking-tight">
@@ -1085,7 +1085,7 @@ export default function RequisitionForm({
             </div>
           </div>
 
-          <div className="text-right max-w-sm">
+          <div className="text-left sm:text-right max-w-sm">
             <h2 className="text-xs font-bold text-gray-900">
               {selectedCompany?.legalName}
             </h2>
@@ -1215,7 +1215,7 @@ export default function RequisitionForm({
           </datalist>
         )}
         <div className="mt-4 border border-gray-400 rounded overflow-x-auto">
-          <table className="w-full text-left text-xs border-collapse">
+          <table className="w-full min-w-[620px] text-left text-xs border-collapse">
             <thead>
               <tr className="bg-gray-100 border-b border-gray-400 text-gray-700 font-bold uppercase text-[10px]">
                 <th className="py-1.5 px-2 w-9 text-center border-r border-gray-300">SL.</th>
@@ -1401,8 +1401,8 @@ export default function RequisitionForm({
         </div>
 
         {/* Paper Signature Row (5 boxes) */}
-        <div className="mt-8 pt-4 border-t border-gray-400">
-          <div className="grid grid-cols-5 gap-2 text-center text-[11px]">
+        <div className="mt-6 sm:mt-8 pt-4 border-t border-gray-400">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-2 text-center text-[11px]">
             <div className="border-t border-gray-800 pt-1">
               <span className="font-semibold block text-gray-800">Requested by</span>
               <span className="text-[10px] text-gray-500">{user.name}</span>
@@ -1624,14 +1624,14 @@ export default function RequisitionForm({
           </div>
         </div>
 
-        <div className="pt-3 border-t border-gray-100 flex items-center justify-end space-x-3">
+        <div className="pt-3 border-t border-gray-100 flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 sm:gap-3">
           <button
             type="button"
             onClick={() => {
               setSubmitAction("DRAFT");
               setShowSignModal(true);
             }}
-            className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md border border-gray-300 cursor-pointer"
+            className="px-4 py-2.5 sm:py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md border border-gray-300 cursor-pointer text-center"
           >
             Save as Draft
           </button>
@@ -1648,7 +1648,7 @@ export default function RequisitionForm({
               setSubmitAction("SUBMIT");
               setShowSignModal(true);
             }}
-            className="px-5 py-2 text-xs font-bold text-white bg-[#E42528] hover:bg-[#B81D20] rounded-md shadow cursor-pointer transition-colors"
+            className="px-5 py-2.5 sm:py-2 text-xs font-bold text-white bg-[#E42528] hover:bg-[#B81D20] rounded-md shadow cursor-pointer transition-colors text-center"
           >
             Digitally Sign & Submit Voucher
           </button>

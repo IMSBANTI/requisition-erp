@@ -1,7 +1,21 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+
+export function MobileMenuTrigger() {
+  return (
+    <button
+      type="button"
+      onClick={() => window.dispatchEvent(new CustomEvent("toggle-mobile-sidebar"))}
+      className="md:hidden p-1.5 -ml-1 mr-1 rounded-lg text-gray-700 hover:text-gray-900 hover:bg-gray-100 transition-colors cursor-pointer"
+      aria-label="Open Navigation Menu"
+    >
+      <span className="text-lg leading-none font-bold">☰</span>
+    </button>
+  );
+}
 
 interface SidebarProps {
   user: {
@@ -17,7 +31,20 @@ interface SidebarProps {
 
 export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: SidebarProps) {
   const pathname = usePathname();
+  const [mobileOpen, setMobileOpen] = useState(false);
   const perms = user.permissions;
+
+  // Close mobile drawer on route change
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
+  // Listen for custom toggle event from top header hamburger button
+  useEffect(() => {
+    const handleToggle = () => setMobileOpen((prev) => !prev);
+    window.addEventListener("toggle-mobile-sidebar", handleToggle);
+    return () => window.removeEventListener("toggle-mobile-sidebar", handleToggle);
+  }, []);
 
   const links = [
     { href: "/", label: "Dashboard", icon: "📊" },
@@ -25,7 +52,13 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
     { href: "/requisitions/new", label: "New Requisition", icon: "➕" },
   ];
 
-  if (perms.includes("req.approve") || perms.includes("req.accounts.check") || perms.includes("req.director") || perms.includes("req.md")) {
+  const canSignOrCheck =
+    perms.includes("req.approve") ||
+    perms.includes("req.accounts.check") ||
+    perms.includes("req.director") ||
+    perms.includes("req.md");
+
+  if (canSignOrCheck) {
     links.push({
       href: "/requisitions?filter=pending",
       label: `Pending Signatures ${pendingCount > 0 ? `(${pendingCount})` : ""}`,
@@ -77,15 +110,25 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
   const isAdmin = perms.includes("admin.users") || perms.includes("admin.readonly");
   const canManageProjects = perms.includes("project.manage") || perms.includes("project.view");
 
-  return (
-    <aside className="w-64 bg-white border-r border-gray-200 flex flex-col shrink-0 min-h-screen">
+  const sidebarContent = (
+    <>
       {/* Brand Header */}
-      <div className="p-4 border-b border-gray-200 flex items-center space-x-3">
-        <img src="/logos/ims.png" alt="IMS Group" className="h-10 w-auto object-contain" />
-        <div>
-          <h1 className="font-bold text-gray-900 text-sm tracking-tight leading-tight">IMS GROUP</h1>
-          <p className="text-[11px] text-gray-500 font-medium">Requisition Approval ERP</p>
+      <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+        <div className="flex items-center space-x-3">
+          <img src="/logos/ims.png" alt="IMS Group" className="h-10 w-auto object-contain" />
+          <div>
+            <h1 className="font-bold text-gray-900 text-sm tracking-tight leading-tight">IMS GROUP</h1>
+            <p className="text-[11px] text-gray-500 font-medium">Requisition Approval ERP</p>
+          </div>
         </div>
+        <button
+          type="button"
+          onClick={() => setMobileOpen(false)}
+          className="md:hidden p-1.5 rounded-lg text-gray-500 hover:text-gray-900 hover:bg-gray-100 text-lg leading-none cursor-pointer"
+          aria-label="Close Menu"
+        >
+          ✕
+        </button>
       </div>
 
       {/* User Scope Card */}
@@ -114,12 +157,15 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
           Requisitions
         </div>
         {links.map((link) => {
-          const isActive = pathname === link.href || (link.href.includes("filter") && pathname.startsWith("/requisitions"));
+          const isActive =
+            pathname === link.href ||
+            (link.href.includes("filter") && pathname.startsWith("/requisitions"));
           return (
             <Link
               key={link.href}
               href={link.href}
-              className={`flex items-center px-3 py-2 text-xs font-medium rounded-md transition-colors ${
+              onClick={() => setMobileOpen(false)}
+              className={`flex items-center px-3 py-2.5 md:py-2 text-xs font-medium rounded-md transition-colors ${
                 isActive
                   ? "bg-red-50 text-[#E42528] font-semibold"
                   : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
@@ -139,7 +185,8 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
             {isAdmin && (
               <Link
                 href="/admin/users"
-                className={`flex items-center px-3 py-2 text-xs font-medium rounded-md transition-colors ${
+                onClick={() => setMobileOpen(false)}
+                className={`flex items-center px-3 py-2.5 md:py-2 text-xs font-medium rounded-md transition-colors ${
                   pathname.startsWith("/admin/users")
                     ? "bg-red-50 text-[#E42528] font-semibold"
                     : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
@@ -152,7 +199,8 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
             {canManageProjects && (
               <Link
                 href="/admin/projects"
-                className={`flex items-center px-3 py-2 text-xs font-medium rounded-md transition-colors ${
+                onClick={() => setMobileOpen(false)}
+                className={`flex items-center px-3 py-2.5 md:py-2 text-xs font-medium rounded-md transition-colors ${
                   pathname.startsWith("/admin/projects")
                     ? "bg-red-50 text-[#E42528] font-semibold"
                     : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
@@ -165,7 +213,8 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
             {perms.includes("audit.view") && (
               <Link
                 href="/admin/audit"
-                className={`flex items-center px-3 py-2 text-xs font-medium rounded-md transition-colors ${
+                onClick={() => setMobileOpen(false)}
+                className={`flex items-center px-3 py-2.5 md:py-2 text-xs font-medium rounded-md transition-colors ${
                   pathname.startsWith("/admin/audit")
                     ? "bg-red-50 text-[#E42528] font-semibold"
                     : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
@@ -183,6 +232,7 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
       <div className="p-3 border-t border-gray-200 bg-gray-50 flex items-center justify-between">
         <Link
           href="/profile"
+          onClick={() => setMobileOpen(false)}
           className="flex items-center text-xs font-medium text-gray-700 hover:text-[#E42528]"
         >
           <span className="mr-1.5 text-sm">🔑</span>
@@ -204,6 +254,106 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
           Logout
         </button>
       </div>
-    </aside>
+    </>
+  );
+
+  return (
+    <>
+      {/* Desktop Permanent Sidebar */}
+      <aside className="hidden md:flex w-64 bg-white border-r border-gray-200 flex-col shrink-0 min-h-screen">
+        {sidebarContent}
+      </aside>
+
+      {/* Mobile Slide-Over Sidebar Drawer */}
+      {mobileOpen && (
+        <div className="md:hidden fixed inset-0 z-50 flex">
+          <div
+            className="fixed inset-0 bg-black/50 transition-opacity"
+            onClick={() => setMobileOpen(false)}
+          />
+          <aside className="relative z-10 w-72 max-w-[85vw] bg-white flex flex-col h-full shadow-2xl">
+            {sidebarContent}
+          </aside>
+        </div>
+      )}
+
+      {/* Mobile Bottom Navigation Bar */}
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white border-t border-gray-200 shadow-[0_-2px_10px_rgba(0,0,0,0.06)] flex items-center justify-around py-1.5 px-1">
+        <Link
+          href="/"
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-semibold transition-colors ${
+            pathname === "/" ? "text-[#E42528]" : "text-gray-600 hover:text-gray-900"
+          }`}
+        >
+          <span className="text-base leading-none mb-0.5">📊</span>
+          <span>Home</span>
+        </Link>
+
+        <Link
+          href="/requisitions"
+          className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-semibold transition-colors ${
+            pathname === "/requisitions" ? "text-[#E42528]" : "text-gray-600 hover:text-gray-900"
+          }`}
+        >
+          <span className="text-base leading-none mb-0.5">📋</span>
+          <span>Requisitions</span>
+        </Link>
+
+        <Link
+          href="/requisitions/new"
+          className="flex flex-col items-center justify-center -mt-3 bg-[#E42528] text-white rounded-full w-11 h-11 shadow-md border-2 border-white"
+          title="New Requisition"
+        >
+          <span className="text-base leading-none font-bold">➕</span>
+          <span className="text-[8px] font-bold leading-none mt-0.5">New</span>
+        </Link>
+
+        {canSignOrCheck ? (
+          <Link
+            href="/requisitions?filter=pending"
+            className={`relative flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-semibold transition-colors ${
+              pathname.startsWith("/requisitions") ? "text-gray-700" : "text-gray-600"
+            }`}
+          >
+            <span className="text-base leading-none mb-0.5">✍️</span>
+            <span>Pending</span>
+            {pendingCount > 0 && (
+              <span className="absolute top-0.5 right-1 min-w-[16px] h-4 px-1 rounded-full bg-[#E42528] text-white text-[9px] font-extrabold flex items-center justify-center">
+                {pendingCount > 99 ? "99+" : pendingCount}
+              </span>
+            )}
+          </Link>
+        ) : canViewReports ? (
+          <Link
+            href="/finance"
+            className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-semibold transition-colors ${
+              pathname.startsWith("/finance") ? "text-[#E42528]" : "text-gray-600"
+            }`}
+          >
+            <span className="text-base leading-none mb-0.5">💹</span>
+            <span>P&amp;L</span>
+          </Link>
+        ) : (
+          <Link
+            href="/profile"
+            className={`flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-semibold transition-colors ${
+              pathname.startsWith("/profile") ? "text-[#E42528]" : "text-gray-600"
+            }`}
+          >
+            <span className="text-base leading-none mb-0.5">🔑</span>
+            <span>Profile</span>
+          </Link>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setMobileOpen(true)}
+          className="flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-semibold text-gray-600 hover:text-gray-900 cursor-pointer"
+        >
+          <span className="text-base leading-none mb-0.5">☰</span>
+          <span>Menu</span>
+        </button>
+      </nav>
+    </>
   );
 }

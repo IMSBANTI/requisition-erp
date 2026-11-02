@@ -31,11 +31,11 @@ export default async function MDBatchApprovalPage() {
 
   return (
     <AppShell>
-      <div className="p-6 max-w-6xl mx-auto w-full">
+      <div className="p-3 sm:p-6 max-w-6xl mx-auto w-full">
         <div className="pb-4 border-b border-gray-200">
           <div className="flex items-center space-x-2">
             <span className="text-xl">⚡</span>
-            <h1 className="text-xl font-bold text-gray-900 tracking-tight">
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
               Managing Director — Batch Approval Queue
             </h1>
           </div>
