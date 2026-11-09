@@ -1061,17 +1061,15 @@ export default function AdminProjectsClient({
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-700">Bill Cycle (Days)</label>
-                    <select
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="e.g. 15, 30, 60"
                       value={editBillCycleDays}
                       onChange={(e) => setEditBillCycleDays(e.target.value)}
-                      className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs bg-white"
-                    >
-                      <option value="0">0 days (Prepaid / Immediate)</option>
-                      <option value="15">15 days</option>
-                      <option value="30">30 days</option>
-                      <option value="45">45 days</option>
-                      <option value="60">60 days</option>
-                    </select>
+                      className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
+                    />
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-700">Funding Mode</label>
@@ -1100,7 +1098,7 @@ export default function AdminProjectsClient({
                 </div>
 
                 {/* Extra fields for FIXED_FEE / FIXED_QUOTE or Project Variance */}
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-1">
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-3 pt-1">
                   <div>
                     <label className="block text-xs font-semibold text-gray-700">
                       {editKind === "EVENT"
@@ -1125,16 +1123,15 @@ export default function AdminProjectsClient({
                     <>
                       <div>
                         <label className="block text-xs font-semibold text-gray-700">
-                          Salary Month Lag (0 or 1)
+                          Maintenance Budget (BDT)
                         </label>
-                        <select
-                          value={editSalaryMonthLag}
-                          onChange={(e) => setEditSalaryMonthLag(e.target.value)}
-                          className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs bg-white"
-                        >
-                          <option value="1">1 Month Lag (Prev month salary)</option>
-                          <option value="0">0 Lag (Same month salary)</option>
-                        </select>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={editMaintenanceBudget}
+                          onChange={(e) => setEditMaintenanceBudget(e.target.value)}
+                          className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
+                        />
                       </div>
                       <div>
                         <label className="block text-xs font-semibold text-gray-700">
@@ -1147,6 +1144,19 @@ export default function AdminProjectsClient({
                           onChange={(e) => setEditMonthlyAmortization(e.target.value)}
                           className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
                         />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700">
+                          Salary Month Lag (0 or 1)
+                        </label>
+                        <select
+                          value={editSalaryMonthLag}
+                          onChange={(e) => setEditSalaryMonthLag(e.target.value)}
+                          className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs bg-white"
+                        >
+                          <option value="1">1 Month Lag (Prev month salary)</option>
+                          <option value="0">0 Lag (Same month salary)</option>
+                        </select>
                       </div>
                     </>
                   )}
@@ -1550,9 +1560,18 @@ export default function AdminProjectsClient({
 
               {/* Billing Profile in New Modal */}
               <div className="p-3.5 bg-blue-50/50 rounded-lg border border-blue-200 space-y-3">
-                <h4 className="text-xs font-bold text-gray-900">
-                  Billing Profile & Profit Calculation Terms
-                </h4>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-xs font-bold text-gray-900">
+                    Billing Profile &amp; Profit Calculation Terms
+                  </h4>
+                  <span className="text-[11px] text-gray-500">
+                    {billingProfile === "COMMISSION"
+                      ? "AIT is calculated on Commission only"
+                      : billingProfile === "COST_PLUS_GROSSUP"
+                      ? "AIT is grossed up into Client Bill Ex-VAT"
+                      : "AIT is deducted from total Client Bill Ex-VAT"}
+                  </span>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                   <div className="sm:col-span-2">
                     <label className="block text-xs font-semibold text-gray-700">Billing Model</label>
@@ -1566,7 +1585,9 @@ export default function AdminProjectsClient({
                         COST_PLUS_GROSSUP (Cost + Fee % + AIT Gross-up)
                       </option>
                       {kind !== "EVENT" && (
-                        <option value="COMMISSION">COMMISSION (Pass-through + Commission %)</option>
+                        <option value="COMMISSION">
+                          COMMISSION (Pass-through + Commission %; AIT on Commission only)
+                        </option>
                       )}
                       {kind !== "EVENT" ? (
                         <option value="FIXED_FEE">FIXED_FEE (Fixed Monthly Client Bill)</option>
@@ -1576,28 +1597,74 @@ export default function AdminProjectsClient({
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700">Fee / Comm (%)</label>
+                    <label className="block text-xs font-semibold text-gray-700">
+                      {billingProfile === "COMMISSION"
+                        ? "Commission (%)"
+                        : kind === "EVENT"
+                        ? "Agency Fee (%)"
+                        : "Management Fee (%)"}
+                    </label>
                     <input
                       type="number"
                       step="0.01"
                       value={feeRatePct}
                       onChange={(e) => setFeeRatePct(e.target.value)}
-                      className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
+                      disabled={billingProfile === "FIXED_FEE" || billingProfile === "FIXED_QUOTE"}
+                      className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono font-bold bg-white disabled:bg-gray-100"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700">AIT (%)</label>
+                    <label className="block text-xs font-semibold text-gray-700">
+                      {billingProfile === "COMMISSION"
+                        ? "AIT on Comm (%)"
+                        : billingProfile === "COST_PLUS_GROSSUP"
+                        ? "AIT Gross-up (%)"
+                        : "AIT Rate (%)"}
+                    </label>
                     <input
                       type="number"
                       step="0.01"
                       value={aitRatePct}
                       onChange={(e) => setAitRatePct(e.target.value)}
-                      className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
+                      className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono font-bold bg-white"
                     />
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700">VAT (%)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={vatRatePct}
+                      onChange={(e) => setVatRatePct(e.target.value)}
+                      className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700">Bill Cycle (Days)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      placeholder="e.g. 15, 30, 60"
+                      value={billCycleDays}
+                      onChange={(e) => setBillCycleDays(e.target.value)}
+                      className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700">Funding Mode</label>
+                    <select
+                      value={funding}
+                      onChange={(e) => setFunding(e.target.value)}
+                      className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs bg-white"
+                    >
+                      <option value="POSTPAID">Postpaid (IMS funds first)</option>
+                      <option value="PREPAID">Prepaid (Client advances)</option>
+                    </select>
+                  </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-700">
                       {kind === "EVENT" ? "Approved Event Budget (BDT)" : "Monthly Target Budget (BDT)"}
@@ -1611,9 +1678,12 @@ export default function AdminProjectsClient({
                       className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
                     />
                   </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-gray-700">
-                      {kind === "EVENT" ? "Fixed Event Client PO Ex-VAT" : "Fixed Monthly Bill Ex-VAT"}
+                      {kind === "EVENT" ? "Fixed Event PO Ex-VAT" : "Fixed Monthly Bill Ex-VAT"}
                     </label>
                     <input
                       type="number"
@@ -1624,15 +1694,153 @@ export default function AdminProjectsClient({
                       className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
                     />
                   </div>
+                  {kind !== "EVENT" && (
+                    <>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700">
+                          Maintenance Budget (BDT)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={maintenanceBudget}
+                          onChange={(e) => setMaintenanceBudget(e.target.value)}
+                          className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700">
+                          Monthly Amortization (BDT)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={monthlyAmortization}
+                          onChange={(e) => setMonthlyAmortization(e.target.value)}
+                          className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-700">
+                          Salary Month Lag
+                        </label>
+                        <select
+                          value={salaryMonthLag}
+                          onChange={(e) => setSalaryMonthLag(e.target.value)}
+                          className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs bg-white"
+                        >
+                          <option value="1">1 Month Lag</option>
+                          <option value="0">0 Lag (Same month)</option>
+                        </select>
+                      </div>
+                    </>
+                  )}
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700">Allowed Voucher Tags</label>
+                    <label className="block text-xs font-semibold text-gray-700">
+                      Variance Threshold (%)
+                    </label>
                     <input
-                      type="text"
-                      value={typesStr}
-                      onChange={(e) => setTypesStr(e.target.value)}
+                      type="number"
+                      step="0.5"
+                      value={varianceThresholdPct}
+                      onChange={(e) => setVarianceThresholdPct(e.target.value)}
                       className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
                     />
                   </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-700">Allowed Voucher Tags</label>
+                  <input
+                    type="text"
+                    value={typesStr}
+                    onChange={(e) => setTypesStr(e.target.value)}
+                    className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
+                  />
+                </div>
+              </div>
+
+              {/* Cost Heads in New Modal */}
+              <div className="p-3.5 bg-gray-50 rounded-lg border border-gray-200 space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-xs font-bold text-gray-900">
+                    Cost Heads (BILLABLE vs. IMS_INVESTMENT)
+                  </h4>
+                  <span className="text-[11px] text-gray-500">
+                    Click any tag to toggle Billable vs IMS Investment, or add custom cost heads
+                  </span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-40 overflow-y-auto pr-1">
+                  {costHeads.map((ch, idx) => (
+                    <div
+                      key={ch.id || idx}
+                      className="flex items-center justify-between px-2.5 py-1 bg-white rounded border border-gray-200 text-xs"
+                    >
+                      <span className="font-medium text-gray-800 truncate mr-2">{ch.name}</span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const updated = [...costHeads];
+                            updated[idx] = {
+                              ...updated[idx],
+                              tag: updated[idx].tag === "BILLABLE" ? "IMS_INVESTMENT" : "BILLABLE",
+                            };
+                            setCostHeads(updated);
+                          }}
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold border cursor-pointer ${
+                            ch.tag === "BILLABLE"
+                              ? "bg-green-50 text-green-800 border-green-200"
+                              : "bg-amber-50 text-amber-800 border-amber-200"
+                          }`}
+                        >
+                          {ch.tag}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setCostHeads(costHeads.filter((_, i) => i !== idx))}
+                          className="text-gray-400 hover:text-red-600 font-bold px-1 cursor-pointer"
+                        >
+                          &times;
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <input
+                    type="text"
+                    placeholder="Add custom Cost Head name..."
+                    value={newHeadName}
+                    onChange={(e) => setNewHeadName(e.target.value)}
+                    className="px-2.5 py-1 border border-gray-300 rounded text-xs bg-white flex-1 min-w-[160px]"
+                  />
+                  <select
+                    value={newHeadTag}
+                    onChange={(e) => setNewHeadTag(e.target.value as "BILLABLE" | "IMS_INVESTMENT")}
+                    className="px-2 py-1 border border-gray-300 rounded text-xs font-bold bg-white"
+                  >
+                    <option value="BILLABLE">BILLABLE</option>
+                    <option value="IMS_INVESTMENT">IMS_INVESTMENT</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!newHeadName.trim()) return;
+                      setCostHeads([
+                        ...costHeads,
+                        {
+                          id: `custom_${Date.now()}`,
+                          name: newHeadName.trim(),
+                          tag: newHeadTag,
+                        },
+                      ]);
+                      setNewHeadName("");
+                    }}
+                    className="px-2.5 py-1 text-xs font-bold text-white bg-gray-900 hover:bg-gray-800 rounded cursor-pointer"
+                  >
+                    + Add Head
+                  </button>
                 </div>
               </div>
 
