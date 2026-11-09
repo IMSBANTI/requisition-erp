@@ -2712,7 +2712,7 @@ export default function FinanceClient({
                   Open Disburse View →
                 </button>
                 <a
-                  href="/approvals"
+                  href="/requisitions?filter=pending"
                   className="text-xs font-bold text-[#E42528] hover:underline"
                 >
                   Open Approvals →
@@ -4641,7 +4641,7 @@ export default function FinanceClient({
                   {approvalPipelineCounts.totalPending} requisitions waiting in the approval chain.
                 </p>
                 <a
-                  href="/approvals"
+                  href="/requisitions?filter=pending"
                   className="inline-block mt-1 text-xs font-bold text-[#E42528] hover:underline"
                 >
                   Open Approvals Queue →
