@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import {
   resolveCostHeadsForKind,
   getDefaultProjectTermsByCode,
+  extractProjectMeta,
 } from "@/lib/profitEngine";
 import AppShell from "@/components/AppShell";
 import AdminProjectsClient from "./AdminProjectsClient";
@@ -14,12 +15,9 @@ export const revalidate = 0;
 export default async function AdminProjectsPage() {
   const user = await requireUser();
 
-  const canEditProjects = user.permissions.includes("project.manage");
-  const canViewProjects = canEditProjects || user.permissions.includes("project.view");
-
-  if (!canViewProjects) {
-    redirect("/?denied=1");
-  }
+  const isSuperAdmin =
+    user.permissions.includes("project.manage") ||
+    user.permissions.includes("admin.users");
 
   const [projects, companies, users] = await Promise.all([
     prisma.project.findMany({
@@ -39,22 +37,44 @@ export default async function AdminProjectsPage() {
     }),
   ]);
 
+  const isGroupHead =
+    Boolean(user.role.isManager) ||
+    projects.some((p: any) => p.headId === user.id);
+
   return (
     <AppShell>
       <div className="p-3 sm:p-6 max-w-7xl mx-auto w-full">
-        <div className="pb-4 border-b border-gray-200">
-          <h1 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
-            Projects & Events — Workflow, Billing & Profit Setup
-          </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Strictly separated setup for Projects (monthly recurring) and Events (campaign/activation), including Billing Profiles, Cost Heads (Billable vs IMS Investment), and approval chains.
-          </p>
+        <div className="pb-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
+              Projects & Events — Workflow, Billing & Profit Setup
+            </h1>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Strictly separated setup for Projects (monthly recurring) and Events (campaign/activation), including Billing Profiles, Cost Heads (Billable vs IMS Investment), and approval chains.
+            </p>
+          </div>
+          <div className="text-xs">
+            {isSuperAdmin ? (
+              <span className="px-2.5 py-1 rounded-full bg-red-50 text-[#E42528] border border-red-200 font-bold">
+                🔑 Admin — Full Access (All Projects)
+              </span>
+            ) : isGroupHead ? (
+              <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-800 border border-blue-200 font-bold">
+                👤 Group Head — Edit Your Assigned Projects (Others Read-Only)
+              </span>
+            ) : (
+              <span className="px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 border border-gray-200 font-semibold">
+                👁️ Read-Only View
+              </span>
+            )}
+          </div>
         </div>
 
         <AdminProjectsClient
           projects={projects.map((p: any) => {
             const isEvent = p.kind === "EVENT" || p.code?.toUpperCase().startsWith("EVT-");
             const fallbackTerms = getDefaultProjectTermsByCode(p.code, p.kind);
+            const meta = extractProjectMeta(p.costHeads);
             return {
               id: p.id,
               code: p.code,
@@ -86,11 +106,15 @@ export default async function AdminProjectsPage() {
               monthlyAmortization: p.monthlyAmortization ? Number(p.monthlyAmortization) : Number(fallbackTerms.monthlyAmortization ?? 0),
               varianceThresholdPct: p.varianceThresholdPct ? Number(p.varianceThresholdPct) : 10,
               costHeads: resolveCostHeadsForKind(p.costHeads, isEvent),
+              stepThresholds: meta.stepThresholds || {},
             };
           })}
           companies={companies}
           users={users}
-          isReadOnly={!canEditProjects}
+          currentUserId={user.id}
+          isSuperAdmin={isSuperAdmin}
+          canCreateProject={isSuperAdmin || isGroupHead}
+          isReadOnly={!isSuperAdmin && !isGroupHead}
         />
       </div>
     </AppShell>

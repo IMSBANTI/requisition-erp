@@ -44,7 +44,8 @@ const ACTION_TITLES: Record<string, string> = {
   APPROVE_TO_DIRECTOR: "Sign & Send to Director",
   APPROVE_TO_MD: "Sign & Forward to Managing Director (MD)",
   FORWARD: "Sign by Accounts & Assign Executive to Pay",
-  EXECUTE: "Sign by Accounts & Pay Money (Mark Disbursed)",
+  EXECUTE: "Sign by Accounts & Pay Money (Full or Partial Disbursement)",
+  SETTLE: "Settle Requisition Remainder (Close & Cancel Unpaid Balance)",
   RETURN: "Return Requisition for Correction",
   REJECT: "Reject Requisition",
   DELETE: "Permanently Delete Requisition",
@@ -78,6 +79,10 @@ export default function RequisitionActionPanel({
   const [showDrawPad, setShowDrawPad] = useState(!userSignature);
   const [adjustLowerMode, setAdjustLowerMode] = useState(false);
   const [adjustedPrices, setAdjustedPrices] = useState<Record<string, string>>({});
+  const [partialDisburseMode, setPartialDisburseMode] = useState(false);
+  const [disburseAmounts, setDisburseAmounts] = useState<Record<string, string>>({});
+  const [paymentMethod, setPaymentMethod] = useState("Bank");
+  const [paymentRef, setPaymentRef] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -111,11 +116,15 @@ export default function RequisitionActionPanel({
     setError("");
     setShowDrawPad(!userSignature);
     setAdjustLowerMode(false);
+    setPartialDisburseMode(false);
     const initialMap: Record<string, string> = {};
+    const initialDisburseMap: Record<string, string> = {};
     for (const it of items) {
       initialMap[it.id] = String(it.unitPrice);
+      initialDisburseMap[it.id] = String(it.amount);
     }
     setAdjustedPrices(initialMap);
+    setDisburseAmounts(initialDisburseMap);
     // Pre-fill email if user doesn't have a 4-digit PIN set for faster 1-click signing
     if (!hasPin && userEmail) {
       setPinOrPassword(userEmail);
@@ -169,6 +178,18 @@ export default function RequisitionActionPanel({
                 ),
               }))
             : undefined,
+          disbursementLines:
+            selectedAction === "EXECUTE" && partialDisburseMode
+              ? items.map((it) => ({
+                  id: it.id,
+                  disbursedAmount: Math.min(
+                    it.amount,
+                    Math.max(0, parseFloat(disburseAmounts[it.id]) || 0)
+                  ),
+                }))
+              : undefined,
+          paymentMethod: selectedAction === "EXECUTE" ? paymentMethod : undefined,
+          paymentRef: selectedAction === "EXECUTE" ? paymentRef : undefined,
         }),
       });
 
@@ -331,10 +352,24 @@ export default function RequisitionActionPanel({
             >
               <span>💰</span>
               <span>
-                {isAccountsMgr
+                {status === "PARTIAL_PAID"
+                  ? "Disburse Next Installment"
+                  : isAccountsMgr
                   ? "Sign by Accounts & Pay Money Now"
                   : "Sign & Pay Money (Mark Disbursed)"}
               </span>
+            </button>
+          )}
+
+          {/* 5B. Accounts Manager / Executive: Settle Remainder (Close Partial Requisition) */}
+          {actions.includes("SETTLE") && (
+            <button
+              type="button"
+              onClick={() => openActionModal("SETTLE")}
+              className="px-3.5 py-2 text-xs font-bold text-teal-900 bg-teal-50 hover:bg-teal-100 rounded-lg border border-teal-300 shadow-sm transition-colors cursor-pointer flex items-center gap-1.5"
+            >
+              <span>✓</span>
+              <span>Settle Remainder</span>
             </button>
           )}
 
@@ -462,6 +497,87 @@ export default function RequisitionActionPanel({
               selectedAction !== "RETURN" &&
               selectedAction !== "DELETE" && (
               <>
+                {items.length > 0 && selectedAction === "EXECUTE" && (
+                  <div className="mt-4 p-3 rounded-lg border border-emerald-200 bg-emerald-50/50 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-emerald-950">
+                        Disbursement Method &amp; Partial Line Payment
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setPartialDisburseMode(!partialDisburseMode)}
+                        className="text-[11px] font-bold text-emerald-800 hover:underline cursor-pointer"
+                      >
+                        {partialDisburseMode
+                          ? "Pay Full Amount"
+                          : "✂️ Record Partial Disbursement per Line"}
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block text-[10px] font-semibold text-gray-700">
+                          Payment Method
+                        </label>
+                        <select
+                          value={paymentMethod}
+                          onChange={(e) => setPaymentMethod(e.target.value)}
+                          className="mt-0.5 block w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white font-semibold"
+                        >
+                          <option value="Bank">Bank Transfer</option>
+                          <option value="Cash">Cash</option>
+                          <option value="Cheque">Cheque</option>
+                          <option value="MFS">bKash / Nagad (MFS)</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-semibold text-gray-700">
+                          Bank / Cheque / MFS Ref
+                        </label>
+                        <input
+                          type="text"
+                          value={paymentRef}
+                          onChange={(e) => setPaymentRef(e.target.value)}
+                          placeholder="Optional ref #"
+                          className="mt-0.5 block w-full px-2 py-1 border border-gray-300 rounded text-xs bg-white"
+                        />
+                      </div>
+                    </div>
+                    {partialDisburseMode && (
+                      <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto pr-1">
+                        {items.map((it) => (
+                          <div
+                            key={it.id}
+                            className="flex items-center justify-between gap-2 bg-white px-2.5 py-1.5 rounded border border-gray-200 text-xs"
+                          >
+                            <div className="truncate flex-1">
+                              <span className="font-semibold text-gray-800">
+                                {it.sl}. {it.particulars}
+                              </span>
+                              <span className="block text-[10px] text-gray-400">
+                                Approved Line Total: Tk {it.amount}
+                              </span>
+                            </div>
+                            <input
+                              type="number"
+                              step="any"
+                              min="0"
+                              max={it.amount}
+                              value={disburseAmounts[it.id] ?? String(it.amount)}
+                              onChange={(e) =>
+                                setDisburseAmounts({
+                                  ...disburseAmounts,
+                                  [it.id]: e.target.value,
+                                })
+                              }
+                              className="w-28 px-2 py-1 border border-emerald-400 rounded text-right font-mono font-bold text-xs"
+                            />
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {items.length > 0 && selectedAction.startsWith("APPROVE") && (
                   <div className="mt-4 p-3 rounded-lg border border-amber-200 bg-amber-50/50">
                     <div className="flex items-center justify-between">

@@ -42,12 +42,22 @@ interface ProjectItem {
   monthlyAmortization?: number;
   varianceThresholdPct?: number;
   costHeads?: CostHeadConfig[];
+  stepThresholds?: {
+    HEAD?: number;
+    CHECKER?: number;
+    ACCOUNTS?: number;
+    DIRECTOR?: number;
+    MD?: number;
+  };
 }
 
 interface Props {
   projects: ProjectItem[];
   companies: any[];
   users: any[];
+  currentUserId?: string;
+  isSuperAdmin?: boolean;
+  canCreateProject?: boolean;
   isReadOnly: boolean;
 }
 
@@ -62,13 +72,28 @@ const PROFILE_BADGES: Record<string, { label: string; color: string }> = {
   FIXED_QUOTE: { label: "FIXED EVENT QUOTE", color: "bg-teal-50 text-teal-800 border-teal-200" },
 };
 
-export default function AdminProjectsClient({ projects, companies, users, isReadOnly }: Props) {
+export default function AdminProjectsClient({
+  projects,
+  companies,
+  users,
+  currentUserId = "",
+  isSuperAdmin = false,
+  canCreateProject = false,
+  isReadOnly,
+}: Props) {
   const router = useRouter();
   const [projectList, setProjectList] = useState<ProjectItem[]>(projects);
 
   useEffect(() => {
     setProjectList(projects);
   }, [projects]);
+
+  function canEditProjectItem(p: ProjectItem | null): boolean {
+    if (!p) return false;
+    if (isSuperAdmin) return true;
+    if (currentUserId && p.headId === currentUserId) return true;
+    return false;
+  }
 
   // Strictly separate Projects vs. Events in two tabs
   const [activeTab, setActiveTab] = useState<"PROJECT" | "EVENT">("PROJECT");
@@ -135,6 +160,18 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
   const [editCostHeads, setEditCostHeads] = useState<CostHeadConfig[]>(DEFAULT_PROJECT_COST_HEADS);
   const [editNewHeadName, setEditNewHeadName] = useState("");
   const [editNewHeadTag, setEditNewHeadTag] = useState<"BILLABLE" | "IMS_INVESTMENT">("BILLABLE");
+  const [editNewHeadAliases, setEditNewHeadAliases] = useState("");
+
+  // Approval Step Minimum Amount Thresholds (Priority 2A: min_amount per step)
+  const [editHeadMinAmt, setEditHeadMinAmt] = useState("0");
+  const [editCheckerMinAmt, setEditCheckerMinAmt] = useState("0");
+  const [editAccountsMinAmt, setEditAccountsMinAmt] = useState("0");
+  const [editDirectorMinAmt, setEditDirectorMinAmt] = useState("0");
+  const [editMdMinAmt, setEditMdMinAmt] = useState("0");
+
+  // Interactive Live Profit Simulator override inputs in Edit/View Modal
+  const [simBillableInput, setSimBillableInput] = useState("");
+  const [simImsInput, setSimImsInput] = useState("");
 
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
@@ -175,6 +212,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
     setCategory(isEvt ? "OPERATIONS_EVENT" : "OUTSOURCING");
     setTypesStr(isEvt ? "EVENT, CASH, ADMIN" : "BPO, ADMIN, CASH");
     setMdApprovalMode(isEvt ? "INSTANT" : "MONTHLY");
+    setHeadId(isSuperAdmin ? "" : currentUserId || "");
     setBillingProfile(isEvt ? "FIXED_QUOTE" : "COST_PLUS");
     setFeeRatePct(isEvt ? "10" : "8");
     setAitRatePct(isEvt ? "2" : "1.2");
@@ -229,19 +267,30 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
         ? DEFAULT_EVENT_COST_HEADS
         : DEFAULT_PROJECT_COST_HEADS
     );
+    setEditHeadMinAmt(String(p.stepThresholds?.HEAD ?? 0));
+    setEditCheckerMinAmt(String(p.stepThresholds?.CHECKER ?? 0));
+    setEditAccountsMinAmt(String(p.stepThresholds?.ACCOUNTS ?? 0));
+    setEditDirectorMinAmt(String(p.stepThresholds?.DIRECTOR ?? 0));
+    setEditMdMinAmt(String(p.stepThresholds?.MD ?? 0));
+    setSimBillableInput("");
+    setSimImsInput("");
     setMsg("");
     setErrorMsg("");
   }
 
-  // Live simulation preview inside Edit modal
+  // Live simulation preview inside Edit modal (interactive for both Edit & Read-Only users!)
   const editPreview = useMemo(() => {
-    const sampleBillable =
+    const defaultBillable =
       editBillingProfile === "FIXED_FEE"
         ? 0
         : editBillingProfile === "FIXED_QUOTE"
         ? Number(editBudget) || 800000
         : 1000000;
-    const sampleImsInv = editBillingProfile === "FIXED_FEE" ? 0 : 25000;
+    const defaultImsInv = editBillingProfile === "FIXED_FEE" ? 0 : 25000;
+    const sampleBillable =
+      simBillableInput !== "" ? Math.max(0, parseFloat(simBillableInput) || 0) : defaultBillable;
+    const sampleImsInv =
+      simImsInput !== "" ? Math.max(0, parseFloat(simImsInput) || 0) : defaultImsInv;
     return calculateProfitSummary({
       terms: {
         billingProfile: editBillingProfile,
@@ -264,6 +313,8 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
     editMaintenanceBudget,
     editMonthlyAmortization,
     editBudget,
+    simBillableInput,
+    simImsInput,
   ]);
 
   async function handleCreateProject(e: React.FormEvent) {
@@ -360,6 +411,13 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
           monthlyAmortization: editMonthlyAmortization ? Number(editMonthlyAmortization) : 0,
           varianceThresholdPct: parseFloat(editVarianceThresholdPct) || 10,
           costHeads: editCostHeads,
+          stepThresholds: {
+            HEAD: Math.max(0, parseFloat(editHeadMinAmt) || 0),
+            CHECKER: Math.max(0, parseFloat(editCheckerMinAmt) || 0),
+            ACCOUNTS: Math.max(0, parseFloat(editAccountsMinAmt) || 0),
+            DIRECTOR: Math.max(0, parseFloat(editDirectorMinAmt) || 0),
+            MD: Math.max(0, parseFloat(editMdMinAmt) || 0),
+          },
         }),
       });
 
@@ -467,7 +525,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
             className="text-xs border border-gray-300 rounded-md px-2.5 py-1.5 w-48"
           />
 
-          {!isReadOnly && (
+          {canCreateProject && (
             <button
               type="button"
               onClick={() => openNewModalForTab(activeTab)}
@@ -500,7 +558,7 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                 <th className="py-2.5 px-4">Cost Heads</th>
                 <th className="py-2.5 px-4">Assigned Head & Director</th>
                 <th className="py-2.5 px-4 text-center">Status</th>
-                {!isReadOnly && <th className="py-2.5 px-4 text-center">Actions</th>}
+                <th className="py-2.5 px-4 text-center">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
@@ -609,24 +667,36 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                           {p.active ? "Active" : "Archived"}
                         </span>
                       </td>
-                      {!isReadOnly && (
-                        <td className="py-3 px-4 text-center whitespace-nowrap space-x-1.5">
+                      <td className="py-3 px-4 text-center whitespace-nowrap space-x-1.5">
+                        {canEditProjectItem(p) ? (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => openEditModal(p)}
+                              className="px-2.5 py-1 text-[11px] font-semibold bg-gray-900 hover:bg-gray-800 text-white rounded cursor-pointer"
+                            >
+                              ⚙️ Setup & Billing
+                            </button>
+                            {isSuperAdmin && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteProject(p)}
+                                className="px-2 py-1 text-[11px] font-semibold bg-red-50 hover:bg-red-100 text-red-700 rounded border border-red-200 cursor-pointer"
+                              >
+                                🗑️
+                              </button>
+                            )}
+                          </>
+                        ) : (
                           <button
                             type="button"
                             onClick={() => openEditModal(p)}
-                            className="px-2.5 py-1 text-[11px] font-semibold bg-gray-900 hover:bg-gray-800 text-white rounded cursor-pointer"
+                            className="px-2.5 py-1 text-[11px] font-semibold bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 rounded cursor-pointer"
                           >
-                            ⚙️ Setup & Billing
+                            👁️ View Setup
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteProject(p)}
-                            className="px-2 py-1 text-[11px] font-semibold bg-red-50 hover:bg-red-100 text-red-700 rounded border border-red-200 cursor-pointer"
-                          >
-                            🗑️
-                          </button>
-                        </td>
-                      )}
+                        )}
+                      </td>
                     </tr>
                   );
                 })
@@ -636,19 +706,26 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
         </div>
       </div>
 
-      {/* Edit Project / Event Setup & Billing Modal */}
+      {/* Edit / View Project / Event Setup & Billing Modal */}
       {editingProject && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-6 border border-gray-200 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-gray-200">
               <div>
-                <h3 className="text-sm font-bold text-gray-900">
-                  {editKind === "EVENT"
-                    ? `🎪 Event Setup, Billing & Cost Heads — ${editingProject.name}`
-                    : `📁 Project Setup, Billing & Cost Heads — ${editingProject.name}`}
-                </h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-bold text-gray-900">
+                    {editKind === "EVENT"
+                      ? `🎪 Event Setup, Billing & Cost Heads — ${editingProject.name}`
+                      : `📁 Project Setup, Billing & Cost Heads — ${editingProject.name}`}
+                  </h3>
+                  {!canEditProjectItem(editingProject) && (
+                    <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-700 border border-gray-300 text-[10px] font-bold">
+                      👁️ Read-Only (Live Simulator Active)
+                    </span>
+                  )}
+                </div>
                 <p className="text-xs text-gray-500">
-                  Configure workflow approvers, billing formula (Fee, AIT, VAT), and Cost Heads (Billable vs IMS Investment).
+                  Configure workflow approvers, step amount thresholds, billing formula (Fee, AIT, VAT), and Cost Heads (Billable vs IMS Investment).
                 </p>
               </div>
               <button
@@ -819,6 +896,82 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                       onChange={(e) => setEditTypesStr(e.target.value)}
                       className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
                     />
+                  </div>
+                </div>
+
+                {/* Priority 2A: Approval Chain Step Minimum Amount Thresholds (min_amount) */}
+                <div className="pt-2 border-t border-gray-200">
+                  <div className="flex flex-wrap items-center justify-between gap-1 mb-2">
+                    <span className="text-[11px] font-bold text-gray-800">
+                      ⚡ Approval Step Minimum BDT Thresholds (0 = always required; skip step if Requisition Total &lt; Min BDT)
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-semibold text-gray-600">
+                        1. Head Min (BDT)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1000"
+                        value={editHeadMinAmt}
+                        onChange={(e) => setEditHeadMinAmt(e.target.value)}
+                        className="mt-0.5 block w-full px-2 py-1 border border-gray-300 rounded text-xs font-mono bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold text-gray-600">
+                        2. Checker Min (BDT)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1000"
+                        value={editCheckerMinAmt}
+                        onChange={(e) => setEditCheckerMinAmt(e.target.value)}
+                        className="mt-0.5 block w-full px-2 py-1 border border-gray-300 rounded text-xs font-mono bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold text-gray-600">
+                        3. Accounts Min (BDT)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1000"
+                        value={editAccountsMinAmt}
+                        onChange={(e) => setEditAccountsMinAmt(e.target.value)}
+                        className="mt-0.5 block w-full px-2 py-1 border border-gray-300 rounded text-xs font-mono bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold text-gray-600">
+                        4. Director Min (BDT)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1000"
+                        value={editDirectorMinAmt}
+                        onChange={(e) => setEditDirectorMinAmt(e.target.value)}
+                        className="mt-0.5 block w-full px-2 py-1 border border-gray-300 rounded text-xs font-mono bg-white"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-semibold text-gray-600">
+                        5. MD Min (BDT)
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="1000"
+                        value={editMdMinAmt}
+                        onChange={(e) => setEditMdMinAmt(e.target.value)}
+                        className="mt-0.5 block w-full px-2 py-1 border border-gray-300 rounded text-xs font-mono bg-white"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1012,47 +1165,76 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                   </div>
                 </div>
 
-                {/* Live Formula Simulation Bar */}
-                <div className="mt-2 p-3 bg-white rounded-lg border border-blue-200 grid grid-cols-2 sm:grid-cols-6 gap-2 text-[11px]">
-                  <div>
-                    <span className="text-gray-400 block">Sample Billable</span>
-                    <span className="font-mono font-bold text-gray-800">
-                      Tk {formatTaka(editPreview.billableCost)}
+                {/* Live Formula Simulation Bar (Always interactive even in Read-Only mode per Handover v3 T07) */}
+                <div className="mt-2 p-3 bg-white rounded-lg border border-blue-200 space-y-2.5">
+                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-gray-100">
+                    <span className="text-[11px] font-bold text-blue-900">
+                      🧮 Interactive Live Profit Check Simulator — Test Any Billable / IMS Investment Numbers
                     </span>
+                    <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                      <label className="flex items-center gap-1 text-gray-600 font-semibold">
+                        Test Billable (Tk):
+                        <input
+                          type="number"
+                          placeholder={String(editPreview.billableCost)}
+                          value={simBillableInput}
+                          onChange={(e) => setSimBillableInput(e.target.value)}
+                          className="w-28 px-2 py-0.5 border border-blue-300 rounded font-mono font-bold text-gray-900 bg-blue-50/40"
+                        />
+                      </label>
+                      <label className="flex items-center gap-1 text-gray-600 font-semibold">
+                        Test IMS Inv (Tk):
+                        <input
+                          type="number"
+                          placeholder={String(editPreview.imsInvestment)}
+                          value={simImsInput}
+                          onChange={(e) => setSimImsInput(e.target.value)}
+                          className="w-24 px-2 py-0.5 border border-amber-300 rounded font-mono font-bold text-gray-900 bg-amber-50/40"
+                        />
+                      </label>
+                    </div>
                   </div>
-                  <div>
-                    <span className="text-gray-400 block">Bill (Ex-VAT)</span>
-                    <span className="font-mono font-bold text-gray-900">
-                      Tk {formatTaka(editPreview.billExVat)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 block">VAT ({editPreview.vatRatePct}%)</span>
-                    <span className="font-mono font-semibold text-gray-600">
-                      Tk {formatTaka(editPreview.vatAmount)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 block">Bill With VAT</span>
-                    <span className="font-mono font-bold text-blue-700">
-                      Tk {formatTaka(editPreview.billWithVat)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 block">AIT ({editPreview.aitRatePct}%)</span>
-                    <span className="font-mono font-semibold text-amber-700">
-                      -Tk {formatTaka(editPreview.aitDeducted)}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="text-gray-400 block">Projected Net Profit</span>
-                    <span
-                      className={`font-mono font-extrabold ${
-                        editPreview.netProfit >= 0 ? "text-emerald-700" : "text-red-600"
-                      }`}
-                    >
-                      Tk {formatTaka(editPreview.netProfit)} ({editPreview.netMarginPct}%)
-                    </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-[11px]">
+                    <div>
+                      <span className="text-gray-400 block">Sample Billable</span>
+                      <span className="font-mono font-bold text-gray-800">
+                        Tk {formatTaka(editPreview.billableCost)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400 block">Bill (Ex-VAT)</span>
+                      <span className="font-mono font-bold text-gray-900">
+                        Tk {formatTaka(editPreview.billExVat)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400 block">VAT ({editPreview.vatRatePct}%)</span>
+                      <span className="font-mono font-semibold text-gray-600">
+                        Tk {formatTaka(editPreview.vatAmount)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400 block">Bill With VAT</span>
+                      <span className="font-mono font-bold text-blue-700">
+                        Tk {formatTaka(editPreview.billWithVat)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400 block">AIT ({editPreview.aitRatePct}%)</span>
+                      <span className="font-mono font-semibold text-amber-700">
+                        -Tk {formatTaka(editPreview.aitDeducted)}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400 block">Projected Net Profit</span>
+                      <span
+                        className={`font-mono font-extrabold ${
+                          editPreview.netProfit >= 0 ? "text-emerald-700" : "text-red-600"
+                        }`}
+                      >
+                        Tk {formatTaka(editPreview.netProfit)} ({editPreview.netMarginPct}%)
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1062,23 +1244,25 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h4 className="text-xs font-bold text-gray-900 uppercase tracking-wider">
-                      3. Configured Cost Heads (BILLABLE vs. IMS_INVESTMENT)
+                      3. Configured Cost Heads (BILLABLE vs. IMS_INVESTMENT) &amp; Import Aliases
                     </h4>
                     <p className="text-[11px] text-gray-500">
-                      Requisition lines under this {editKind === "EVENT" ? "Event" : "Project"} use these Cost Heads to separate Client-Billable costs from IMS Investment costs.
+                      Requisition lines and Excel imports under this {editKind === "EVENT" ? "Event" : "Project"} match these Cost Heads (and optional aliases) to separate Client-Billable costs from IMS Investment costs.
                     </p>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setEditCostHeads(
-                        editKind === "EVENT" ? DEFAULT_EVENT_COST_HEADS : DEFAULT_PROJECT_COST_HEADS
-                      )
-                    }
-                    className="px-2.5 py-1 text-[11px] font-semibold text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-100 cursor-pointer"
-                  >
-                    ↺ Reset to Default {editKind === "EVENT" ? "Event" : "Project"} Cost Heads
-                  </button>
+                  {canEditProjectItem(editingProject) && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditCostHeads(
+                          editKind === "EVENT" ? DEFAULT_EVENT_COST_HEADS : DEFAULT_PROJECT_COST_HEADS
+                        )
+                      }
+                      className="px-2.5 py-1 text-[11px] font-semibold text-gray-700 bg-white border border-gray-300 rounded hover:bg-gray-100 cursor-pointer"
+                    >
+                      ↺ Reset to Default {editKind === "EVENT" ? "Event" : "Project"} Cost Heads
+                    </button>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
@@ -1087,11 +1271,20 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                       key={ch.id || idx}
                       className="flex items-center justify-between px-3 py-1.5 bg-white rounded border border-gray-200 text-xs"
                     >
-                      <span className="font-medium text-gray-900 truncate mr-2">{ch.name}</span>
+                      <div className="truncate mr-2">
+                        <span className="font-medium text-gray-900">{ch.name}</span>
+                        {ch.aliases && ch.aliases.length > 0 && (
+                          <span className="block text-[10px] text-gray-400 truncate">
+                            Aliases: {ch.aliases.join(", ")}
+                          </span>
+                        )}
+                      </div>
                       <div className="flex items-center space-x-1.5 shrink-0">
                         <button
                           type="button"
+                          disabled={!canEditProjectItem(editingProject)}
                           onClick={() => {
+                            if (!canEditProjectItem(editingProject)) return;
                             const updated = [...editCostHeads];
                             updated[idx] = {
                               ...updated[idx],
@@ -1108,75 +1301,94 @@ export default function AdminProjectsClient({ projects, companies, users, isRead
                         >
                           {ch.tag}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setEditCostHeads(editCostHeads.filter((_, i) => i !== idx))
-                          }
-                          className="text-gray-400 hover:text-red-600 font-bold px-1 cursor-pointer"
-                        >
-                          &times;
-                        </button>
+                        {canEditProjectItem(editingProject) && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditCostHeads(editCostHeads.filter((_, i) => i !== idx))
+                            }
+                            className="text-gray-400 hover:text-red-600 font-bold px-1 cursor-pointer"
+                          >
+                            &times;
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
                 </div>
 
                 {/* Add new cost head */}
-                <div className="flex flex-wrap items-center gap-2 pt-1">
-                  <input
-                    type="text"
-                    placeholder="Add custom Cost Head name..."
-                    value={editNewHeadName}
-                    onChange={(e) => setEditNewHeadName(e.target.value)}
-                    className="px-3 py-1.5 border border-gray-300 rounded-md text-xs bg-white flex-1 min-w-[200px]"
-                  />
-                  <select
-                    value={editNewHeadTag}
-                    onChange={(e) =>
-                      setEditNewHeadTag(e.target.value as "BILLABLE" | "IMS_INVESTMENT")
-                    }
-                    className="px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold bg-white"
-                  >
-                    <option value="BILLABLE">BILLABLE (Client Billed)</option>
-                    <option value="IMS_INVESTMENT">IMS_INVESTMENT (IMS Cost)</option>
-                  </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!editNewHeadName.trim()) return;
-                      setEditCostHeads([
-                        ...editCostHeads,
-                        {
-                          id: `custom_${Date.now()}`,
-                          name: editNewHeadName.trim(),
-                          tag: editNewHeadTag,
-                        },
-                      ]);
-                      setEditNewHeadName("");
-                    }}
-                    className="px-3 py-1.5 text-xs font-bold text-white bg-gray-900 hover:bg-gray-800 rounded-md cursor-pointer"
-                  >
-                    + Add Cost Head
-                  </button>
-                </div>
+                {canEditProjectItem(editingProject) && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1">
+                    <input
+                      type="text"
+                      placeholder="Add custom Cost Head name..."
+                      value={editNewHeadName}
+                      onChange={(e) => setEditNewHeadName(e.target.value)}
+                      className="px-3 py-1.5 border border-gray-300 rounded-md text-xs bg-white flex-1 min-w-[180px]"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Excel aliases (comma separated, optional)"
+                      value={editNewHeadAliases}
+                      onChange={(e) => setEditNewHeadAliases(e.target.value)}
+                      className="px-3 py-1.5 border border-gray-300 rounded-md text-xs bg-white flex-1 min-w-[180px]"
+                    />
+                    <select
+                      value={editNewHeadTag}
+                      onChange={(e) =>
+                        setEditNewHeadTag(e.target.value as "BILLABLE" | "IMS_INVESTMENT")
+                      }
+                      className="px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold bg-white"
+                    >
+                      <option value="BILLABLE">BILLABLE (Client Billed)</option>
+                      <option value="IMS_INVESTMENT">IMS_INVESTMENT (IMS Cost)</option>
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!editNewHeadName.trim()) return;
+                        const aliases = editNewHeadAliases
+                          .split(",")
+                          .map((s) => s.trim())
+                          .filter(Boolean);
+                        setEditCostHeads([
+                          ...editCostHeads,
+                          {
+                            id: `custom_${Date.now()}`,
+                            name: editNewHeadName.trim(),
+                            tag: editNewHeadTag,
+                            ...(aliases.length > 0 ? { aliases } : {}),
+                          },
+                        ]);
+                        setEditNewHeadName("");
+                        setEditNewHeadAliases("");
+                      }}
+                      className="px-3 py-1.5 text-xs font-bold text-white bg-gray-900 hover:bg-gray-800 rounded-md cursor-pointer"
+                    >
+                      + Add Cost Head
+                    </button>
+                  </div>
+                )}
               </div>
 
               <div className="mt-5 flex justify-end space-x-2 pt-3 border-t">
                 <button
                   type="button"
                   onClick={() => setEditingProject(null)}
-                  className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 bg-gray-100 rounded"
+                  className="px-3 py-1.5 text-xs font-semibold text-gray-600 hover:text-gray-900 bg-gray-100 rounded cursor-pointer"
                 >
-                  Cancel
+                  {canEditProjectItem(editingProject) ? "Cancel" : "Close View"}
                 </button>
-                <button
-                  type="submit"
-                  disabled={loading}
-                  className="px-5 py-1.5 text-xs font-bold text-white bg-[#E42528] hover:bg-[#B81D20] rounded shadow disabled:opacity-50 cursor-pointer"
-                >
-                  {loading ? "Saving..." : "Save Configuration"}
-                </button>
+                {canEditProjectItem(editingProject) && (
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="px-5 py-1.5 text-xs font-bold text-white bg-[#E42528] hover:bg-[#B81D20] rounded shadow disabled:opacity-50 cursor-pointer"
+                  >
+                    {loading ? "Saving..." : "Save Configuration"}
+                  </button>
+                )}
               </div>
             </form>
           </div>

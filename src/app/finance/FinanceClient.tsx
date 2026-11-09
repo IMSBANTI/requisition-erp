@@ -59,6 +59,25 @@ type ClientBillItem = {
   receivedAt: string;
   deviationReason: string;
   notes: string;
+  isOpeningBalance?: boolean;
+};
+
+type DirectExpenseRow = {
+  id: string;
+  forMonth: string;
+  paidOn: string;
+  costHead: string;
+  costTag: "BILLABLE" | "IMS_INVESTMENT";
+  amount: number;
+  paidVia: string;
+  note: string;
+  status: "PENDING" | "CONFIRMED" | "REJECTED";
+  createdBy: string;
+  createdAt: string;
+  confirmedBy?: string;
+  confirmedAt?: string;
+  rejectReason?: string;
+  batchId?: string;
 };
 
 type RequisitionLineItem = {
@@ -124,6 +143,16 @@ type ProjectFinanceItem = {
   totalReceivedFromBills: number;
   totalExpectedFromBills: number;
   totalBilledWithVat: number;
+  costHeads?: Array<{ id: string; name: string; tag: string; aliases?: string[] }>;
+  closedMonths?: Record<
+    string,
+    { closedAt: string; closedBy: string; noBillReason?: string }
+  >;
+  manualForecasts?: Record<
+    string,
+    { amount: number; note: string; updatedBy: string; updatedAt: string }
+  >;
+  directExpenses?: DirectExpenseRow[];
 };
 
 const BILLING_MODEL_LABELS: Record<string, string> = {
@@ -321,12 +350,16 @@ function buildMatrixForList(
       billExVat: number;
       expectedInflow: number;
       isForecast: boolean;
+      isManualForecast: boolean;
+      manualForecastNote?: string;
       hasActual: boolean;
+      isClosed: boolean;
     }> = [];
 
     for (let i = 0; i < 12; i++) {
       const mKey = `${yearStr}-${String(i + 1).padStart(2, "0")}`;
       const mData = monthMap[mKey];
+      const isClosed = Boolean(p.closedMonths && p.closedMonths[mKey]);
       if (mData && mData.hasData) {
         if (mode === "EXPENSE") {
           const totalExp = mData.billable + mData.ims;
@@ -340,7 +373,9 @@ function buildMatrixForList(
             billExVat: 0,
             expectedInflow: 0,
             isForecast: false,
+            isManualForecast: false,
             hasActual: true,
+            isClosed,
           });
         } else {
           const c = calculateProfitSummary({
@@ -358,7 +393,9 @@ function buildMatrixForList(
             billExVat: c.billExVat,
             expectedInflow: c.expectedInflow,
             isForecast: false,
+            isManualForecast: false,
             hasActual: true,
+            isClosed,
           });
         }
       } else {
@@ -371,7 +408,9 @@ function buildMatrixForList(
           billExVat: 0,
           expectedInflow: 0,
           isForecast: false,
+          isManualForecast: false,
           hasActual: false,
+          isClosed,
         });
       }
     }
@@ -389,13 +428,20 @@ function buildMatrixForList(
     }
 
     for (const cell of cells) {
-      if (
+      const manualEntry = p.manualForecasts?.[cell.monthKey];
+      if (!cell.hasActual && manualEntry !== undefined) {
+        cell.netProfit = Number(manualEntry.amount || 0);
+        cell.isForecast = true;
+        cell.isManualForecast = true;
+        cell.manualForecastNote = manualEntry.note;
+      } else if (
         !cell.hasActual &&
         cell.monthKey > currentYearMonth &&
         forecastMonthlyValue !== null
       ) {
         cell.netProfit = forecastMonthlyValue;
         cell.isForecast = true;
+        cell.isManualForecast = false;
       }
     }
 
@@ -476,9 +522,11 @@ function buildMatrixForList(
 export default function FinanceClient({
   projects,
   canEditFinance,
+  canCloseMonth = false,
 }: {
   projects: ProjectFinanceItem[];
   canEditFinance: boolean;
+  canCloseMonth?: boolean;
 }) {
   const router = useRouter();
 
@@ -667,7 +715,53 @@ export default function FinanceClient({
   const [formReceivedAt, setFormReceivedAt] = useState("");
   const [formDeviation, setFormDeviation] = useState("");
   const [formNotes, setFormNotes] = useState("");
+  const [formIsOpeningBalance, setFormIsOpeningBalance] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Month Close / Reopen Modal State (Priority 1B)
+  const [closeMonthModalOpen, setCloseMonthModalOpen] = useState(false);
+  const [closeMonthTarget, setCloseMonthTarget] = useState<string>(
+    new Date().toISOString().slice(0, 7)
+  );
+  const [closeMonthMode, setCloseMonthMode] = useState<"CLOSE" | "REOPEN">(
+    "CLOSE"
+  );
+  const [closeMonthReason, setCloseMonthReason] = useState("");
+
+  // Manual Forecast Override Modal State (Priority 1C)
+  const [forecastModalOpen, setForecastModalOpen] = useState(false);
+  const [forecastTargetProject, setForecastTargetProject] =
+    useState<ProjectFinanceItem | null>(null);
+  const [forecastTargetMonth, setForecastTargetMonth] = useState("");
+  const [forecastAmountStr, setForecastAmountStr] = useState("");
+  const [forecastNoteStr, setForecastNoteStr] = useState("");
+
+  // Direct Expense & Excel/CSV Import Modal State (Priority 2B)
+  const [directExpModalOpen, setDirectExpModalOpen] = useState(false);
+  const [directExpTab, setDirectExpTab] = useState<"SINGLE" | "CSV">("SINGLE");
+  const [deMonth, setDeMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [dePaidOn, setDePaidOn] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [deCostHead, setDeCostHead] = useState("");
+  const [deCostTag, setDeCostTag] = useState<"BILLABLE" | "IMS_INVESTMENT">(
+    "BILLABLE"
+  );
+  const [deAmount, setDeAmount] = useState("");
+  const [dePaidVia, setDePaidVia] = useState("Cash");
+  const [deNote, setDeNote] = useState("");
+  const [deAutoConfirm, setDeAutoConfirm] = useState(true);
+  const [csvPreviewRows, setCsvPreviewRows] = useState<
+    Array<{
+      forMonth: string;
+      paidOn: string;
+      costHead: string;
+      costTag: "BILLABLE" | "IMS_INVESTMENT";
+      amount: number;
+      paidVia: string;
+      note: string;
+    }>
+  >([]);
 
   const availableMonths = useMemo(() => {
     if (!selectedProject) return [];
@@ -751,7 +845,7 @@ export default function FinanceClient({
     };
   }, [permanentProjects, eventProjects, companyDivisions, matrixYear]);
 
-  // Filtered Requisitions & Payments for the selected project/event/division and month
+  // Filtered Requisitions, Direct Expenses & Payments for the selected project/event/division and month
   const activeStats = useMemo(() => {
     if (!selectedProject) return null;
 
@@ -762,23 +856,47 @@ export default function FinanceClient({
             (r) => r.forMonth === selectedMonth
           );
 
+    const directExps = (selectedProject.directExpenses || []).filter(
+      (de) => selectedMonth === "ALL" || de.forMonth === selectedMonth
+    );
+    const confirmedDirectExps = directExps.filter(
+      (de) => de.status === "CONFIRMED"
+    );
+
     const bills =
       selectedMonth === "ALL"
         ? selectedProject.bills
         : selectedProject.bills.filter((b) => b.forMonth === selectedMonth);
 
-    const billableSpend = reqs.reduce((sum, r) => sum + r.billableCost, 0);
-    const imsSpend = reqs.reduce((sum, r) => sum + r.imsInvestment, 0);
+    // Exclude opening-balance bills from current P&L calculation (they belong to Receivables & Ageing only)
+    const pnlBills = bills.filter((b) => !b.isOpeningBalance);
+
+    const directBillable = confirmedDirectExps
+      .filter((de) => de.costTag !== "IMS_INVESTMENT")
+      .reduce((sum, de) => sum + de.amount, 0);
+    const directIms = confirmedDirectExps
+      .filter((de) => de.costTag === "IMS_INVESTMENT")
+      .reduce((sum, de) => sum + de.amount, 0);
+
+    const billableSpend =
+      reqs.reduce((sum, r) => sum + r.billableCost, 0) + directBillable;
+    const imsSpend =
+      reqs.reduce((sum, r) => sum + r.imsInvestment, 0) + directIms;
     const totalSpend = billableSpend + imsSpend;
 
-    const executedSpend = reqs
-      .filter(
-        (r) =>
-          r.status === "EXECUTED" ||
-          r.status === "APPROVED" ||
-          r.status === "FORWARDED"
-      )
-      .reduce((sum, r) => sum + r.total, 0);
+    const executedSpend =
+      reqs
+        .filter(
+          (r) =>
+            r.status === "EXECUTED" ||
+            r.status === "SETTLED" ||
+            r.status === "PARTIAL_PAID" ||
+            r.status === "APPROVED" ||
+            r.status === "FORWARDED"
+        )
+        .reduce((sum, r) => sum + r.total, 0) +
+      directBillable +
+      directIms;
     const pendingSpend = Math.max(0, totalSpend - executedSpend);
 
     const calc = calculateProfitSummary({
@@ -787,7 +905,7 @@ export default function FinanceClient({
       imsInvestment: imsSpend,
     });
 
-    const latestBillWithInvoice = bills.find((b) => b.billExVat > 0);
+    const latestBillWithInvoice = pnlBills.find((b) => b.billExVat > 0);
     const billedExVat = latestBillWithInvoice
       ? latestBillWithInvoice.billExVat
       : calc.billExVat;
@@ -798,7 +916,10 @@ export default function FinanceClient({
       ? latestBillWithInvoice.expectedInflow
       : calc.expectedInflow;
 
-    const receivedAmount = bills.reduce((sum, b) => sum + b.receivedAmount, 0);
+    const receivedAmount = pnlBills.reduce(
+      (sum, b) => sum + b.receivedAmount,
+      0
+    );
     const rawDue = Math.max(0, expectedInflow - receivedAmount);
     const remainingDue = rawDue <= PAYMENT_TOLERANCE_BDT ? 0 : rawDue;
     const deviation = receivedAmount - expectedInflow;
@@ -821,6 +942,7 @@ export default function FinanceClient({
 
     return {
       reqs,
+      directExps,
       bills,
       billableSpend,
       imsSpend,
@@ -1084,6 +1206,7 @@ export default function FinanceClient({
       setFormReceivedAt(existingBill.receivedAt || "");
       setFormDeviation(existingBill.deviationReason || "");
       setFormNotes(existingBill.notes || "");
+      setFormIsOpeningBalance(Boolean(existingBill.isOpeningBalance));
     } else {
       setEditingBillId(null);
       const m =
@@ -1096,6 +1219,7 @@ export default function FinanceClient({
       setFormBillNo("");
       setFormPoNo("");
       setFormStatus("PARTIAL_PAID");
+      setFormIsOpeningBalance(false);
 
       const bSpend =
         proj.id === selectedProject?.id && activeStats
@@ -1171,6 +1295,7 @@ export default function FinanceClient({
           receivedAt: formReceivedAt || null,
           deviationReason: formDeviation,
           notes: formNotes,
+          isOpeningBalance: formIsOpeningBalance,
         }),
       });
       if (!res.ok) {
@@ -1183,6 +1308,223 @@ export default function FinanceClient({
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleMonthCloseOrReopen(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedProject || selectedProject.id === "ALL_COMPANY") return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/finance/bills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          actionType:
+            closeMonthMode === "CLOSE" ? "CLOSE_MONTH" : "REOPEN_MONTH",
+          projectId: selectedProject.id,
+          forMonth: closeMonthTarget,
+          noBillReason:
+            closeMonthMode === "CLOSE" ? closeMonthReason : undefined,
+          reason: closeMonthMode === "REOPEN" ? closeMonthReason : undefined,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Failed to update month close status");
+        return;
+      }
+      setCloseMonthModalOpen(false);
+      setCloseMonthReason("");
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleSaveManualForecast(clearOverride = false) {
+    if (!forecastTargetProject || !forecastTargetMonth) return;
+    setSaving(true);
+    try {
+      const res = await fetch("/api/finance/bills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          actionType: "SET_FORECAST",
+          projectId: forecastTargetProject.id,
+          forMonth: forecastTargetMonth,
+          clearOverride,
+          manualNetProfit: clearOverride ? 0 : Number(forecastAmountStr || 0),
+          manualNote: forecastNoteStr,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Failed to save forecast override");
+        return;
+      }
+      setForecastModalOpen(false);
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleCsvFileParse(file: File) {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = String(ev.target?.result || "");
+      const lines = text
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      if (lines.length === 0) return;
+
+      const parsed: Array<{
+        forMonth: string;
+        paidOn: string;
+        costHead: string;
+        costTag: "BILLABLE" | "IMS_INVESTMENT";
+        amount: number;
+        paidVia: string;
+        note: string;
+      }> = [];
+
+      const startIdx =
+        lines[0].toLowerCase().includes("amount") ||
+        lines[0].toLowerCase().includes("cost")
+          ? 1
+          : 0;
+      const defaultM =
+        selectedMonth !== "ALL"
+          ? selectedMonth
+          : new Date().toISOString().slice(0, 7);
+      const todayStr = new Date().toISOString().slice(0, 10);
+
+      for (let i = startIdx; i < lines.length; i++) {
+        const cols = lines[i]
+          .split(/,|\t/)
+          .map((c) => c.replace(/^"|"$/g, "").trim());
+        if (cols.length < 2) continue;
+        // Support either: [CostHead, Amount, Note?, PaidVia?, Month?] OR [Month, CostHead, Amount, PaidVia?, Note?]
+        let rowMonth = defaultM;
+        let head = cols[0];
+        let amt = parseFloat(cols[1].replace(/,/g, "")) || 0;
+        let note = cols[2] || "Imported from CSV/Excel";
+        let paidVia = cols[3] || "Bank";
+
+        if (/^\d{4}-\d{2}$/.test(cols[0]) && cols.length >= 3) {
+          rowMonth = cols[0];
+          head = cols[1];
+          amt = parseFloat(cols[2].replace(/,/g, "")) || 0;
+          paidVia = cols[3] || "Bank";
+          note = cols[4] || "Imported from CSV/Excel";
+        }
+        if (amt <= 0) continue;
+
+        const matchedHead = (selectedProject?.costHeads || []).find(
+          (ch) =>
+            ch.name.toLowerCase() === head.toLowerCase() ||
+            (Array.isArray(ch.aliases) &&
+              ch.aliases.some((a) => a.toLowerCase() === head.toLowerCase()))
+        );
+        parsed.push({
+          forMonth: rowMonth,
+          paidOn: todayStr,
+          costHead: matchedHead ? matchedHead.name : head,
+          costTag:
+            matchedHead?.tag === "IMS_INVESTMENT"
+              ? "IMS_INVESTMENT"
+              : "BILLABLE",
+          amount: amt,
+          paidVia,
+          note,
+        });
+      }
+      setCsvPreviewRows(parsed);
+    };
+    reader.readAsText(file);
+  }
+
+  async function handleSaveDirectExpenses(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedProject || selectedProject.id === "ALL_COMPANY") return;
+    setSaving(true);
+    try {
+      const payload =
+        directExpTab === "SINGLE"
+          ? {
+              actionType: "ADD_DIRECT_EXPENSE",
+              projectId: selectedProject.id,
+              forMonth: deMonth,
+              paidOn: dePaidOn,
+              costHead:
+                deCostHead ||
+                selectedProject.costHeads?.[0]?.name ||
+                "General Expense",
+              costTag: deCostTag,
+              amount: Number(deAmount || 0),
+              paidVia: dePaidVia,
+              note: deNote,
+              autoConfirm: deAutoConfirm,
+            }
+          : {
+              actionType: "IMPORT_DIRECT_EXPENSES",
+              projectId: selectedProject.id,
+              forMonth: deMonth,
+              rows: csvPreviewRows,
+              autoConfirm: deAutoConfirm,
+            };
+
+      const res = await fetch("/api/finance/bills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        alert(data.error || "Failed to save direct expense(s)");
+        return;
+      }
+      setDirectExpModalOpen(false);
+      setDeAmount("");
+      setDeNote("");
+      setCsvPreviewRows([]);
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleReviewDirectExpense(
+    expenseId: string,
+    decision: "CONFIRMED" | "REJECTED" | "DELETE"
+  ) {
+    if (!selectedProject) return;
+    let rejectReason = "";
+    if (decision === "REJECTED") {
+      const r = window.prompt(
+        "Enter mandatory reason for rejecting this Direct Expense:"
+      );
+      if (!r || !r.trim()) return;
+      rejectReason = r.trim();
+    }
+    const res = await fetch("/api/finance/bills", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        actionType: "REVIEW_DIRECT_EXPENSE",
+        projectId: selectedProject.id,
+        expenseId,
+        decision,
+        rejectReason,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      alert(data.error || "Action failed");
+      return;
+    }
+    router.refresh();
   }
 
   async function handleDeleteBill(id: string) {
@@ -1466,7 +1808,7 @@ export default function FinanceClient({
             </div>
 
             {selectedProject && (
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <label className="text-xs font-bold text-gray-700 whitespace-nowrap">
                   Period:
                 </label>
@@ -1476,12 +1818,74 @@ export default function FinanceClient({
                   className="h-10 rounded-lg border-2 border-gray-300 bg-white px-3 text-xs font-bold text-gray-800 shadow-sm focus:border-blue-600 focus:outline-none"
                 >
                   <option value="ALL">All Months (Cumulative)</option>
-                  {availableMonths.map((m) => (
-                    <option key={m} value={m}>
-                      {m}
-                    </option>
-                  ))}
+                  {availableMonths.map((m) => {
+                    const isClosed = Boolean(
+                      selectedProject.closedMonths &&
+                        selectedProject.closedMonths[m]
+                    );
+                    return (
+                      <option key={m} value={m}>
+                        {m} {isClosed ? "🔒 (Closed)" : ""}
+                      </option>
+                    );
+                  })}
                 </select>
+
+                {/* Month Close / Reopen Action Button (Priority 1B) */}
+                {selectedProject.id !== "ALL_COMPANY" && canCloseMonth && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const targetM =
+                        selectedMonth !== "ALL"
+                          ? selectedMonth
+                          : new Date().toISOString().slice(0, 7);
+                      const alreadyClosed = Boolean(
+                        selectedProject.closedMonths &&
+                          selectedProject.closedMonths[targetM]
+                      );
+                      setCloseMonthTarget(targetM);
+                      setCloseMonthMode(alreadyClosed ? "REOPEN" : "CLOSE");
+                      setCloseMonthReason("");
+                      setCloseMonthModalOpen(true);
+                    }}
+                    className={`h-10 px-3 rounded-lg text-xs font-bold border shadow-sm cursor-pointer whitespace-nowrap flex items-center gap-1.5 ${
+                      selectedMonth !== "ALL" &&
+                      selectedProject.closedMonths?.[selectedMonth]
+                        ? "bg-amber-50 text-amber-900 border-amber-300 hover:bg-amber-100"
+                        : "bg-slate-900 text-white border-slate-900 hover:bg-slate-800"
+                    }`}
+                  >
+                    <span>
+                      {selectedMonth !== "ALL" &&
+                      selectedProject.closedMonths?.[selectedMonth]
+                        ? "🔓 Reopen Closed Month"
+                        : "🔒 Close Month"}
+                    </span>
+                  </button>
+                )}
+
+                {/* Direct Expense / Excel Import Button (Priority 2B) */}
+                {selectedProject.id !== "ALL_COMPANY" && canEditFinance && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDeMonth(
+                        selectedMonth !== "ALL"
+                          ? selectedMonth
+                          : new Date().toISOString().slice(0, 7)
+                      );
+                      setDeCostHead(
+                        selectedProject.costHeads?.[0]?.name || "General Expense"
+                      );
+                      setDeCostTag("BILLABLE");
+                      setDirectExpModalOpen(true);
+                    }}
+                    className="h-10 px-3 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm cursor-pointer whitespace-nowrap flex items-center gap-1.5"
+                  >
+                    <span>📤 Direct Expense / Excel Import</span>
+                  </button>
+                )}
               </div>
             )}
           </div>
@@ -1661,9 +2065,12 @@ export default function FinanceClient({
                       } (${matrixYear})`}
                 </h3>
                 <p className="text-xs text-gray-500">
-                  Click any row name to drill down into its requisitions.{" "}
+                  Click any row name to drill down into its requisitions, or click any future month cell to override its forecast.{" "}
                   <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold ml-1">
-                    Amber tinted = Auto-Forecast (§9)
+                    Amber = Auto-Forecast (3M Avg)
+                  </span>
+                  <span className="inline-block px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 text-[10px] font-semibold ml-1">
+                    Purple = Manual Override
                   </span>
                 </p>
               </div>
@@ -1739,8 +2146,43 @@ export default function FinanceClient({
                         row.cells.map((c) => (
                           <td
                             key={c.monthKey}
+                            onClick={() => {
+                              if (
+                                canEditFinance &&
+                                !c.hasActual &&
+                                row.project.id !== "ALL_COMPANY"
+                              ) {
+                                setForecastTargetProject(row.project);
+                                setForecastTargetMonth(c.monthKey);
+                                setForecastAmountStr(
+                                  String(Math.round(c.netProfit || 0))
+                                );
+                                setForecastNoteStr(
+                                  c.manualForecastNote ||
+                                    "Manual forecast override"
+                                );
+                                setForecastModalOpen(true);
+                              }
+                            }}
+                            title={
+                              c.isClosed
+                                ? `${c.monthKey} Locked / Closed`
+                                : c.isManualForecast
+                                ? `Manual Forecast Override (${c.manualForecastNote || "Click to edit"})`
+                                : c.isForecast
+                                ? "Auto-Forecast (Click to set manual override)"
+                                : !c.hasActual && canEditFinance
+                                ? "Click to set manual forecast override"
+                                : undefined
+                            }
                             className={`py-2.5 px-2 text-right font-mono ${
-                              c.isForecast
+                              !c.hasActual && canEditFinance
+                                ? "cursor-pointer hover:ring-1 hover:ring-purple-400"
+                                : ""
+                            } ${
+                              c.isManualForecast
+                                ? "bg-purple-50 text-purple-900 font-bold"
+                                : c.isForecast
                                 ? "bg-amber-50/70 text-amber-900 italic"
                                 : c.hasActual
                                 ? activeType === "COMPANY"
@@ -1751,9 +2193,19 @@ export default function FinanceClient({
                                 : "text-gray-300"
                             }`}
                           >
+                            {c.isClosed && (
+                              <span className="text-[9px] mr-0.5" title="Closed Month">
+                                🔒
+                              </span>
+                            )}
                             {c.hasActual || c.isForecast
                               ? formatCompactBDT(c.netProfit)
                               : "—"}
+                            {c.isManualForecast && (
+                              <span className="block text-[8px] font-sans uppercase text-purple-700 leading-none">
+                                Manual
+                              </span>
+                            )}
                           </td>
                         ))
                       ) : (
@@ -3006,8 +3458,16 @@ export default function FinanceClient({
                                   </div>
                                 </td>
                                 <td className="py-3 px-3">
-                                  <div className="font-semibold text-gray-800">
-                                    {b.billNumber || "—"}
+                                  <div className="font-semibold text-gray-800 flex items-center gap-1.5">
+                                    <span>{b.billNumber || "—"}</span>
+                                    {b.isOpeningBalance && (
+                                      <span
+                                        className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-900 border border-amber-300 text-[9px] font-bold"
+                                        title="Opening Balance Bill — Receivables Only, excluded from current P&L"
+                                      >
+                                        OPENING BAL
+                                      </span>
+                                    )}
                                   </div>
                                   {b.notes && (
                                     <div className="text-[10px] text-gray-500 truncate max-w-[160px]">
@@ -3076,6 +3536,159 @@ export default function FinanceClient({
                   )}
                 </div>
               </div>
+
+              {/* DIRECT EXPENSES & EXCEL IMPORT QUEUE (Priority 2B) */}
+              {activeStats.directExps && activeStats.directExps.length > 0 && (
+                <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                  <div className="px-5 py-3.5 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2 bg-indigo-50/40">
+                    <div>
+                      <h3 className="text-sm font-bold text-gray-900">
+                        📤 Direct Expenses &amp; Excel/CSV Imported Costs (
+                        {activeStats.directExps.length})
+                      </h3>
+                      <p className="text-xs text-gray-500">
+                        Confirmed items are included in Billable / IMS Investment spend. Pending items require Finance confirmation.
+                      </p>
+                    </div>
+                    {canEditFinance && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDeMonth(
+                            selectedMonth !== "ALL"
+                              ? selectedMonth
+                              : new Date().toISOString().slice(0, 7)
+                          );
+                          setDirectExpModalOpen(true);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 cursor-pointer"
+                      >
+                        + Add / Import Direct Expense
+                      </button>
+                    )}
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
+                        <tr>
+                          <th className="py-2 px-3">Month / Paid On</th>
+                          <th className="py-2 px-3">Cost Head &amp; Note</th>
+                          <th className="py-2 px-3 text-center">Tag</th>
+                          <th className="py-2 px-3">Status</th>
+                          <th className="py-2 px-3 text-right">Amount (Tk)</th>
+                          {canCloseMonth && (
+                            <th className="py-2 px-3 text-right">
+                              Finance Action
+                            </th>
+                          )}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100">
+                        {activeStats.directExps.map((de) => (
+                          <tr key={de.id} className="hover:bg-gray-50">
+                            <td className="py-2.5 px-3">
+                              <div className="font-mono font-bold text-gray-800">
+                                {de.forMonth}
+                              </div>
+                              <div className="text-[10px] text-gray-400">
+                                {de.paidOn} • {de.paidVia}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="font-semibold text-gray-900">
+                                {de.costHead}
+                              </div>
+                              {de.note && (
+                                <div className="text-[10px] text-gray-500">
+                                  {de.note}
+                                </div>
+                              )}
+                              {de.rejectReason && (
+                                <div className="text-[10px] text-red-600 font-semibold">
+                                  Rejected: {de.rejectReason}
+                                </div>
+                              )}
+                            </td>
+                            <td className="py-2.5 px-3 text-center">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  de.costTag === "IMS_INVESTMENT"
+                                    ? "bg-amber-50 text-amber-800 border border-amber-200"
+                                    : "bg-blue-50 text-blue-800 border border-blue-200"
+                                }`}
+                              >
+                                {de.costTag}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                  de.status === "CONFIRMED"
+                                    ? "bg-emerald-100 text-emerald-800"
+                                    : de.status === "REJECTED"
+                                    ? "bg-red-100 text-red-800"
+                                    : "bg-amber-100 text-amber-900"
+                                }`}
+                              >
+                                {de.status === "PENDING"
+                                  ? "⏳ Pending (Unplanned)"
+                                  : de.status === "CONFIRMED"
+                                  ? "✓ Confirmed"
+                                  : "✕ Rejected"}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3 text-right font-mono font-bold text-gray-900">
+                              Tk {formatBDT(de.amount)}
+                            </td>
+                            {canCloseMonth && (
+                              <td className="py-2.5 px-3 text-right whitespace-nowrap space-x-1">
+                                {de.status === "PENDING" && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleReviewDirectExpense(
+                                          de.id,
+                                          "CONFIRMED"
+                                        )
+                                      }
+                                      className="px-2 py-1 rounded bg-emerald-600 text-white text-[10px] font-bold hover:bg-emerald-700 cursor-pointer"
+                                    >
+                                      ✓ Confirm
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        handleReviewDirectExpense(
+                                          de.id,
+                                          "REJECTED"
+                                        )
+                                      }
+                                      className="px-2 py-1 rounded bg-red-50 text-red-700 border border-red-200 text-[10px] font-bold hover:bg-red-100 cursor-pointer"
+                                    >
+                                      ✕ Reject
+                                    </button>
+                                  </>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    handleReviewDirectExpense(de.id, "DELETE")
+                                  }
+                                  className="px-2 py-1 rounded bg-gray-100 text-gray-600 text-[10px] font-semibold hover:bg-gray-200 cursor-pointer"
+                                  title="Delete Direct Expense"
+                                >
+                                  🗑️
+                                </button>
+                              </td>
+                            )}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -3604,6 +4217,24 @@ export default function FinanceClient({
                           className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5"
                         />
                       </div>
+
+                      {/* Priority 1C: Opening Balance Bill Toggle */}
+                      <label className="flex items-start gap-2 pt-1 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={formIsOpeningBalance}
+                          onChange={(e) =>
+                            setFormIsOpeningBalance(e.target.checked)
+                          }
+                          className="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                        />
+                        <span className="text-[11px] text-gray-800">
+                          <strong>
+                            Opening Balance Bill (Receivables &amp; Overdue Ageing Only)
+                          </strong>{" "}
+                          — Prior-period invoice carried forward; counts in Receivables &amp; Overdue Ageing, excluded from current-year P&amp;L.
+                        </span>
+                      </label>
                     </div>
 
                     <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-200">
@@ -3626,6 +4257,485 @@ export default function FinanceClient({
                 </>
               );
             })()}
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: CLOSE OR REOPEN MONTH (Priority 1B) */}
+      {closeMonthModalOpen && selectedProject && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-gray-200">
+            <div className="flex items-center justify-between border-b border-gray-200 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">
+                  {closeMonthMode === "CLOSE"
+                    ? "🔒 Close & Lock Project Month"
+                    : "🔓 Reopen Closed Project Month"}
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {selectedProject.name} ({selectedProject.code})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setCloseMonthModalOpen(false)}
+                className="text-gray-400 hover:text-gray-700 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleMonthCloseOrReopen}
+              className="mt-4 space-y-3 text-xs"
+            >
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">
+                  Target Service Month (YYYY-MM)
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={closeMonthTarget}
+                  onChange={(e) => {
+                    const m = e.target.value;
+                    setCloseMonthTarget(m);
+                    setCloseMonthMode(
+                      selectedProject.closedMonths?.[m] ? "REOPEN" : "CLOSE"
+                    );
+                  }}
+                  placeholder="e.g. 2026-10"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono font-bold"
+                />
+              </div>
+
+              {closeMonthMode === "CLOSE" ? (
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2 text-[11px] text-gray-700">
+                  <div className="font-bold text-slate-900">
+                    Month-Close Readiness Checks:
+                  </div>
+                  <ul className="list-disc pl-4 space-y-1">
+                    <li>
+                      No pending Direct Expenses in{" "}
+                      <strong>{closeMonthTarget}</strong>
+                    </li>
+                    <li>
+                      No open/unexecuted Requisitions in{" "}
+                      <strong>{closeMonthTarget}</strong>
+                    </li>
+                    <li>
+                      Client Bill exists for{" "}
+                      <strong>{closeMonthTarget}</strong> OR a No-Bill Reason is provided below
+                    </li>
+                  </ul>
+                  <div className="pt-1">
+                    <label className="block font-semibold text-gray-700 mb-1">
+                      No-Bill Reason (Only required if no Client Bill is recorded for {closeMonthTarget})
+                    </label>
+                    <input
+                      type="text"
+                      value={closeMonthReason}
+                      onChange={(e) => setCloseMonthReason(e.target.value)}
+                      placeholder="Optional if bill exists (e.g. Pre-launch setup month)"
+                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Mandatory Audit Reason to Reopen {closeMonthTarget} *
+                  </label>
+                  <textarea
+                    rows={2}
+                    required
+                    value={closeMonthReason}
+                    onChange={(e) => setCloseMonthReason(e.target.value)}
+                    placeholder="Enter reason for reopening this locked month..."
+                    className="w-full rounded-lg border border-gray-300 px-3 py-1.5"
+                  />
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setCloseMonthModalOpen(false)}
+                  className="px-3.5 py-1.5 rounded-lg border border-gray-300 text-gray-700 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className={`px-4 py-1.5 rounded-lg text-white font-bold cursor-pointer disabled:opacity-50 ${
+                    closeMonthMode === "CLOSE"
+                      ? "bg-slate-900 hover:bg-slate-800"
+                      : "bg-amber-600 hover:bg-amber-700"
+                  }`}
+                >
+                  {saving
+                    ? "Processing..."
+                    : closeMonthMode === "CLOSE"
+                    ? "🔒 Confirm & Lock Month"
+                    : "🔓 Reopen Month"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: MANUAL FORECAST OVERRIDE (Priority 1C) */}
+      {forecastModalOpen && forecastTargetProject && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-gray-200">
+            <div className="flex items-center justify-between border-b border-gray-200 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">
+                  🔮 Manual Forecast Override — {forecastTargetMonth}
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {forecastTargetProject.name} ({forecastTargetProject.code})
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setForecastModalOpen(false)}
+                className="text-gray-400 hover:text-gray-700 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-3 text-xs">
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">
+                  Forecast Net Profit for {forecastTargetMonth} (BDT)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={forecastAmountStr}
+                  onChange={(e) => setForecastAmountStr(e.target.value)}
+                  className="w-full rounded-lg border-2 border-purple-500 px-3 py-2 font-mono font-bold text-sm"
+                />
+              </div>
+              <div>
+                <label className="block font-semibold text-gray-700 mb-1">
+                  Forecast Note / Assumption
+                </label>
+                <input
+                  type="text"
+                  value={forecastNoteStr}
+                  onChange={(e) => setForecastNoteStr(e.target.value)}
+                  placeholder="e.g. Expected seasonal ramp-up / new headcount"
+                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5"
+                />
+              </div>
+
+              <div className="flex items-center justify-between pt-3 border-t border-gray-200">
+                <button
+                  type="button"
+                  disabled={saving}
+                  onClick={() => handleSaveManualForecast(true)}
+                  className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 font-bold hover:bg-amber-100 cursor-pointer"
+                >
+                  ↺ Revert to Auto (3M Avg)
+                </button>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setForecastModalOpen(false)}
+                    className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 font-semibold"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => handleSaveManualForecast(false)}
+                    className="px-4 py-1.5 rounded-lg bg-purple-700 text-white font-bold hover:bg-purple-800 cursor-pointer disabled:opacity-50"
+                  >
+                    Save Manual Forecast
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 4: DIRECT EXPENSE & EXCEL/CSV IMPORT (Priority 2B) */}
+      {directExpModalOpen && selectedProject && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-xl border border-gray-200 my-8">
+            <div className="flex items-center justify-between border-b border-gray-200 pb-3">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">
+                  📤 Direct Expense &amp; Excel/CSV Bulk Import
+                </h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  {selectedProject.name} ({selectedProject.code}) — Record off-requisition petty cash or upload a monthly expense sheet
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDirectExpModalOpen(false)}
+                className="text-gray-400 hover:text-gray-700 font-bold"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="mt-3 inline-flex rounded-lg bg-gray-100 p-1 border border-gray-200">
+              <button
+                type="button"
+                onClick={() => setDirectExpTab("SINGLE")}
+                className={`px-3 py-1 rounded-md text-xs font-bold cursor-pointer ${
+                  directExpTab === "SINGLE"
+                    ? "bg-white text-gray-900 shadow-xs"
+                    : "text-gray-600"
+                }`}
+              >
+                ➕ Single Direct Expense
+              </button>
+              <button
+                type="button"
+                onClick={() => setDirectExpTab("CSV")}
+                className={`px-3 py-1 rounded-md text-xs font-bold cursor-pointer ${
+                  directExpTab === "CSV"
+                    ? "bg-white text-indigo-700 shadow-xs"
+                    : "text-gray-600"
+                }`}
+              >
+                📄 Upload CSV / Excel Sheet
+              </button>
+            </div>
+
+            <form
+              onSubmit={handleSaveDirectExpenses}
+              className="mt-4 space-y-3 text-xs"
+            >
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-gray-700 mb-1">
+                    Service Month (YYYY-MM)
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={deMonth}
+                    onChange={(e) => setDeMonth(e.target.value)}
+                    placeholder="2026-10"
+                    className="w-full rounded-lg border border-gray-300 px-3 py-1.5 font-mono font-bold"
+                  />
+                </div>
+                {canCloseMonth && (
+                  <div className="flex items-end pb-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={deAutoConfirm}
+                        onChange={(e) => setDeAutoConfirm(e.target.checked)}
+                        className="rounded border-gray-300 text-indigo-600"
+                      />
+                      <span className="text-[11px] font-semibold text-gray-800">
+                        Immediately mark as CONFIRMED by Finance
+                      </span>
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {directExpTab === "SINGLE" ? (
+                <>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block font-semibold text-gray-700 mb-1">
+                        Cost Head
+                      </label>
+                      <select
+                        value={deCostHead}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setDeCostHead(val);
+                          const matched = selectedProject.costHeads?.find(
+                            (ch) => ch.name === val
+                          );
+                          if (matched) {
+                            setDeCostTag(
+                              matched.tag === "IMS_INVESTMENT"
+                                ? "IMS_INVESTMENT"
+                                : "BILLABLE"
+                            );
+                          }
+                        }}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 font-semibold"
+                      >
+                        {(selectedProject.costHeads || []).map((ch) => (
+                          <option key={ch.id} value={ch.name}>
+                            {ch.name} ({ch.tag})
+                          </option>
+                        ))}
+                        <option value="General Direct Expense">
+                          General Direct Expense
+                        </option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-gray-700 mb-1">
+                        Cost Classification Tag
+                      </label>
+                      <select
+                        value={deCostTag}
+                        onChange={(e) =>
+                          setDeCostTag(
+                            e.target.value as "BILLABLE" | "IMS_INVESTMENT"
+                          )
+                        }
+                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 font-bold"
+                      >
+                        <option value="BILLABLE">
+                          BILLABLE (Client Billable)
+                        </option>
+                        <option value="IMS_INVESTMENT">
+                          IMS_INVESTMENT (IMS Own Cost)
+                        </option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block font-semibold text-gray-700 mb-1">
+                        Amount (BDT) *
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        required
+                        value={deAmount}
+                        onChange={(e) => setDeAmount(e.target.value)}
+                        placeholder="e.g. 15000"
+                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 font-mono font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-gray-700 mb-1">
+                        Paid On
+                      </label>
+                      <input
+                        type="date"
+                        value={dePaidOn}
+                        onChange={(e) => setDePaidOn(e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5"
+                      />
+                    </div>
+                    <div>
+                      <label className="block font-semibold text-gray-700 mb-1">
+                        Paid Via
+                      </label>
+                      <select
+                        value={dePaidVia}
+                        onChange={(e) => setDePaidVia(e.target.value)}
+                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5"
+                      >
+                        <option value="Cash">Cash / Petty Cash</option>
+                        <option value="Bank">Bank Transfer</option>
+                        <option value="MFS">bKash / Nagad (MFS)</option>
+                        <option value="Cheque">Cheque</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-gray-700 mb-1">
+                      Description / Note
+                    </label>
+                    <input
+                      type="text"
+                      value={deNote}
+                      onChange={(e) => setDeNote(e.target.value)}
+                      placeholder="e.g. Emergency field conveyance reimbursement"
+                      className="w-full rounded-lg border border-gray-300 px-3 py-1.5"
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="space-y-3">
+                  <div className="p-3 rounded-lg bg-indigo-50/50 border border-indigo-200 text-[11px] text-gray-700">
+                    Upload a <strong>.csv</strong> or tab-separated expense file with columns:{" "}
+                    <code>CostHead, Amount, Note, PaidVia</code> (or{" "}
+                    <code>YYYY-MM, CostHead, Amount, PaidVia, Note</code>). Cost heads are automatically matched by name or configured aliases!
+                  </div>
+                  <input
+                    type="file"
+                    accept=".csv,.txt,.tsv"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) handleCsvFileParse(f);
+                    }}
+                    className="block w-full text-xs text-gray-700 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700"
+                  />
+
+                  {csvPreviewRows.length > 0 && (
+                    <div className="max-h-44 overflow-y-auto border border-gray-200 rounded-lg">
+                      <table className="w-full text-[11px] text-left">
+                        <thead className="bg-gray-50 border-b border-gray-200">
+                          <tr>
+                            <th className="py-1.5 px-2">Month</th>
+                            <th className="py-1.5 px-2">Matched Cost Head</th>
+                            <th className="py-1.5 px-2">Tag</th>
+                            <th className="py-1.5 px-2 text-right">Amount</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {csvPreviewRows.map((r, i) => (
+                            <tr key={i}>
+                              <td className="py-1 px-2 font-mono">
+                                {r.forMonth}
+                              </td>
+                              <td className="py-1 px-2 font-semibold">
+                                {r.costHead}
+                              </td>
+                              <td className="py-1 px-2">{r.costTag}</td>
+                              <td className="py-1 px-2 text-right font-mono font-bold">
+                                Tk {formatBDT(r.amount)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-gray-200">
+                <button
+                  type="button"
+                  onClick={() => setDirectExpModalOpen(false)}
+                  className="px-3.5 py-1.5 rounded-lg border border-gray-300 text-gray-700 font-semibold"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={
+                    saving ||
+                    (directExpTab === "CSV" && csvPreviewRows.length === 0)
+                  }
+                  className="px-4 py-1.5 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700 cursor-pointer disabled:opacity-50"
+                >
+                  {saving
+                    ? "Saving..."
+                    : directExpTab === "SINGLE"
+                    ? "Save Direct Expense"
+                    : `Import ${csvPreviewRows.length} Expense Row(s)`}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}

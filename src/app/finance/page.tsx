@@ -5,6 +5,8 @@ import { projectScope } from "@/lib/rbac";
 import {
   calculateProfitSummary,
   getDefaultProjectTermsByCode,
+  extractProjectMeta,
+  resolveCostHeadsForKind,
 } from "@/lib/profitEngine";
 import AppShell from "@/components/AppShell";
 import FinanceClient from "./FinanceClient";
@@ -86,8 +88,13 @@ export default async function FinancePnlPage() {
       ? "EVENT"
       : "PERMANENT";
     const fallbackTerms = getDefaultProjectTermsByCode(p.code, p.kind);
+    const meta = extractProjectMeta(p.costHeads);
+    const configuredCostHeads = resolveCostHeadsForKind(p.costHeads, isEvent);
+    const directExpenses = meta.directExpenses || [];
+    const closedMonths = meta.closedMonths || {};
+    const manualForecasts = meta.manualForecasts || {};
 
-    // Aggregate requisition costs (All Active/Approved vs Disbursed/Executed)
+    // Aggregate requisition costs (All Active/Approved vs Disbursed/Executed) + Confirmed Direct Expenses
     let totalBillableReq = 0;
     let totalImsInvReq = 0;
     let executedBillable = 0;
@@ -144,11 +151,45 @@ export default async function FinancePnlPage() {
       byMonth[mKey].billableCost += reqBillable;
       byMonth[mKey].imsInvestment += reqIms;
 
-      if (r.status === "EXECUTED" || r.status === "APPROVED" || r.status === "FORWARDED") {
+      if (
+        r.status === "EXECUTED" ||
+        r.status === "SETTLED" ||
+        r.status === "PARTIAL_PAID" ||
+        r.status === "APPROVED" ||
+        r.status === "FORWARDED"
+      ) {
         executedBillable += reqBillable;
         executedImsInv += reqIms;
         byMonth[mKey].executedBillable += reqBillable;
         byMonth[mKey].executedImsInv += reqIms;
+      }
+    }
+
+    // Include CONFIRMED Direct Expenses in project & monthly costs
+    for (const de of directExpenses) {
+      if (de.status !== "CONFIRMED") continue;
+      const mKey = de.forMonth || new Date().toISOString().slice(0, 7);
+      if (!byMonth[mKey]) {
+        byMonth[mKey] = {
+          forMonth: mKey,
+          billableCost: 0,
+          imsInvestment: 0,
+          executedBillable: 0,
+          executedImsInv: 0,
+          reqCount: 0,
+        };
+      }
+      const amt = Number(de.amount || 0);
+      if (de.costTag === "IMS_INVESTMENT") {
+        totalImsInvReq += amt;
+        executedImsInv += amt;
+        byMonth[mKey].imsInvestment += amt;
+        byMonth[mKey].executedImsInv += amt;
+      } else {
+        totalBillableReq += amt;
+        executedBillable += amt;
+        byMonth[mKey].billableCost += amt;
+        byMonth[mKey].executedBillable += amt;
       }
     }
 
@@ -186,32 +227,38 @@ export default async function FinancePnlPage() {
       imsInvestment: totalImsInvReq,
     });
 
-    const bills = (p.clientBills || []).map((b: any) => ({
-      id: b.id,
-      projectId: b.projectId,
-      projectName: p.name,
-      projectCode: p.code,
-      kind: entityKind,
-      forMonth: b.forMonth,
-      billNumber: b.billNumber || "",
-      poNumber: b.poNumber || "",
-      status: b.status,
-      billableCost: Number(b.billableCost || 0),
-      imsInvestment: Number(b.imsInvestment || 0),
-      billExVat: Number(b.billExVat || 0),
-      vatAmount: Number(b.vatAmount || 0),
-      billWithVat: Number(b.billWithVat || 0),
-      aitAmount: Number(b.aitAmount || 0),
-      expectedInflow: Number(b.expectedInflow || 0),
-      receivedAmount: Number(b.receivedAmount || 0),
-      accruedNetProfit: Number(b.accruedNetProfit || 0),
-      realizedNetProfit: Number(b.realizedNetProfit || 0),
-      submittedAt: b.submittedAt ? new Date(b.submittedAt).toISOString().slice(0, 10) : "",
-      dueDate: b.dueDate ? new Date(b.dueDate).toISOString().slice(0, 10) : "",
-      receivedAt: b.receivedAt ? new Date(b.receivedAt).toISOString().slice(0, 10) : "",
-      deviationReason: b.deviationReason || "",
-      notes: b.notes || "",
-    }));
+    const bills = (p.clientBills || []).map((b: any) => {
+      const rawNotes = b.notes || "";
+      const isOpeningBalance = rawNotes.startsWith("[OPENING_BALANCE]");
+      const cleanNotes = rawNotes.replace("[OPENING_BALANCE]", "").trim();
+      return {
+        id: b.id,
+        projectId: b.projectId,
+        projectName: p.name,
+        projectCode: p.code,
+        kind: entityKind,
+        forMonth: b.forMonth,
+        billNumber: b.billNumber || "",
+        poNumber: b.poNumber || "",
+        status: b.status,
+        billableCost: Number(b.billableCost || 0),
+        imsInvestment: Number(b.imsInvestment || 0),
+        billExVat: Number(b.billExVat || 0),
+        vatAmount: Number(b.vatAmount || 0),
+        billWithVat: Number(b.billWithVat || 0),
+        aitAmount: Number(b.aitAmount || 0),
+        expectedInflow: Number(b.expectedInflow || 0),
+        receivedAmount: Number(b.receivedAmount || 0),
+        accruedNetProfit: isOpeningBalance ? 0 : Number(b.accruedNetProfit || 0),
+        realizedNetProfit: isOpeningBalance ? 0 : Number(b.realizedNetProfit || 0),
+        submittedAt: b.submittedAt ? new Date(b.submittedAt).toISOString().slice(0, 10) : "",
+        dueDate: b.dueDate ? new Date(b.dueDate).toISOString().slice(0, 10) : "",
+        receivedAt: b.receivedAt ? new Date(b.receivedAt).toISOString().slice(0, 10) : "",
+        deviationReason: b.deviationReason || "",
+        notes: cleanNotes,
+        isOpeningBalance,
+      };
+    });
 
     const totalReceivedFromBills = bills.reduce(
       (sum: number, b: any) => sum + b.receivedAmount,
@@ -290,8 +337,20 @@ export default async function FinancePnlPage() {
       totalReceivedFromBills,
       totalExpectedFromBills,
       totalBilledWithVat,
+      costHeads: configuredCostHeads,
+      closedMonths,
+      manualForecasts,
+      directExpenses,
     };
   });
+
+  const canCloseMonth =
+    user.permissions.includes("req.accounts.check") ||
+    user.permissions.includes("req.execute") ||
+    user.permissions.includes("req.director") ||
+    user.permissions.includes("req.md") ||
+    user.permissions.includes("admin.users") ||
+    user.permissions.includes("project.manage");
 
   return (
     <AppShell>
@@ -308,6 +367,7 @@ export default async function FinancePnlPage() {
         <FinanceClient
           projects={formattedProjects}
           canEditFinance={canEditFinance}
+          canCloseMonth={canCloseMonth}
         />
       </div>
     </AppShell>

@@ -30,6 +30,9 @@ export async function POST(
       targetDirectorId,
       signatureDataUrl,
       adjustedItems,
+      disbursementLines,
+      paymentMethod,
+      paymentRef,
     } = await request.json();
 
     // Authenticate user's PIN or password
@@ -481,7 +484,7 @@ export async function POST(
       return NextResponse.json({ success: true, status: "FORWARDED" });
     }
 
-    // 6. Execute / Pay the Money (Accounts Executive or Accounts Manager)
+    // 6. Execute / Pay the Money (Accounts Executive or Accounts Manager — Full or Partial Disbursement)
     if (action === "EXECUTE") {
       const canExecute =
         user.permissions.includes("req.execute") ||
@@ -514,17 +517,44 @@ export async function POST(
         );
       }
 
+      const reqTotalNum = Number(req.total || 0);
+      let disbursedTotal = reqTotalNum;
+      let isPartial = false;
+      if (Array.isArray(disbursementLines) && disbursementLines.length > 0) {
+        disbursedTotal = disbursementLines.reduce(
+          (sum: number, l: any) => sum + Math.max(0, Number(l.disbursedAmount || 0)),
+          0
+        );
+        if (disbursedTotal > 0 && disbursedTotal < reqTotalNum - 1) {
+          isPartial = true;
+        }
+      }
+
+      const methodNote = paymentMethod
+        ? ` [Via: ${paymentMethod}${paymentRef ? `, Ref: ${paymentRef}` : ""}]`
+        : "";
+      const partialNote = isPartial
+        ? ` [Partial Disbursement: Tk ${disbursedTotal.toFixed(2)} of Tk ${reqTotalNum.toFixed(2)}]`
+        : "";
+      const nextStatus = isPartial ? "PARTIAL_PAID" : "EXECUTED";
+
       txOps.push(
         prisma.approval.create({
           data: {
             requisitionId: req.id,
             step: "EXECUTION",
-            action: "EXECUTED",
+            action: isPartial ? "PARTIAL_DISBURSED" : "EXECUTED",
             userId: user.id,
             signerName: user.name,
             signerDesignation: user.designation,
             signature: activeSignature,
-            comment: comment || "Payment executed and money disbursed by Accounts",
+            comment:
+              (comment ||
+                (isPartial
+                  ? "Partial disbursement executed by Accounts"
+                  : "Payment executed and money disbursed by Accounts")) +
+              partialNote +
+              methodNote,
             docHash,
             ip,
           },
@@ -532,7 +562,7 @@ export async function POST(
         prisma.requisition.update({
           where: { id: req.id },
           data: {
-            status: "EXECUTED",
+            status: nextStatus,
             executorId: user.id,
             executedAt: new Date(),
           },
@@ -541,8 +571,8 @@ export async function POST(
           data: {
             userId: user.id,
             requisitionId: req.id,
-            action: "EXECUTED_DISBURSED",
-            details: `Money paid / disbursed by Accounts (${user.name})`,
+            action: isPartial ? "PARTIAL_DISBURSED" : "EXECUTED_DISBURSED",
+            details: `${isPartial ? `Partial money paid (Tk ${disbursedTotal.toFixed(2)})` : "Money paid / disbursed"} by Accounts (${user.name})${methodNote}`,
             ip,
           },
         })
@@ -552,11 +582,67 @@ export async function POST(
 
       await createNotification({
         userId: req.makerId,
-        message: `Your requisition ${req.number || req.id} (Tk ${req.total}) has been signed by Accounts and paid/disbursed by ${user.name}.`,
+        message: `Your requisition ${req.number || req.id} has been ${isPartial ? `partially disbursed (Tk ${disbursedTotal.toFixed(2)} of Tk ${reqTotalNum.toFixed(2)})` : `paid/disbursed in full (Tk ${req.total})`} by ${user.name}.`,
         link: `/requisitions/${req.id}`,
       });
 
-      return NextResponse.json({ success: true, status: "EXECUTED" });
+      return NextResponse.json({ success: true, status: nextStatus });
+    }
+
+    // 6B. Settle Remainder (Close partially-disbursed or approved requisition with unpaid remainder cancelled)
+    if (action === "SETTLE") {
+      const canSettle =
+        user.permissions.includes("req.execute") ||
+        user.permissions.includes("req.accounts.check") ||
+        user.permissions.includes("req.forward");
+
+      if (!canSettle) {
+        return NextResponse.json({ error: "Unauthorized to settle requisition" }, { status: 403 });
+      }
+
+      await prisma.$transaction([
+        prisma.approval.create({
+          data: {
+            requisitionId: req.id,
+            step: "EXECUTION",
+            action: "SETTLED",
+            userId: user.id,
+            signerName: user.name,
+            signerDesignation: user.designation,
+            signature: activeSignature,
+            comment:
+              comment ||
+              "Requisition settled by Accounts (remaining unpaid balance cancelled)",
+            docHash,
+            ip,
+          },
+        }),
+        prisma.requisition.update({
+          where: { id: req.id },
+          data: {
+            status: "SETTLED",
+            executorId: user.id,
+            executedAt: new Date(),
+          },
+        }),
+        prisma.auditLog.create({
+          data: {
+            userId: user.id,
+            requisitionId: req.id,
+            action: "REQUISITION_SETTLED",
+            details: `Requisition ${req.number || req.id} settled by ${user.name}${comment ? `: "${comment}"` : ""}`,
+            ip,
+          },
+        }),
+      ]);
+
+      await createNotification({
+        userId: req.makerId,
+        message: `Your requisition ${req.number || req.id} was marked as Settled by Accounts (${user.name}).`,
+        link: `/requisitions/${req.id}`,
+      });
+
+      return NextResponse.json({ success: true, status: "SETTLED" });
     }
 
     if (action === "RETURN") {

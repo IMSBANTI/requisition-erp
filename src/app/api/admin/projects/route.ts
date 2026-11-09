@@ -1,13 +1,26 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import {
+  extractProjectMeta,
+  packCostHeadsWithMeta,
+  resolveCostHeadsForKind,
+} from "@/lib/profitEngine";
 
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
 
-    if (!user.permissions.includes("project.manage")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    const isSuperAdmin =
+      user.permissions.includes("project.manage") ||
+      user.permissions.includes("admin.users");
+    const isGroupHead = Boolean(user.role.isManager);
+
+    if (!isSuperAdmin && !isGroupHead) {
+      return NextResponse.json(
+        { error: "Only Admin or a Group Head can create a new project" },
+        { status: 403 }
+      );
     }
 
     const {
@@ -35,11 +48,19 @@ export async function POST(request: Request) {
       monthlyAmortization,
       varianceThresholdPct,
       costHeads,
+      stepThresholds,
     } = await request.json();
 
     if (!code || !name || !companyId) {
       return NextResponse.json({ error: "Code, name, and company are required" }, { status: 400 });
     }
+
+    const effectiveHeadId = isSuperAdmin ? headId || null : headId || user.id;
+    const packedCostHeads = costHeads
+      ? packCostHeadsWithMeta(costHeads, {
+          stepThresholds: stepThresholds || {},
+        })
+      : undefined;
 
     const project = await prisma.project.create({
       data: {
@@ -49,7 +70,7 @@ export async function POST(request: Request) {
         kind: kind || "PERMANENT",
         category: category || "GENERAL",
         mdApprovalMode: mdApprovalMode || "INSTANT",
-        headId: headId || null,
+        headId: effectiveHeadId,
         checkerId: checkerId || null,
         directorId: directorId || null,
         requisitionTypes: requisitionTypes?.length ? requisitionTypes : ["BPO", "ADMIN", "CASH"],
@@ -65,7 +86,7 @@ export async function POST(request: Request) {
         maintenanceBudget: maintenanceBudget ? Number(maintenanceBudget) : 0,
         monthlyAmortization: monthlyAmortization ? Number(monthlyAmortization) : 0,
         varianceThresholdPct: varianceThresholdPct !== undefined ? Number(varianceThresholdPct) : 10,
-        ...(costHeads ? { costHeads } : {}),
+        ...(packedCostHeads ? { costHeads: packedCostHeads } : {}),
         createdById: user.id,
         ...(Array.isArray(memberIds) && memberIds.length > 0
           ? { members: { connect: memberIds.map((id: string) => ({ id })) } }
@@ -91,10 +112,6 @@ export async function POST(request: Request) {
 export async function PATCH(request: Request) {
   try {
     const user = await requireUser();
-
-    if (!user.permissions.includes("project.manage")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-    }
 
     const {
       id,
@@ -123,11 +140,47 @@ export async function PATCH(request: Request) {
       monthlyAmortization,
       varianceThresholdPct,
       costHeads,
+      stepThresholds,
     } = await request.json();
 
     if (!id) {
       return NextResponse.json({ error: "Project ID is required" }, { status: 400 });
     }
+
+    const existingProject = await prisma.project.findUnique({ where: { id } });
+    if (!existingProject) {
+      return NextResponse.json({ error: "Project not found" }, { status: 404 });
+    }
+
+    const isSuperAdmin =
+      user.permissions.includes("project.manage") ||
+      user.permissions.includes("admin.users");
+    const isProjectGroupHead = existingProject.headId === user.id;
+
+    if (!isSuperAdmin && !isProjectGroupHead) {
+      return NextResponse.json(
+        {
+          error:
+            "Unauthorized: Only Admin or this project's assigned Group Head can edit Project Setup.",
+        },
+        { status: 403 }
+      );
+    }
+
+    const existingMeta = extractProjectMeta(existingProject.costHeads);
+    const isEvt =
+      (kind || existingProject.kind) === "EVENT" ||
+      (code || existingProject.code)?.toUpperCase().startsWith("EVT-");
+    const resolvedHeads =
+      costHeads !== undefined
+        ? costHeads
+        : resolveCostHeadsForKind(existingProject.costHeads, isEvt);
+
+    const updatedMeta = {
+      ...existingMeta,
+      ...(stepThresholds !== undefined ? { stepThresholds } : {}),
+    };
+    const packedCostHeads = packCostHeadsWithMeta(resolvedHeads, updatedMeta);
 
     const updated = await prisma.project.update({
       where: { id },
@@ -166,7 +219,7 @@ export async function PATCH(request: Request) {
         ...(varianceThresholdPct !== undefined
           ? { varianceThresholdPct: Number(varianceThresholdPct) }
           : {}),
-        ...(costHeads !== undefined ? { costHeads } : {}),
+        costHeads: packedCostHeads,
       },
     });
 

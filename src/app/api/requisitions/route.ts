@@ -3,6 +3,7 @@ import crypto from "crypto";
 import { requireUser, verifySecret, clientIp } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { resolveChain, stateAfter } from "@/lib/workflow";
+import { extractProjectMeta } from "@/lib/profitEngine";
 import { generateRequisitionNumber } from "@/lib/reqNumber";
 import { amountInWords } from "@/lib/numberToWords";
 import { grandTotal, formatTaka } from "@/lib/money";
@@ -180,6 +181,21 @@ export async function POST(request: Request) {
     const isManager = user.role.isManager;
     const isMd = user.role.key === "md";
 
+    // Calculations
+    const total = grandTotal(items.map((it: any) => ({ qty: it.qty, unitPrice: it.unitPrice })));
+    const inWords = amountInWords(total);
+    const ip = await clientIp();
+
+    const projectMeta = extractProjectMeta((project as any).costHeads);
+    if (forMonth && projectMeta.closedMonths && projectMeta.closedMonths[forMonth]) {
+      return NextResponse.json(
+        {
+          error: `Month ${forMonth} is closed and locked by Finance for project ${project.name}. Ask Finance/Admin to reopen the month before creating requisitions.`,
+        },
+        { status: 400 }
+      );
+    }
+
     const chain = resolveChain({
       makerId: user.id,
       makerIsManager: isManager,
@@ -197,12 +213,9 @@ export async function POST(request: Request) {
       itCheckerId: itChecker?.id ?? null,
       categoryDirectorId: categoryDirector?.id ?? null,
       makerIsMd: isMd,
+      requisitionTotal: total.toNumber(),
+      stepThresholds: projectMeta.stepThresholds,
     });
-
-    // Calculations
-    const total = grandTotal(items.map((it: any) => ({ qty: it.qty, unitPrice: it.unitPrice })));
-    const inWords = amountInWords(total);
-    const ip = await clientIp();
 
     const isDraft = action === "DRAFT";
     const number = isDraft ? null : await generateRequisitionNumber(effectiveCompany.code, type);

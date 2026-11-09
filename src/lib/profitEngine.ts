@@ -15,6 +15,61 @@ export interface CostHeadConfig {
   tag: CostTag;
   isSalary?: boolean;
   defaultAmount?: number;
+  aliases?: string[];
+  category?: string;
+  billHead?: string;
+}
+
+export interface StepThresholdsConfig {
+  HEAD?: number;
+  CHECKER?: number;
+  ACCOUNTS?: number;
+  DIRECTOR?: number;
+  MD?: number;
+}
+
+export interface ClosedMonthRecord {
+  closedAt: string;
+  closedBy: string;
+  noBillReason?: string;
+  reopenHistory?: Array<{
+    reopenedAt: string;
+    reopenedBy: string;
+    reason: string;
+  }>;
+}
+
+export interface ManualForecastRecord {
+  amount: number;
+  note: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export interface DirectExpenseItem {
+  id: string;
+  forMonth: string;
+  paidOn: string;
+  costHead: string;
+  costTag: CostTag;
+  amount: number;
+  paidVia: string;
+  note: string;
+  status: "PENDING" | "CONFIRMED" | "REJECTED";
+  createdBy: string;
+  createdAt: string;
+  confirmedBy?: string;
+  confirmedAt?: string;
+  rejectReason?: string;
+  batchId?: string;
+}
+
+export interface ProjectExtendedMeta {
+  stepThresholds?: StepThresholdsConfig;
+  closedMonths?: Record<string, ClosedMonthRecord>;
+  manualForecasts?: Record<string, ManualForecastRecord>;
+  directExpenses?: DirectExpenseItem[];
+  requiresRequisition?: boolean;
 }
 
 export interface BillingTermsInput {
@@ -306,6 +361,46 @@ const PROJECT_DEFAULT_NAMES = new Set(
   DEFAULT_PROJECT_COST_HEADS.map((h) => h.name.toLowerCase())
 );
 
+export const PROJECT_META_ID = "__project_meta__";
+
+/**
+ * Extract extended project metadata (stepThresholds, closedMonths, manualForecasts, directExpenses)
+ * stored alongside CostHeads inside Project.costHeads Json column.
+ */
+export function extractProjectMeta(rawCostHeads: unknown): ProjectExtendedMeta {
+  if (Array.isArray(rawCostHeads)) {
+    const metaEntry = rawCostHeads.find(
+      (item: any) => item && item.id === PROJECT_META_ID
+    );
+    if (metaEntry && typeof metaEntry.meta === "object" && metaEntry.meta) {
+      return metaEntry.meta as ProjectExtendedMeta;
+    }
+  }
+  return {};
+}
+
+/**
+ * Pack CostHeadConfig array and ProjectExtendedMeta together into a single JSON array
+ * for storage in Project.costHeads without requiring a database schema migration.
+ */
+export function packCostHeadsWithMeta(
+  costHeads: CostHeadConfig[],
+  meta: ProjectExtendedMeta
+): any[] {
+  const cleanedHeads = (costHeads || []).filter(
+    (ch: any) => ch && ch.id !== PROJECT_META_ID && ch.name
+  );
+  return [
+    ...cleanedHeads,
+    {
+      id: PROJECT_META_ID,
+      name: "__PROJECT_META__",
+      tag: "BILLABLE",
+      meta,
+    },
+  ];
+}
+
 /**
  * Ensures Events never inherit Outsourcing Project salary/house-rent cost heads,
  * and Projects never inherit Event cost heads unless explicitly customized for that mode.
@@ -315,19 +410,22 @@ export function resolveCostHeadsForKind(
   isEvent: boolean
 ): CostHeadConfig[] {
   if (Array.isArray(rawCostHeads) && rawCostHeads.length > 0) {
-    if (isEvent) {
-      // Filter out any accidentally saved Outsourcing Project default cost heads
-      const cleaned = (rawCostHeads as CostHeadConfig[]).filter(
-        (ch) =>
-          ch &&
-          ch.name &&
-          !PROJECT_DEFAULT_IDS.has(ch.id) &&
-          !PROJECT_DEFAULT_NAMES.has(ch.name.toLowerCase())
-      );
-      if (cleaned.length > 0) return cleaned;
-      return DEFAULT_EVENT_COST_HEADS;
+    const withoutMeta = (rawCostHeads as CostHeadConfig[]).filter(
+      (ch) => ch && ch.id !== PROJECT_META_ID && ch.name
+    );
+    if (withoutMeta.length > 0) {
+      if (isEvent) {
+        // Filter out any accidentally saved Outsourcing Project default cost heads
+        const cleaned = withoutMeta.filter(
+          (ch) =>
+            !PROJECT_DEFAULT_IDS.has(ch.id) &&
+            !PROJECT_DEFAULT_NAMES.has(ch.name.toLowerCase())
+        );
+        if (cleaned.length > 0) return cleaned;
+        return DEFAULT_EVENT_COST_HEADS;
+      }
+      return withoutMeta;
     }
-    return rawCostHeads as CostHeadConfig[];
   }
   return isEvent ? DEFAULT_EVENT_COST_HEADS : DEFAULT_PROJECT_COST_HEADS;
 }

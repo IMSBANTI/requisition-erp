@@ -35,6 +35,14 @@ export interface WorkflowContext {
   itCheckerId: string | null; // Sr. Manager, Information & Transformation
   categoryDirectorId: string | null;
   makerIsMd?: boolean;
+  requisitionTotal?: number;
+  stepThresholds?: {
+    HEAD?: number;
+    CHECKER?: number;
+    ACCOUNTS?: number;
+    DIRECTOR?: number;
+    MD?: number;
+  };
 }
 
 export const STEP_STATUS: Record<Step, string> = {
@@ -57,9 +65,17 @@ export function resolveChain(ctx: WorkflowContext): ChainStep[] {
   const maker = ctx.makerId;
   const used = new Set<string>([maker]);
   const director = ctx.project.directorId ?? ctx.categoryDirectorId;
+  const reqTotal = ctx.requisitionTotal ?? 0;
+  const thresholds = ctx.stepThresholds || {};
+
+  const meetsThreshold = (step: Step) => {
+    const minAmt = Number(thresholds[step] || 0);
+    if (minAmt <= 0 || ctx.requisitionTotal === undefined) return true;
+    return reqTotal >= minAmt;
+  };
 
   // 1. Checked by — Direct Supervisor / Project Head / Department Head (skipped for managers' own requisitions)
-  if (!ctx.makerIsManager) {
+  if (!ctx.makerIsManager && meetsThreshold("HEAD")) {
     const head = [ctx.supervisorId, ctx.project.headId, ctx.departmentHeadId].find(
       (h) => h && !used.has(h) && h !== director
     );
@@ -71,23 +87,25 @@ export function resolveChain(ctx: WorkflowContext): ChainStep[] {
 
   // 2. Checked by — AI/IT requisitions go to Sr. Manager IT; otherwise optional project checker
   const checker = ctx.category === "AI_IT" && ctx.itCheckerId ? ctx.itCheckerId : ctx.project.checkerId;
-  if (checker && !used.has(checker)) {
+  if (checker && !used.has(checker) && meetsThreshold("CHECKER")) {
     chain.push({ step: "CHECKER", assigneeId: checker });
     used.add(checker);
   }
 
   // 3. Checked by Accounts — any Accounts Manager (skipped if the maker is Accounts Manager)
-  if (!ctx.makerPermissions.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK)) {
+  if (!ctx.makerPermissions.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK) && meetsThreshold("ACCOUNTS")) {
     chain.push({ step: "ACCOUNTS", assigneeId: null, permission: PERMISSIONS.REQ_ACCOUNTS_CHECK });
   }
 
-  // 4. Director — mandatory
+  // 4. Director — mandatory unless minAmount threshold is higher than requisition total
   const makerIsDirector = director === maker;
   if (!director) throw new WorkflowError("No Director is configured for this project/category. Ask Admin to set one.");
-  if (!makerIsDirector) chain.push({ step: "DIRECTOR", assigneeId: director });
+  if (!makerIsDirector && meetsThreshold("DIRECTOR")) {
+    chain.push({ step: "DIRECTOR", assigneeId: director });
+  }
 
   // 5. Managing Director — instant or weekly/monthly batch (always instant when a Director is the maker)
-  if (!ctx.makerIsMd) {
+  if (!ctx.makerIsMd && meetsThreshold("MD")) {
     const batch = !makerIsDirector && ctx.project.mdApprovalMode !== "INSTANT";
     chain.push({ step: "MD", assigneeId: null, permission: PERMISSIONS.REQ_MD, batch });
   }
@@ -144,6 +162,7 @@ export type Action =
   | "APPROVE_TO_MD"
   | "FORWARD"
   | "EXECUTE"
+  | "SETTLE"
   | "RETURN"
   | "REJECT"
   | "MD_BATCH";
@@ -153,7 +172,7 @@ export function allowedActions(user: Actor, req: ReqSnapshot): Action[] {
   const has = (p: string) => user.permissions.includes(p);
   const out = new Set<Action>();
 
-  const isClosed = ["EXECUTED", "REJECTED", "CANCELLED", "DRAFT"].includes(req.status);
+  const isClosed = ["EXECUTED", "SETTLED", "REJECTED", "CANCELLED", "DRAFT"].includes(req.status);
   const isPendingStage = [
     "PENDING_HEAD",
     "PENDING_CHECKER",
@@ -187,10 +206,13 @@ export function allowedActions(user: Actor, req: ReqSnapshot): Action[] {
         out.add("EXECUTE");
         out.add("RETURN");
         out.add("REJECT");
-      } else if (req.status === "APPROVED" || req.status === "FORWARDED") {
+      } else if (req.status === "APPROVED" || req.status === "FORWARDED" || req.status === "PARTIAL_PAID") {
         out.add("APPROVE_TO_MD");
         out.add("FORWARD");
         out.add("EXECUTE");
+        if (req.status === "PARTIAL_PAID" || req.status === "APPROVED" || req.status === "FORWARDED") {
+          out.add("SETTLE");
+        }
       }
     }
 
@@ -199,9 +221,13 @@ export function allowedActions(user: Actor, req: ReqSnapshot): Action[] {
       if (
         req.status === "FORWARDED" ||
         req.status === "APPROVED" ||
-        req.status === "PENDING_ACCOUNTS"
+        req.status === "PENDING_ACCOUNTS" ||
+        req.status === "PARTIAL_PAID"
       ) {
         out.add("EXECUTE");
+        if (req.status === "PARTIAL_PAID" || req.status === "APPROVED" || req.status === "FORWARDED") {
+          out.add("SETTLE");
+        }
       }
     }
 
