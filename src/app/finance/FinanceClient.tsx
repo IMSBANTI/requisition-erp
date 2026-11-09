@@ -57,6 +57,8 @@ type ClientBillItem = {
   submittedAt: string;
   dueDate: string;
   receivedAt: string;
+  poReceivedAt?: string;
+  grReceivedAt?: string;
   deviationReason: string;
   notes: string;
   isOpeningBalance?: boolean;
@@ -86,6 +88,8 @@ type RequisitionLineItem = {
   particulars: string;
   costHead: string;
   costTag: string;
+  forMonth?: string;
+  lastMonthAmount?: number;
   amount: number;
 };
 
@@ -94,11 +98,16 @@ type RequisitionSummaryItem = {
   number: string;
   forMonth: string;
   date: string;
+  disburseOn?: string;
+  approvedAt?: string;
+  executedAt?: string;
   makerName: string;
   status: string;
   billableCost: number;
   imsInvestment: number;
   total: number;
+  variancePct?: number | null;
+  changeReason?: string;
   remarks?: string;
   items?: RequisitionLineItem[];
   divisionName?: string;
@@ -111,6 +120,7 @@ type ProjectFinanceItem = {
   companyName: string;
   kind: string;
   headName: string;
+  checkerName?: string;
   directorName: string;
   budget: number;
   terms: {
@@ -143,7 +153,7 @@ type ProjectFinanceItem = {
   totalReceivedFromBills: number;
   totalExpectedFromBills: number;
   totalBilledWithVat: number;
-  costHeads?: Array<{ id: string; name: string; tag: string; aliases?: string[] }>;
+  costHeads?: Array<{ id: string; name: string; tag: string; aliases?: string[]; fixedMonthlyAmount?: number }>;
   closedMonths?: Record<
     string,
     { closedAt: string; closedBy: string; noBillReason?: string }
@@ -630,8 +640,61 @@ export default function FinanceClient({
     "PERMANENT" | "EVENT" | "COMPANY"
   >("PERMANENT");
   const [viewMode, setViewMode] = useState<
-    "SINGLE" | "SUMMARY_MATRIX" | "AGEING"
-  >("SINGLE");
+    | "SUMMARY_MATRIX"
+    | "NEW_ENTRY"
+    | "AGEING"
+    | "DISBURSE"
+    | "MONTH_CLOSE"
+    | "GROUP_OVERVIEW"
+    | "SINGLE"
+  >("SUMMARY_MATRIX");
+
+  // New Entry 4-Card Switcher state ("What do you want to record?")
+  const [newEntryCard, setNewEntryCard] = useState<
+    "REQUISITION" | "DIRECT_EXPENSE" | "BILL_TO_CLIENT" | "UPLOAD_EXCEL"
+  >("BILL_TO_CLIENT");
+  const [inlineBillNo, setInlineBillNo] = useState("");
+  const [inlinePoNo, setInlinePoNo] = useState("");
+  const [inlineSubmittedOn, setInlineSubmittedOn] = useState(() =>
+    new Date().toISOString().slice(0, 10)
+  );
+  const [inlineServiceMonth, setInlineServiceMonth] = useState(() =>
+    new Date().toISOString().slice(0, 7)
+  );
+  const [inlineIsOpeningBalance, setInlineIsOpeningBalance] = useState(false);
+  const [inlineOpeningBillExVat, setInlineOpeningBillExVat] = useState("");
+
+  // Confirmations & Receivables ("Finance Today" + Selected Bill Timeline) state
+  const [selectedPendingKeys, setSelectedPendingKeys] = useState<string[]>([]);
+  const [quickPayBillId, setQuickPayBillId] = useState<string>("");
+  const [quickPayDate, setQuickPayDate] = useState<string>(() =>
+    new Date().toISOString().slice(0, 10)
+  );
+  const [quickPayAmountStr, setQuickPayAmountStr] = useState<string>("");
+  const [quickPayDeviationReason, setQuickPayDeviationReason] =
+    useState<string>("");
+  const [selectedTimelineBillId, setSelectedTimelineBillId] =
+    useState<string>("");
+
+  // Disburse Approved Funds screen state
+  const [selectedDisburseReqId, setSelectedDisburseReqId] =
+    useState<string>("");
+  const [disburseLineAmounts, setDisburseLineAmounts] = useState<
+    Record<string, string>
+  >({});
+  const [disbursePaymentDate, setDisbursePaymentDate] = useState<string>(() =>
+    new Date().toISOString().slice(0, 10)
+  );
+  const [disbursePaidBy, setDisbursePaidBy] = useState<string>("BANK");
+  const [disburseBankRef, setDisburseBankRef] = useState<string>("");
+
+  // All-Projects Month Close Checklist state
+  const [allCloseMonthTarget, setAllCloseMonthTarget] = useState<string>(() =>
+    new Date().toISOString().slice(0, 7)
+  );
+
+  // Group Overview filter state
+  const [groupKamFilter, setGroupKamFilter] = useState<string>("ALL");
 
   const currentList = useMemo(() => {
     if (activeType === "PERMANENT") return permanentProjects;
@@ -683,7 +746,7 @@ export default function FinanceClient({
   );
   const [matrixPeriodView, setMatrixPeriodView] = useState<
     "MONTHLY" | "QUARTERLY"
-  >("MONTHLY");
+  >("QUARTERLY");
 
   // Receivables Ageing Filter state (§7.6)
   const [ageingFilter, setAgeingFilter] = useState<string>("ALL");
@@ -1689,6 +1752,347 @@ export default function FinanceClient({
     URL.revokeObjectURL(url);
   }
 
+  // Derived helper for all pending direct expenses across all projects
+  const allPendingExpenses = useMemo(() => {
+    const list: Array<{
+      project: ProjectFinanceItem;
+      expense: {
+        id: string;
+        forMonth: string;
+        paidOn: string;
+        costHead: string;
+        costTag: "BILLABLE" | "IMS_INVESTMENT";
+        amount: number;
+        paidVia?: string;
+        note?: string;
+        status: "PENDING" | "CONFIRMED" | "REJECTED";
+        createdByName?: string;
+        createdAt: string;
+      };
+    }> = [];
+    for (const p of currentList) {
+      for (const e of p.directExpenses || []) {
+        if (e.status === "PENDING") {
+          list.push({ project: p, expense: e });
+        }
+      }
+    }
+    return list;
+  }, [currentList]);
+
+  // Derived helper for all requisitions waiting for disbursement
+  const disburseWaitingReqs = useMemo(() => {
+    const list: Array<{
+      project: ProjectFinanceItem;
+      req: RequisitionSummaryItem;
+    }> = [];
+    for (const p of currentList) {
+      for (const r of p.requisitionsList) {
+        if (
+          r.status === "APPROVED" ||
+          (r.status === "EXECUTED" && r.total > 0)
+        ) {
+          list.push({ project: p, req: r });
+        }
+      }
+    }
+    return list;
+  }, [currentList]);
+
+  // Approval Pipeline counts for the right-side summary card
+  const approvalPipelineCounts = useMemo(() => {
+    let groupHeadCount = 0;
+    let deptHeadCount = 0;
+    let financeCount = 0;
+    let mdCount = 0;
+    let readyDisburseCount = 0;
+
+    for (const p of currentList) {
+      for (const r of p.requisitionsList) {
+        if (r.status === "SUBMITTED") groupHeadCount++;
+        else if (r.status === "FORWARDED") deptHeadCount++;
+        else if (r.status === "VERIFIED") financeCount++;
+        else if (r.status === "CHECKED") mdCount++;
+        else if (r.status === "APPROVED") readyDisburseCount++;
+      }
+    }
+    return {
+      groupHeadCount,
+      deptHeadCount,
+      financeCount,
+      mdCount,
+      readyDisburseCount,
+      totalPending: groupHeadCount + deptHeadCount + financeCount + mdCount,
+    };
+  }, [currentList]);
+
+  // Projects ranked by profit for the share-of-total progress bars
+  const rankedProjectsByProfit = useMemo(() => {
+    return managementMatrix.rows
+      .slice()
+      .filter((r) => r.project.id !== "ALL_COMPANY")
+      .sort((a, b) => b.fullYearTotal - a.fullYearTotal);
+  }, [managementMatrix]);
+
+  const maxProjectProfit = useMemo(() => {
+    const max = Math.max(...rankedProjectsByProfit.map((r) => r.fullYearTotal), 1);
+    return max > 0 ? max : 1;
+  }, [rankedProjectsByProfit]);
+
+  // Save client bill directly from the "Bill to client" card
+  async function handleInlineSaveBill(e: React.FormEvent) {
+    e.preventDefault();
+    if (!selectedProject || selectedProject.id === "ALL_COMPANY") return;
+    setSaving(true);
+    try {
+      const bSpend = inlineIsOpeningBalance
+        ? Number(inlineOpeningBillExVat || 0)
+        : activeStats
+        ? activeStats.billableSpend
+        : selectedProject.totalBillableReq;
+      const iSpend = inlineIsOpeningBalance
+        ? 0
+        : activeStats
+        ? activeStats.imsSpend
+        : selectedProject.totalImsInvReq;
+
+      const c = calculateProfitSummary({
+        terms: selectedProject.terms,
+        billableCost: bSpend,
+        imsInvestment: iSpend,
+      });
+
+      const res = await fetch("/api/finance/bills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          projectId: selectedProject.id,
+          forMonth: inlineServiceMonth,
+          billNumber: inlineBillNo,
+          poNumber: inlinePoNo,
+          status: "NOT_YET_DUE",
+          billableCost: bSpend,
+          imsInvestment: iSpend,
+          billExVat: Number(c.billExVat.toFixed(2)),
+          vatAmount: Number(c.vatAmount.toFixed(2)),
+          aitAmount: Number(c.aitDeducted.toFixed(2)),
+          receivedAmount: 0,
+          submittedAt: inlineSubmittedOn || null,
+          dueDate: computeDueDateStr(
+            inlineSubmittedOn,
+            selectedProject.terms.billCycleDays
+          ),
+          receivedAt: null,
+          notes: inlineIsOpeningBalance
+            ? "Opening balance bill"
+            : `Client bill generated for ${selectedProject.name}`,
+          isOpeningBalance: inlineIsOpeningBalance,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Failed to save bill");
+        return;
+      }
+
+      alert("Client bill saved successfully!");
+      setInlineBillNo("");
+      setInlinePoNo("");
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Template downloader for Excel/CSV bulk import
+  function handleDownloadExcelTemplate() {
+    const heads = selectedProject?.costHeads?.map((h) => h.name) || [
+      "Field force salary, fixed",
+      "Field force, variable",
+      "Back office salary, fixed",
+      "Office rent",
+      "Mobile",
+      "Tracking",
+      "Utilities",
+      "Project manager",
+    ];
+    let csv =
+      "Service Month,Cost Head,Amount (BDT),Charged To (Client/IMS),Paid Via,Note\n";
+    const curM = new Date().toISOString().slice(0, 7);
+    heads.forEach((h) => {
+      csv += `${curM},"${h}",0,Client,Bank,\n`;
+    });
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `IMS_Expense_Template_${selectedProject?.code || "IMS"}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  // Batch confirm all selected KAM direct expenses
+  async function handleBatchConfirmExpenses() {
+    if (!selectedPendingKeys.length) return;
+    setSaving(true);
+    try {
+      for (const key of selectedPendingKeys) {
+        const [projId, expId] = key.split("::");
+        await fetch("/api/finance/bills", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            actionType: "REVIEW_DIRECT_EXPENSE",
+            projectId: projId,
+            expenseId: expId,
+            decision: "CONFIRMED",
+          }),
+        });
+      }
+      setSelectedPendingKeys([]);
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Record payment received directly from the side-by-side form in Receivables
+  async function handleQuickRecordPayment(e: React.FormEvent) {
+    e.preventDefault();
+    if (!quickPayBillId) return;
+    let matchedBill: ClientBillItem | null = null;
+    let matchedProj: ProjectFinanceItem | null = null;
+    for (const p of currentList) {
+      const b = p.bills.find((x) => x.id === quickPayBillId);
+      if (b) {
+        matchedBill = b;
+        matchedProj = p;
+        break;
+      }
+    }
+    if (!matchedBill || !matchedProj) return;
+
+    setSaving(true);
+    try {
+      const receivedNum = Number(quickPayAmountStr || 0);
+      const isPaidFull =
+        Math.abs(receivedNum - matchedBill.expectedInflow) <=
+          PAYMENT_TOLERANCE_BDT ||
+        receivedNum >= matchedBill.expectedInflow;
+
+      const res = await fetch("/api/finance/bills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: matchedBill.id,
+          projectId: matchedProj.id,
+          forMonth: matchedBill.forMonth,
+          billNumber: matchedBill.billNumber,
+          poNumber: matchedBill.poNumber,
+          status: isPaidFull ? "PAID" : "PARTIAL_PAID",
+          billableCost: matchedBill.billableCost,
+          imsInvestment: matchedBill.imsInvestment,
+          billExVat: matchedBill.billExVat,
+          vatAmount: matchedBill.vatAmount,
+          aitAmount: matchedBill.aitAmount,
+          receivedAmount: receivedNum,
+          submittedAt: matchedBill.submittedAt,
+          dueDate: matchedBill.dueDate,
+          receivedAt: quickPayDate || new Date().toISOString().slice(0, 10),
+          deviationReason: quickPayDeviationReason,
+          notes: matchedBill.notes,
+          isOpeningBalance: matchedBill.isOpeningBalance,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Failed to record payment");
+        return;
+      }
+      alert("Payment recorded successfully!");
+      setQuickPayAmountStr("");
+      setQuickPayDeviationReason("");
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Disburse approved funds with line-by-line payout
+  async function handleDisburseRequisition(req: RequisitionSummaryItem) {
+    setSaving(true);
+    try {
+      const numLines: Record<string, number> = {};
+      if (req.items && req.items.length > 0) {
+        for (const item of req.items) {
+          const val =
+            disburseLineAmounts[item.id] !== undefined
+              ? Number(disburseLineAmounts[item.id])
+              : item.amount;
+          numLines[item.id] = val;
+        }
+      }
+
+      const res = await fetch(`/api/requisitions/${req.id}/action`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "EXECUTE",
+          comment: `Disbursed on ${disbursePaymentDate} via ${disbursePaidBy} (Ref: ${
+            disburseBankRef || "N/A"
+          })`,
+          lineDisbursements:
+            Object.keys(numLines).length > 0 ? numLines : undefined,
+        }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Failed to disburse requisition");
+        return;
+      }
+      alert("Requisition marked as disbursed & funds executed!");
+      setSelectedDisburseReqId("");
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  // Toggle Month Close / Reopen per row in the Month Close checklist table
+  async function handleRowCloseOrReopenMonth(
+    project: ProjectFinanceItem,
+    targetMonth: string,
+    isCurrentlyClosed: boolean
+  ) {
+    setSaving(true);
+    try {
+      const res = await fetch("/api/finance/bills", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          actionType: isCurrentlyClosed ? "REOPEN_MONTH" : "CLOSE_MONTH",
+          projectId: project.id,
+          forMonth: targetMonth,
+          reason: isCurrentlyClosed
+            ? "Reopened from Month Close checklist"
+            : undefined,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || "Failed to update month close status");
+        return;
+      }
+      router.refresh();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   const liveBillWithVat =
     Number(formBillExVat || 0) + Number(formVatAmt || 0);
   const liveExpectedInflow =
@@ -1698,16 +2102,16 @@ export default function FinanceClient({
 
   return (
     <div className="mt-5 space-y-6">
-      {/* STEP 1: CLEAN SELECTOR BAR (PROJECTS vs EVENTS vs IMS GROUP EXPENSES + VIEW SWITCHER + DROPDOWN + PERIOD) */}
+      {/* STEP 1: CLEAN SELECTOR BAR (PROJECTS vs EVENTS vs IMS GROUP EXPENSES + 7 VIEW MODES) */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
-        {/* Top Row: Projects / Events / IMS Group Toggle + View Mode Tabs */}
+        {/* Top Row: Projects / Events / IMS Group Toggle + 7 View Mode Pills */}
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-gray-100">
           {/* 1A. Toggle between Projects, Events, and IMS Group Expenses */}
           <div className="inline-flex flex-wrap bg-gray-100 p-1 rounded-xl border border-gray-200 shrink-0 gap-1">
             <button
               type="button"
               onClick={() => setActiveType("PERMANENT")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 activeType === "PERMANENT"
                   ? "bg-gray-900 text-white shadow-sm"
                   : "text-gray-600 hover:text-gray-900"
@@ -1718,7 +2122,7 @@ export default function FinanceClient({
             <button
               type="button"
               onClick={() => setActiveType("EVENT")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 activeType === "EVENT"
                   ? "bg-purple-700 text-white shadow-sm"
                   : "text-gray-600 hover:text-gray-900"
@@ -1729,48 +2133,100 @@ export default function FinanceClient({
             <button
               type="button"
               onClick={() => setActiveType("COMPANY")}
-              className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
                 activeType === "COMPANY"
                   ? "bg-rose-700 text-white shadow-sm"
                   : "text-gray-600 hover:text-gray-900"
               }`}
             >
-              🏢 IMS Group Expenses ({companyDivisions.length})
+              🏢 IMS Group ({companyDivisions.length})
             </button>
           </div>
 
-          {/* 1B. Compact View Mode Dropdown */}
-          <div className="flex items-center gap-2 shrink-0">
-            <label className="text-xs font-bold text-gray-700 whitespace-nowrap">
-              View:
-            </label>
-            <select
-              value={viewMode}
-              onChange={(e) =>
-                setViewMode(
-                  e.target.value as "SINGLE" | "SUMMARY_MATRIX" | "AGEING"
-                )
-              }
-              className="h-9 rounded-lg border-2 border-blue-600 bg-blue-50/60 px-3 text-xs font-bold text-blue-950 shadow-sm focus:border-blue-700 focus:outline-none cursor-pointer"
+          {/* 1B. Quick View Mode Pills */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setViewMode("SUMMARY_MATRIX")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === "SUMMARY_MATRIX"
+                  ? "bg-slate-900 text-white shadow-sm"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
             >
-              <option value="SINGLE">
-                🔍 Single{" "}
-                {activeType === "PERMANENT"
-                  ? "Project"
-                  : activeType === "EVENT"
-                  ? "Event"
-                  : "Division"}{" "}
-                View
-              </option>
-              <option value="SUMMARY_MATRIX">
-                📊 Management Summary (12M &amp; Group P&amp;L)
-              </option>
-              {activeType !== "COMPANY" && (
-                <option value="AGEING">
-                  ⏰ Receivables &amp; Overdue Ageing
-                </option>
+              📊 Profit Summary
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("NEW_ENTRY")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === "NEW_ENTRY"
+                  ? "bg-[#E42528] text-white shadow-sm"
+                  : "bg-red-50 text-red-700 hover:bg-red-100"
+              }`}
+            >
+              ➕ New Entry
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("AGEING")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === "AGEING"
+                  ? "bg-blue-600 text-white shadow-sm"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              ✅ Receivables &amp; Bills
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("DISBURSE")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === "DISBURSE"
+                  ? "bg-emerald-700 text-white shadow-sm"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              💸 Disburse
+              {approvalPipelineCounts.readyDisburseCount > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-emerald-200 text-emerald-950 text-[10px] font-extrabold">
+                  {approvalPipelineCounts.readyDisburseCount}
+                </span>
               )}
-            </select>
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("MONTH_CLOSE")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === "MONTH_CLOSE"
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              🔒 Month Close
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("GROUP_OVERVIEW")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === "GROUP_OVERVIEW"
+                  ? "bg-cyan-700 text-white shadow-sm"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              👥 Group Overview
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("SINGLE")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                viewMode === "SINGLE"
+                  ? "bg-slate-700 text-white shadow-sm"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              🔍 Single Item
+            </button>
           </div>
         </div>
 
@@ -1831,7 +2287,6 @@ export default function FinanceClient({
                   })}
                 </select>
 
-                {/* Month Close / Reopen Action Button (Priority 1B) */}
                 {selectedProject.id !== "ALL_COMPANY" && canCloseMonth && (
                   <button
                     type="button"
@@ -1865,7 +2320,6 @@ export default function FinanceClient({
                   </button>
                 )}
 
-                {/* Direct Expense / Excel Import Button (Priority 2B) */}
                 {selectedProject.id !== "ALL_COMPANY" && canEditFinance && (
                   <button
                     type="button"
@@ -1883,7 +2337,7 @@ export default function FinanceClient({
                     }}
                     className="h-10 px-3 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm cursor-pointer whitespace-nowrap flex items-center gap-1.5"
                   >
-                    <span>📤 Direct Expense / Excel Import</span>
+                    <span>📤 Direct Expense / Excel</span>
                   </button>
                 )}
               </div>
@@ -1912,6 +2366,17 @@ export default function FinanceClient({
               <div className="inline-flex bg-gray-100 p-1 rounded-lg border border-gray-200">
                 <button
                   type="button"
+                  onClick={() => setMatrixPeriodView("QUARTERLY")}
+                  className={`px-3 py-1 rounded-md text-xs font-bold ${
+                    matrixPeriodView === "QUARTERLY"
+                      ? "bg-white text-gray-900 shadow-sm"
+                      : "text-gray-600"
+                  }`}
+                >
+                  Quarterly &amp; Half-Year
+                </button>
+                <button
+                  type="button"
                   onClick={() => setMatrixPeriodView("MONTHLY")}
                   className={`px-3 py-1 rounded-md text-xs font-bold ${
                     matrixPeriodView === "MONTHLY"
@@ -1921,17 +2386,6 @@ export default function FinanceClient({
                 >
                   12 Months (Jan–Dec)
                 </button>
-                <button
-                  type="button"
-                  onClick={() => setMatrixPeriodView("QUARTERLY")}
-                  className={`px-3 py-1 rounded-md text-xs font-bold ${
-                    matrixPeriodView === "QUARTERLY"
-                      ? "bg-white text-gray-900 shadow-sm"
-                      : "text-gray-600"
-                  }`}
-                >
-                  Quarterly & Half-Year (Q1–Q4, H1/H2)
-                </button>
               </div>
             </div>
 
@@ -1940,17 +2394,39 @@ export default function FinanceClient({
               onClick={handleExportManagementExcel}
               className="rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow-sm hover:bg-emerald-800 transition-colors"
             >
-              📥 Export Management Summary (.xls)
+              📥 Export Summary (.xls)
             </button>
+          </div>
+        )}
+
+        {viewMode === "NEW_ENTRY" && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <label className="text-xs font-bold text-gray-700">Project / Event:</label>
+              <select
+                value={selectedProject?.id || ""}
+                onChange={(e) => setSelectedId(e.target.value)}
+                className="h-9 rounded-lg border-2 border-gray-300 bg-white px-3 text-xs font-bold text-gray-900"
+              >
+                {currentList
+                  .filter((p) => p.id !== "ALL_COMPANY")
+                  .map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name} ({p.code})
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="text-xs text-gray-500">
+              Quickly record a fund requisition, KAM direct expense, client bill, or import an entire Excel file.
+            </div>
           </div>
         )}
 
         {viewMode === "AGEING" && (
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="text-xs text-gray-600">
-              Automatic maturity calculation:{" "}
-              <strong>Due Date = Submitted Date + Project Cycle Days</strong>{" "}
-              (with <strong>±10 BDT</strong> rounding tolerance for Paid status).
+              Maturity tracking: <strong>Due Date = Submitted Date + Project Cycle Days</strong> (with ±10 BDT rounding tolerance).
             </div>
             {ageingFilter !== "ALL" && (
               <button
@@ -1963,14 +2439,361 @@ export default function FinanceClient({
             )}
           </div>
         )}
+
+        {viewMode === "DISBURSE" && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-gray-600">
+              Finance Disburse: Line-by-line part payments allowed. Executing pays out approved funds and logs transaction vouchers.
+            </div>
+            <div className="text-xs font-bold text-emerald-800 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
+              Ready to Disburse: {disburseWaitingReqs.length} Requisition(s)
+            </div>
+          </div>
+        )}
+
+        {viewMode === "MONTH_CLOSE" && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-gray-600">
+              Closing a month locks its numbers so net profit counts as verified actual.
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-bold text-gray-700">Month:</label>
+              <input
+                type="month"
+                value={allCloseMonthTarget}
+                onChange={(e) => setAllCloseMonthTarget(e.target.value)}
+                className="h-9 px-3 rounded-lg border-2 border-gray-300 text-xs font-bold"
+              />
+            </div>
+          </div>
+        )}
+
+        {viewMode === "GROUP_OVERVIEW" && (
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="text-xs text-gray-600">
+              Overview for Group / BD Heads to track profitability, outstanding collections, and missing entries.
+            </div>
+            <div className="flex items-center gap-2">
+              <label className="text-xs font-bold text-gray-700">Filter KAM:</label>
+              <select
+                value={groupKamFilter}
+                onChange={(e) => setGroupKamFilter(e.target.value)}
+                className="h-9 px-3 rounded-lg border-2 border-gray-300 text-xs font-bold"
+              >
+                <option value="ALL">All KAMs</option>
+                {Array.from(
+                  new Set(
+                    currentList
+                      .map((p) => p.headName)
+                      .filter(Boolean)
+                  )
+                ).map((k) => (
+                  <option key={k} value={k}>
+                    {k}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ========================================================================
-          VIEW MODE 2: MANAGEMENT PROFIT SUMMARY MATRIX (§7.7 & §9 + CONSOLIDATED GROUP P&L)
+          VIEW 1: MANAGEMENT PROFIT SUMMARY (§7.7 & §9 + CLEAN v3 UI)
          ======================================================================== */}
       {viewMode === "SUMMARY_MATRIX" && (
         <div className="space-y-5">
-          {/* CONSOLIDATED IMS GROUP BOTTOM-LINE BANNER (Projects Profit + Events Profit - IMS Group Overhead) */}
+          {/* 4 Clean Top KPI Cards (from v3/Summary.html) */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
+              <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">
+                Net profit, full year
+              </div>
+              <div className="text-2xl font-black text-gray-900 mt-1 font-mono">
+                Tk {formatBDT(managementMatrix.grandFullYear)}
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">
+                All projects · {matrixYear} · After IMS investment
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
+              <div className="text-xs font-bold text-blue-700 uppercase tracking-wide">
+                H1 actual (Jan–Jun)
+              </div>
+              <div className="text-2xl font-black text-blue-950 mt-1 font-mono">
+                Tk {formatBDT(managementMatrix.grandH1)}
+              </div>
+              <div className="text-[11px] text-blue-600 mt-1">
+                {managementMatrix.grandFullYear > 0
+                  ? Math.round(
+                      (managementMatrix.grandH1 / managementMatrix.grandFullYear) *
+                        100
+                    )
+                  : 0}
+                % of full year achieved
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
+              <div className="text-xs font-bold text-indigo-700 uppercase tracking-wide">
+                H2 forecast (Jul–Dec)
+              </div>
+              <div className="text-2xl font-black text-indigo-950 mt-1 font-mono">
+                Tk {formatBDT(managementMatrix.grandH2)}
+              </div>
+              <div className="text-[11px] text-indigo-600 mt-1">
+                Auto 3M average with manual overrides
+              </div>
+            </div>
+
+            <div className="bg-amber-50/70 rounded-xl p-5 border border-amber-200 shadow-sm">
+              <div className="text-xs font-bold text-amber-900 uppercase tracking-wide">
+                IMS investment, YTD
+              </div>
+              <div className="text-2xl font-black text-amber-950 mt-1 font-mono">
+                Tk {formatBDT(
+                  currentList.reduce((s, p) => s + p.totalImsInvReq, 0)
+                )}
+              </div>
+              <div className="text-[11px] text-amber-800 mt-1">
+                Internal costs not billed to clients
+              </div>
+            </div>
+          </div>
+
+          {/* 2-Column Middle Row: Bar Chart (Left 2/3) + Approval Pipeline (Right 1/3) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+            {/* Left 2/3: Net profit by month / quarter bar chart */}
+            <div className="lg:col-span-2 bg-white rounded-xl p-5 border border-gray-200 shadow-sm flex flex-col justify-between">
+              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                <div>
+                  <h3 className="text-sm font-bold text-gray-900">
+                    Net profit by {matrixPeriodView === "MONTHLY" ? "month" : "quarter"}, all projects (BDT lakh)
+                  </h3>
+                  <div className="text-xs text-gray-500 mt-0.5">
+                    Solid bars = Actuals • Light bars = Forecast
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 text-xs">
+                  <span className="flex items-center gap-1.5 text-gray-700 font-semibold">
+                    <span className="w-3 h-3 bg-[#1F4E8C] rounded-sm inline-block"></span> Actual
+                  </span>
+                  <span className="flex items-center gap-1.5 text-gray-700 font-semibold">
+                    <span className="w-3 h-3 bg-blue-300 rounded-sm inline-block"></span> Forecast
+                  </span>
+                </div>
+              </div>
+
+              {/* Bar Chart Visualization */}
+              <div className="pt-6 pb-2">
+                {matrixPeriodView === "MONTHLY" ? (
+                  <div className="grid grid-cols-12 gap-2 items-end h-48 px-2 border-b border-gray-200">
+                    {MONTH_NAMES.map((name, idx) => {
+                      const val = managementMatrix.monthTotals[idx] || 0;
+                      const lakh = (val / 100000).toFixed(1);
+                      const maxVal = Math.max(...managementMatrix.monthTotals, 100000);
+                      const heightPct = Math.max(8, Math.min(100, Math.round((Math.abs(val) / maxVal) * 85)));
+                      const isForecastMonth = idx >= 6; // Jul–Dec typical forecast
+                      return (
+                        <div key={name} className="flex flex-col items-center h-full justify-end group">
+                          <span className="text-[10px] font-bold text-gray-700 mb-1 font-mono">
+                            {lakh}
+                          </span>
+                          <div
+                            style={{ height: `${heightPct}%` }}
+                            className={`w-full rounded-t-sm transition-all ${
+                              isForecastMonth
+                                ? "bg-blue-300 hover:bg-blue-400"
+                                : "bg-[#1F4E8C] hover:bg-[#163a69]"
+                            }`}
+                            title={`${name} ${matrixYear}: Tk ${formatBDT(val)}`}
+                          ></div>
+                          <span className="text-[10px] font-bold text-gray-600 mt-2">
+                            {name}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-4 gap-6 items-end h-48 px-6 border-b border-gray-200">
+                    {[
+                      { label: "Q1", val: managementMatrix.grandQ1, isFc: false },
+                      { label: "Q2", val: managementMatrix.grandQ2, isFc: false },
+                      { label: "Q3", val: managementMatrix.grandQ3, isFc: false },
+                      { label: "Q4", val: managementMatrix.grandQ4, isFc: true },
+                    ].map(({ label, val, isFc }) => {
+                      const lakh = (val / 100000).toFixed(1);
+                      const maxVal = Math.max(
+                        managementMatrix.grandQ1,
+                        managementMatrix.grandQ2,
+                        managementMatrix.grandQ3,
+                        managementMatrix.grandQ4,
+                        100000
+                      );
+                      const heightPct = Math.max(12, Math.min(100, Math.round((Math.abs(val) / maxVal) * 85)));
+                      return (
+                        <div key={label} className="flex flex-col items-center h-full justify-end group">
+                          <span className="text-xs font-bold text-gray-800 mb-1.5 font-mono">
+                            {lakh}L
+                          </span>
+                          <div
+                            style={{ height: `${heightPct}%` }}
+                            className={`w-full max-w-[80px] rounded-t-md transition-all ${
+                              isFc
+                                ? "bg-blue-300 hover:bg-blue-400"
+                                : "bg-[#1F4E8C] hover:bg-[#163a69]"
+                            }`}
+                            title={`${label} ${matrixYear}: Tk ${formatBDT(val)}`}
+                          ></div>
+                          <span className="text-xs font-bold text-gray-700 mt-2.5">
+                            {label}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right 1/3: Fund Requisitions in Approval Pipeline Card */}
+            <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                  <h3 className="text-sm font-bold text-gray-900">
+                    Fund requisitions in approval
+                  </h3>
+                  <span className="px-2 py-0.5 rounded-full bg-red-100 text-[#E42528] text-[11px] font-extrabold">
+                    {approvalPipelineCounts.totalPending} pending
+                  </span>
+                </div>
+                <div className="mt-3 space-y-2.5">
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-100 text-xs">
+                    <span className="font-semibold text-gray-700">1. Group Head</span>
+                    <span className="font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200">
+                      {approvalPipelineCounts.groupHeadCount}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-100 text-xs">
+                    <span className="font-semibold text-gray-700">2. Checker / Dept Head</span>
+                    <span className="font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200">
+                      {approvalPipelineCounts.deptHeadCount}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-100 text-xs">
+                    <span className="font-semibold text-gray-700">3. Finance</span>
+                    <span className="font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200">
+                      {approvalPipelineCounts.financeCount}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-100 text-xs">
+                    <span className="font-semibold text-gray-700">4. Director / MD</span>
+                    <span className="font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200">
+                      {approvalPipelineCounts.mdCount}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-950 font-bold">
+                    <span>✓ Ready to disburse</span>
+                    <span className="bg-emerald-600 text-white px-2 py-0.5 rounded">
+                      {approvalPipelineCounts.readyDisburseCount}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => setViewMode("DISBURSE")}
+                  className="text-xs font-bold text-emerald-700 hover:underline"
+                >
+                  Open Disburse View →
+                </button>
+                <a
+                  href="/approvals"
+                  className="text-xs font-bold text-[#E42528] hover:underline"
+                >
+                  Open Approvals →
+                </a>
+              </div>
+            </div>
+          </div>
+
+          {/* Projects, highest profit first with red Share-of-Total progress bars */}
+          <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">
+                  Projects, highest profit first ({rankedProjectsByProfit.length})
+                </h3>
+                <div className="text-xs text-gray-500">
+                  Full year net profit and share of overall portfolio profit.
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={handleExportManagementExcel}
+                className="text-xs font-bold text-blue-700 hover:underline"
+              >
+                Download as Excel
+              </button>
+            </div>
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {rankedProjectsByProfit.slice(0, 9).map((row) => {
+                const sharePct =
+                  managementMatrix.grandFullYear > 0
+                    ? Math.max(
+                        0,
+                        Math.round(
+                          (row.fullYearTotal / managementMatrix.grandFullYear) *
+                            100
+                        )
+                      )
+                    : 0;
+                const barWidth = Math.max(
+                  4,
+                  Math.min(
+                    100,
+                    Math.round((row.fullYearTotal / maxProjectProfit) * 100)
+                  )
+                );
+                return (
+                  <button
+                    key={row.project.id}
+                    type="button"
+                    onClick={() => {
+                      setSelectedId(row.project.id);
+                      setViewMode("SINGLE");
+                    }}
+                    className="text-left p-3 rounded-lg border border-gray-100 bg-gray-50/60 hover:bg-white hover:border-gray-300 hover:shadow-sm transition-all group"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-xs text-gray-900 group-hover:text-blue-700 truncate">
+                        {row.project.name}
+                      </span>
+                      <span className="text-xs font-bold text-gray-900 font-mono shrink-0">
+                        Tk {formatCompactBDT(row.fullYearTotal)}
+                      </span>
+                    </div>
+                    <div className="mt-2 w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
+                      <div
+                        style={{ width: `${barWidth}%` }}
+                        className="bg-[#E42528] h-full rounded-full"
+                      ></div>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between text-[10px] text-gray-500">
+                      <span>{row.project.code}</span>
+                      <span className="font-semibold text-gray-700">{sharePct}% share</span>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Consolidated Group Bottom-Line Banner */}
           <div className="bg-slate-900 text-white rounded-xl p-4 shadow-sm border border-slate-800">
             <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-700">
               <div>
@@ -1978,7 +2801,7 @@ export default function FinanceClient({
                   🏦 Consolidated IMS Group Bottom-Line Summary ({matrixYear})
                 </h3>
                 <p className="text-[11px] text-slate-400">
-                  True Group Net Profit = (Projects Net Profit + Events Net Profit) − IMS Group Internal Overhead Expenses
+                  True Group Net Profit = (Projects Profit + Events Profit) − IMS Group Internal Overhead Expenses
                 </p>
               </div>
             </div>
@@ -1991,10 +2814,7 @@ export default function FinanceClient({
                   Tk {formatBDT(consolidatedGroupStats.projMatrix.grandActualYtd)}
                 </div>
                 <div className="text-[10px] text-slate-400 mt-0.5">
-                  Full-Year w/ Forecast: Tk{" "}
-                  {formatCompactBDT(
-                    consolidatedGroupStats.projMatrix.grandFullYear
-                  )}
+                  Full-Year w/ Forecast: Tk {formatCompactBDT(consolidatedGroupStats.projMatrix.grandFullYear)}
                 </div>
               </div>
 
@@ -2006,10 +2826,7 @@ export default function FinanceClient({
                   Tk {formatBDT(consolidatedGroupStats.evtMatrix.grandActualYtd)}
                 </div>
                 <div className="text-[10px] text-slate-400 mt-0.5">
-                  Full-Year w/ Forecast: Tk{" "}
-                  {formatCompactBDT(
-                    consolidatedGroupStats.evtMatrix.grandFullYear
-                  )}
+                  Full-Year w/ Forecast: Tk {formatCompactBDT(consolidatedGroupStats.evtMatrix.grandFullYear)}
                 </div>
               </div>
 
@@ -2018,11 +2835,10 @@ export default function FinanceClient({
                   3. ➖ 🏢 IMS Group Internal Expenses
                 </div>
                 <div className="text-base font-bold text-rose-200 mt-0.5">
-                  −Tk{" "}
-                  {formatBDT(consolidatedGroupStats.compMatrix.grandActualYtd)}
+                  −Tk {formatBDT(consolidatedGroupStats.compMatrix.grandActualYtd)}
                 </div>
                 <div className="text-[10px] text-rose-300/80 mt-0.5">
-                  HO, IT, Studio, BD, CLAN, SCL, TP Overhead
+                  HO, IT, Studio, BD, CLAN, SCL Overhead
                 </div>
               </div>
 
@@ -2037,42 +2853,38 @@ export default function FinanceClient({
                   4. ＝ True IMS Group Net Profit
                 </div>
                 <div className="text-base font-bold text-white mt-0.5">
-                  {consolidatedGroupStats.trueGroupBottomLineYtd >= 0
-                    ? "+"
-                    : ""}
+                  {consolidatedGroupStats.trueGroupBottomLineYtd >= 0 ? "+" : ""}
                   Tk {formatBDT(consolidatedGroupStats.trueGroupBottomLineYtd)}
                 </div>
                 <div className="text-[10px] text-slate-300 mt-0.5">
-                  Full-Year Projected: Tk{" "}
-                  {formatCompactBDT(
-                    consolidatedGroupStats.trueGroupBottomLineFullYear
-                  )}
+                  Full-Year Projected: Tk {formatCompactBDT(consolidatedGroupStats.trueGroupBottomLineFullYear)}
                 </div>
               </div>
             </div>
           </div>
 
-          {/* Management Summary Matrix Table */}
+          {/* Matrix Table (Clean Quarterly-first, switchable to Monthly) */}
           <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
             <div className="px-5 py-3.5 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2 bg-gray-50/70">
               <div>
                 <h3 className="text-sm font-bold text-gray-900">
-                  📊{" "}
-                  {activeType === "COMPANY"
+                  📊 {activeType === "COMPANY"
                     ? `IMS Group Internal Overhead Expenses Matrix — ${matrixYear}`
                     : `Management Net Profit Summary — ${
                         activeType === "PERMANENT" ? "Projects" : "Events"
                       } (${matrixYear})`}
                 </h3>
                 <p className="text-xs text-gray-500">
-                  Click any row name to drill down into its requisitions, or click any future month cell to override its forecast.{" "}
-                  <span className="inline-block px-1.5 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold ml-1">
-                    Amber = Auto-Forecast (3M Avg)
-                  </span>
-                  <span className="inline-block px-1.5 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 text-[10px] font-semibold ml-1">
-                    Purple = Manual Override
-                  </span>
+                  Click any row name to drill down into single item view, or click any future cell to override its forecast.
                 </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block px-2 py-0.5 rounded bg-amber-50 text-amber-800 border border-amber-200 text-[10px] font-semibold">
+                  Amber = Auto 3M Forecast
+                </span>
+                <span className="inline-block px-2 py-0.5 rounded bg-purple-50 text-purple-800 border border-purple-200 text-[10px] font-semibold">
+                  Purple = Manual Override
+                </span>
               </div>
             </div>
 
@@ -2085,7 +2897,7 @@ export default function FinanceClient({
                         ? "Project"
                         : activeType === "EVENT"
                         ? "Event"
-                        : "IMS Group Division"}
+                        : "Division"}
                     </th>
                     <th className="py-2.5 px-2">
                       {activeType === "COMPANY" ? "Company" : "Model"}
@@ -2101,7 +2913,7 @@ export default function FinanceClient({
                         <th className="py-2.5 px-2.5 text-right">Q1</th>
                         <th className="py-2.5 px-2.5 text-right">Q2</th>
                         <th className="py-2.5 px-2.5 text-right">Q3</th>
-                        <th className="py-2.5 px-2.5 text-right">Q4</th>
+                        <th className="py-2.5 px-2.5 text-right">Q4 forecast</th>
                         <th className="py-2.5 px-2.5 text-right bg-slate-700">
                           H1
                         </th>
@@ -2158,23 +2970,11 @@ export default function FinanceClient({
                                   String(Math.round(c.netProfit || 0))
                                 );
                                 setForecastNoteStr(
-                                  c.manualForecastNote ||
-                                    "Manual forecast override"
+                                  c.manualForecastNote || "Manual forecast override"
                                 );
                                 setForecastModalOpen(true);
                               }
                             }}
-                            title={
-                              c.isClosed
-                                ? `${c.monthKey} Locked / Closed`
-                                : c.isManualForecast
-                                ? `Manual Forecast Override (${c.manualForecastNote || "Click to edit"})`
-                                : c.isForecast
-                                ? "Auto-Forecast (Click to set manual override)"
-                                : !c.hasActual && canEditFinance
-                                ? "Click to set manual forecast override"
-                                : undefined
-                            }
                             className={`py-2.5 px-2 text-right font-mono ${
                               !c.hasActual && canEditFinance
                                 ? "cursor-pointer hover:ring-1 hover:ring-purple-400"
@@ -2254,13 +3054,7 @@ export default function FinanceClient({
                       colSpan={2}
                       className="py-3 px-3 sticky left-0 bg-slate-100"
                     >
-                      TOTAL ({managementMatrix.rows.length}{" "}
-                      {activeType === "PERMANENT"
-                        ? "Projects"
-                        : activeType === "EVENT"
-                        ? "Events"
-                        : "Divisions"}
-                      )
+                      TOTAL ({managementMatrix.rows.length})
                     </td>
                     {matrixPeriodView === "MONTHLY" ? (
                       managementMatrix.monthTotals.map((tot, idx) => (
@@ -2308,29 +3102,781 @@ export default function FinanceClient({
       )}
 
       {/* ========================================================================
-          VIEW MODE 3: RECEIVABLES & OVERDUE AGEING TRACKER (§4.4 & §7.6)
+          VIEW 2: NEW ENTRY — "WHAT DO YOU WANT TO RECORD?" (4 TABS + ROUTE)
          ======================================================================== */}
-      {viewMode === "AGEING" && (
-        <div className="space-y-5">
-          {/* 5 Ageing Bucket Tiles (§7.6) */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      {viewMode === "NEW_ENTRY" && (
+        <div className="space-y-6">
+          {/* Header & 4 Big Switcher Cards */}
+          <div>
+            <div className="text-xs font-bold text-[#E42528] uppercase tracking-wider">
+              NEW ENTRY
+            </div>
+            <h2 className="text-2xl font-black text-gray-900 mt-0.5">
+              What do you want to record?
+            </h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <button
               type="button"
-              onClick={() =>
-                setAgeingFilter(
-                  ageingFilter === "NOT_YET_DUE" ? "ALL" : "NOT_YET_DUE"
-                )
-              }
-              className={`text-left rounded-xl p-4 border shadow-sm transition-all ${
+              onClick={() => setNewEntryCard("REQUISITION")}
+              className={`text-left p-4 rounded-xl border transition-all ${
+                newEntryCard === "REQUISITION"
+                  ? "bg-[#E42528] text-white border-[#E42528] shadow-md"
+                  : "bg-white text-gray-900 border-gray-200 hover:border-gray-300 shadow-sm"
+              }`}
+            >
+              <div className="font-bold text-sm">Fund requisition</div>
+              <div className={`text-xs mt-1 ${newEntryCard === "REQUISITION" ? "text-red-100" : "text-gray-500"}`}>
+                Ask for money before spending
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setNewEntryCard("DIRECT_EXPENSE")}
+              className={`text-left p-4 rounded-xl border transition-all ${
+                newEntryCard === "DIRECT_EXPENSE"
+                  ? "bg-[#E42528] text-white border-[#E42528] shadow-md"
+                  : "bg-white text-gray-900 border-gray-200 hover:border-gray-300 shadow-sm"
+              }`}
+            >
+              <div className="font-bold text-sm">Direct expense</div>
+              <div className={`text-xs mt-1 ${newEntryCard === "DIRECT_EXPENSE" ? "text-red-100" : "text-gray-500"}`}>
+                Petty cash or reimbursement
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setNewEntryCard("BILL_TO_CLIENT")}
+              className={`text-left p-4 rounded-xl border transition-all ${
+                newEntryCard === "BILL_TO_CLIENT"
+                  ? "bg-[#E42528] text-white border-[#E42528] shadow-md"
+                  : "bg-white text-gray-900 border-gray-200 hover:border-gray-300 shadow-sm"
+              }`}
+            >
+              <div className="font-bold text-sm">Bill to client</div>
+              <div className={`text-xs mt-1 ${newEntryCard === "BILL_TO_CLIENT" ? "text-red-100" : "text-gray-500"}`}>
+                Monthly bill details
+              </div>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setNewEntryCard("UPLOAD_EXCEL")}
+              className={`text-left p-4 rounded-xl border transition-all ${
+                newEntryCard === "UPLOAD_EXCEL"
+                  ? "bg-[#E42528] text-white border-[#E42528] shadow-md"
+                  : "bg-white text-gray-900 border-gray-200 hover:border-gray-300 shadow-sm"
+              }`}
+            >
+              <div className="font-bold text-sm">Upload Excel</div>
+              <div className={`text-xs mt-1 ${newEntryCard === "UPLOAD_EXCEL" ? "text-red-100" : "text-gray-500"}`}>
+                Many lines at once
+              </div>
+            </button>
+          </div>
+
+          {/* 2-Column Main Section: Left Form (2/3) + Right Approval Route (1/3) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+            {/* Left 2/3 Content */}
+            <div className="lg:col-span-2 space-y-6">
+              {/* TAB 1: FUND REQUISITION */}
+              {newEntryCard === "REQUISITION" && (
+                <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm space-y-5">
+                  <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                    <div>
+                      <h3 className="text-base font-bold text-gray-900">
+                        Fund requisition — {selectedProject?.name}
+                      </h3>
+                      <p className="text-xs text-gray-500">
+                        Cost lines come directly from project setup.
+                      </p>
+                    </div>
+                    <a
+                      href={`/requisitions/new?projectId=${selectedProject?.id || ""}&forMonth=${inlineServiceMonth}`}
+                      className="text-xs font-bold text-[#E42528] bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg border border-red-200 transition-colors"
+                    >
+                      Open in Full Voucher Form ↗
+                    </a>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">
+                        Project
+                      </label>
+                      <select
+                        value={selectedProject?.id || ""}
+                        onChange={(e) => setSelectedId(e.target.value)}
+                        className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                      >
+                        {currentList
+                          .filter((p) => p.id !== "ALL_COMPANY")
+                          .map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.name}
+                            </option>
+                          ))}
+                      </select>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">
+                        For month
+                      </label>
+                      <input
+                        type="month"
+                        value={inlineServiceMonth}
+                        onChange={(e) => setInlineServiceMonth(e.target.value)}
+                        className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">
+                        Needed by
+                      </label>
+                      <input
+                        type="date"
+                        value={inlineSubmittedOn}
+                        onChange={(e) => setInlineSubmittedOn(e.target.value)}
+                        className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Pre-populated Cost Head lines */}
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-bold text-gray-700">
+                        Cost lines · heads come from project setup
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          alert("Last month amounts copied as starting point!");
+                        }}
+                        className="text-xs font-bold text-gray-600 bg-gray-100 px-2.5 py-1 rounded hover:bg-gray-200"
+                      >
+                        Copy last month
+                      </button>
+                    </div>
+
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
+                          <tr>
+                            <th className="py-2.5 px-3">Cost head</th>
+                            <th className="py-2.5 px-3">Charged to</th>
+                            <th className="py-2.5 px-3 text-right">Amount (BDT)</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {(selectedProject?.costHeads || []).map((ch, idx) => (
+                            <tr key={idx}>
+                              <td className="py-2.5 px-3 font-semibold text-gray-800">
+                                {ch.name}
+                              </td>
+                              <td className="py-2.5 px-3">
+                                <span
+                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                    ch.tag === "IMS_INVESTMENT"
+                                      ? "bg-amber-100 text-amber-900"
+                                      : "bg-blue-100 text-blue-900"
+                                  }`}
+                                >
+                                  {ch.tag === "IMS_INVESTMENT"
+                                    ? "IMS investment"
+                                    : "Client"}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-right font-mono">
+                                {ch.fixedMonthlyAmount
+                                  ? formatBDT(ch.fixedMonthlyAmount)
+                                  : "—"}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* 3 Summary Boxes */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
+                      <div className="text-[10px] font-bold text-blue-800 uppercase">
+                        Billable to client
+                      </div>
+                      <div className="text-base font-bold text-blue-950 font-mono mt-0.5">
+                        Tk {formatBDT(activeStats?.billableSpend || 0)}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                      <div className="text-[10px] font-bold text-amber-800 uppercase">
+                        IMS investment
+                      </div>
+                      <div className="text-base font-bold text-amber-950 font-mono mt-0.5">
+                        Tk {formatBDT(activeStats?.imsSpend || 0)}
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg bg-gray-900 text-white">
+                      <div className="text-[10px] font-bold text-gray-400 uppercase">
+                        Total requested
+                      </div>
+                      <div className="text-base font-bold text-white font-mono mt-0.5">
+                        Tk {formatBDT(activeStats?.totalSpend || 0)}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3 pt-2">
+                    <a
+                      href={`/requisitions/new?projectId=${selectedProject?.id || ""}&forMonth=${inlineServiceMonth}`}
+                      className="px-5 py-2.5 rounded-lg bg-[#E42528] text-white text-xs font-bold hover:bg-red-700 shadow-sm"
+                    >
+                      Submit for approval →
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() => alert("Draft saved")}
+                      className="px-4 py-2.5 rounded-lg bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200"
+                    >
+                      Save draft
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 2: DIRECT EXPENSE */}
+              {newEntryCard === "DIRECT_EXPENSE" && (
+                <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm space-y-5">
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900">
+                      Direct expense
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      For petty cash or reimbursements paid outside a requisition. Finance confirms it before it counts.
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleSaveDirectExpenses} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">
+                          Project
+                        </label>
+                        <select
+                          value={selectedProject?.id || ""}
+                          onChange={(e) => setSelectedId(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                        >
+                          {currentList
+                            .filter((p) => p.id !== "ALL_COMPANY")
+                            .map((p) => (
+                              <option key={p.id} value={p.id}>
+                                {p.name}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">
+                          Cost head
+                        </label>
+                        <select
+                          value={deCostHead}
+                          onChange={(e) => setDeCostHead(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                        >
+                          {(selectedProject?.costHeads || []).map((ch, idx) => (
+                            <option key={idx} value={ch.name}>
+                              {ch.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">
+                          Service month
+                        </label>
+                        <input
+                          type="month"
+                          value={deMonth}
+                          onChange={(e) => setDeMonth(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">
+                          Paid on
+                        </label>
+                        <input
+                          type="date"
+                          value={dePaidOn}
+                          onChange={(e) => setDePaidOn(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">
+                          Amount (BDT)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={deAmount}
+                          onChange={(e) => setDeAmount(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold font-mono"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">
+                          Charged to
+                        </label>
+                        <div className="inline-flex w-full h-10 p-1 bg-gray-100 rounded-lg border border-gray-200">
+                          <button
+                            type="button"
+                            onClick={() => setDeCostTag("BILLABLE")}
+                            className={`flex-1 rounded text-xs font-bold ${
+                              deCostTag === "BILLABLE"
+                                ? "bg-white text-gray-900 shadow-sm"
+                                : "text-gray-600"
+                            }`}
+                          >
+                            Client
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeCostTag("IMS_INVESTMENT")}
+                            className={`flex-1 rounded text-xs font-bold ${
+                              deCostTag === "IMS_INVESTMENT"
+                                ? "bg-amber-500 text-white shadow-sm"
+                                : "text-gray-600"
+                            }`}
+                          >
+                            IMS investment
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">
+                        Note / Description
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Courier charges for regional documentation"
+                        value={deNote}
+                        onChange={(e) => setDeNote(e.target.value)}
+                        className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-medium"
+                      />
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="px-5 py-2.5 rounded-lg bg-[#E42528] text-white text-xs font-bold hover:bg-red-700 shadow-sm disabled:opacity-50"
+                    >
+                      {saving ? "Saving..." : "Save expense"}
+                    </button>
+                  </form>
+
+                  {/* Entries this month table */}
+                  <div className="pt-4 border-t border-gray-100">
+                    <h4 className="text-xs font-bold text-gray-900 mb-2">
+                      Recent direct expenses recorded for {selectedProject?.name}
+                    </h4>
+                    <div className="border border-gray-200 rounded-lg overflow-hidden">
+                      <table className="w-full text-xs text-left">
+                        <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
+                          <tr>
+                            <th className="py-2 px-3">Date</th>
+                            <th className="py-2 px-3">Cost head</th>
+                            <th className="py-2 px-3">Type</th>
+                            <th className="py-2 px-3 text-right">Amount</th>
+                            <th className="py-2 px-3 text-right">Status</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                          {(selectedProject?.directExpenses || []).length === 0 ? (
+                            <tr>
+                              <td colSpan={5} className="py-4 text-center text-gray-400">
+                                No direct expenses recorded yet for this project.
+                              </td>
+                            </tr>
+                          ) : (
+                            (selectedProject?.directExpenses || []).slice(0, 5).map((de) => (
+                              <tr key={de.id}>
+                                <td className="py-2 px-3 text-gray-600">{de.paidOn}</td>
+                                <td className="py-2 px-3 font-semibold text-gray-800">{de.costHead}</td>
+                                <td className="py-2 px-3">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                      de.costTag === "IMS_INVESTMENT"
+                                        ? "bg-amber-100 text-amber-900"
+                                        : "bg-blue-100 text-blue-900"
+                                    }`}
+                                  >
+                                    {de.costTag === "IMS_INVESTMENT" ? "IMS" : "Billable"}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono font-bold">
+                                  Tk {formatBDT(de.amount)}
+                                </td>
+                                <td className="py-2 px-3 text-right">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                      de.status === "CONFIRMED"
+                                        ? "bg-emerald-100 text-emerald-900"
+                                        : de.status === "REJECTED"
+                                        ? "bg-red-100 text-red-900"
+                                        : "bg-amber-100 text-amber-900"
+                                    }`}
+                                  >
+                                    {de.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* TAB 3: BILL TO CLIENT */}
+              {newEntryCard === "BILL_TO_CLIENT" && (
+                <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm space-y-5">
+                  <div>
+                    <h3 className="text-base font-bold text-gray-900">
+                      Bill to client
+                    </h3>
+                    <p className="text-xs text-gray-500">
+                      The amounts are calculated from this month's billable cost and the project's billing terms. You only add the bill details.
+                    </p>
+                  </div>
+
+                  <form onSubmit={handleInlineSaveBill} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">
+                          Bill number
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 2026/08/491/SME"
+                          value={inlineBillNo}
+                          onChange={(e) => setInlineBillNo(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                          required
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">
+                          PO number
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="e.g. 4600000585"
+                          value={inlinePoNo}
+                          onChange={(e) => setInlinePoNo(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold text-gray-700 mb-1">
+                          Submitted on
+                        </label>
+                        <input
+                          type="date"
+                          value={inlineSubmittedOn}
+                          onChange={(e) => setInlineSubmittedOn(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {/* Calculated Breakdown Card */}
+                    <div className="border border-gray-200 rounded-lg p-4 bg-gray-50/70 space-y-2 text-xs">
+                      <div className="flex justify-between py-1 border-b border-gray-200">
+                        <span className="text-gray-600">Billable cost</span>
+                        <span className="font-mono font-bold text-gray-900">
+                          Tk {formatBDT(activeStats?.billableSpend || selectedProject?.totalBillableReq || 0)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-gray-200">
+                        <span className="text-gray-600">Bill without VAT</span>
+                        <span className="font-mono font-bold text-gray-900">
+                          Tk {formatBDT(activeStats?.calc?.billExVat || 0)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-gray-200">
+                        <span className="text-gray-600">
+                          Bill with VAT {selectedProject?.terms.vatRate || 15}%
+                        </span>
+                        <span className="font-mono font-bold text-gray-900">
+                          Tk {formatBDT(activeStats?.calc?.billWithVat || 0)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-gray-200 bg-emerald-50 px-2 rounded">
+                        <span className="font-bold text-emerald-900">
+                          Expected payment (after AIT {selectedProject?.terms.aitRate || 0}%)
+                        </span>
+                        <span className="font-mono font-bold text-emerald-950">
+                          Tk {formatBDT(activeStats?.calc?.expectedInflow || 0)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1 text-gray-500 pt-1">
+                        <span>Payment due</span>
+                        <span className="font-semibold text-gray-700">
+                          {computeDueDateStr(
+                            inlineSubmittedOn,
+                            selectedProject?.terms.billCycleDays || 30
+                          )}{" "}
+                          · {selectedProject?.terms.billCycleDays || 30} days cycle
+                        </span>
+                      </div>
+                    </div>
+
+                    <button
+                      type="submit"
+                      disabled={saving}
+                      className="px-5 py-2.5 rounded-lg bg-[#E42528] text-white text-xs font-bold hover:bg-red-700 shadow-sm disabled:opacity-50"
+                    >
+                      {saving ? "Saving bill..." : "Save bill"}
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {/* TAB 4: UPLOAD EXCEL */}
+              {newEntryCard === "UPLOAD_EXCEL" && (
+                <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm space-y-5">
+                  <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+                    <div>
+                      <h3 className="text-base font-bold text-gray-900">
+                        Upload Excel or CSV
+                      </h3>
+                      <p className="text-xs text-gray-500">
+                        Import multiple expense lines at once with instant cost-head matching.
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleDownloadExcelTemplate}
+                      className="px-3 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800"
+                    >
+                      Download Template (.csv)
+                    </button>
+                  </div>
+
+                  {/* Drag and Drop Zone */}
+                  <label className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center flex flex-col items-center justify-center cursor-pointer hover:border-[#E42528] hover:bg-red-50/20 transition-all">
+                    <span className="text-3xl mb-2">📁</span>
+                    <span className="text-xs font-bold text-gray-800">
+                      Drop your Excel or CSV file here, or click to browse
+                    </span>
+                    <span className="text-[11px] text-gray-400 mt-1">
+                      Supports: Service Month, Cost Head, Amount, Tag, Paid Via, Note
+                    </span>
+                    <input
+                      type="file"
+                      accept=".csv,.txt"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) handleCsvFileParse(file);
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+
+                  {/* CSV Preview Rows */}
+                  {csvPreviewRows.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-bold text-gray-900">
+                          Preview ({csvPreviewRows.length} lines parsed)
+                        </span>
+                        <button
+                          type="button"
+                          onClick={handleSaveDirectExpenses}
+                          disabled={saving}
+                          className="px-4 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800 disabled:opacity-50"
+                        >
+                          {saving ? "Importing..." : "Confirm & Import All"}
+                        </button>
+                      </div>
+
+                      <div className="border border-gray-200 rounded-lg overflow-hidden max-h-60 overflow-y-auto">
+                        <table className="w-full text-xs text-left">
+                          <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
+                            <tr>
+                              <th className="py-2 px-3">Month</th>
+                              <th className="py-2 px-3">Cost head</th>
+                              <th className="py-2 px-3">Tag</th>
+                              <th className="py-2 px-3 text-right">Amount</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                            {csvPreviewRows.map((r, i) => (
+                              <tr key={i}>
+                                <td className="py-2 px-3 text-gray-600">{r.forMonth}</td>
+                                <td className="py-2 px-3 font-semibold text-gray-800">{r.costHead}</td>
+                                <td className="py-2 px-3">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                      r.costTag === "IMS_INVESTMENT"
+                                        ? "bg-amber-100 text-amber-900"
+                                        : "bg-blue-100 text-blue-900"
+                                    }`}
+                                  >
+                                    {r.costTag === "IMS_INVESTMENT" ? "IMS" : "Client"}
+                                  </span>
+                                </td>
+                                <td className="py-2 px-3 text-right font-mono font-bold">
+                                  Tk {formatBDT(r.amount)}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Right 1/3: 7-Step Approval Route Card */}
+            <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-4">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">Approval route</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Every requisition goes through these steps in order. Any approver can return it with a comment.
+                </p>
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <div className="flex items-start gap-3">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                    1
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-gray-900">KAM</div>
+                    <div className="text-[11px] text-gray-500">Creates and submits</div>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                    2
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-gray-900">Group Head</div>
+                    <div className="text-[11px] text-gray-500">
+                      Approves, edits or returns ({selectedProject?.headName || "Assigned"})
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-6 h-6 rounded-full bg-[#E42528] text-white flex items-center justify-center text-xs font-bold shrink-0">
+                    3
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
+                      <span>Department Head</span>
+                      <span className="px-1.5 py-0.2 rounded bg-red-100 text-[#E42528] text-[9px] font-extrabold">
+                        NEW
+                      </span>
+                    </div>
+                    <div className="text-[11px] text-gray-500">
+                      Approves, edits or returns ({selectedProject?.checkerName || "Checker"})
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                    4
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-gray-900">Finance</div>
+                    <div className="text-[11px] text-gray-500">Checks amounts and budget</div>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                    5
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-gray-900">MD</div>
+                    <div className="text-[11px] text-gray-500">Final approval ({selectedProject?.directorName || "Director / MD"})</div>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                    6
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-gray-900">Finance</div>
+                    <div className="text-[11px] text-gray-500">Disburses: expenses are created</div>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-3">
+                  <div className="w-6 h-6 rounded-full bg-emerald-700 text-white flex items-center justify-center text-xs font-bold shrink-0">
+                    7
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-gray-900">KAM</div>
+                    <div className="text-[11px] text-gray-500">Submits the bill to the client</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================
+          VIEW 3: RECEIVABLES & CONFIRMATIONS (§4.4, §7.6 + CLEAN v3 UI)
+         ======================================================================== */}
+      {viewMode === "AGEING" && (
+        <div className="space-y-6">
+          {/* Top 4 Ageing KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <button
+              type="button"
+              onClick={() => setAgeingFilter(ageingFilter === "NOT_YET_DUE" ? "ALL" : "NOT_YET_DUE")}
+              className={`text-left p-4 rounded-xl border transition-all ${
                 ageingFilter === "NOT_YET_DUE"
                   ? "ring-2 ring-blue-600 bg-blue-50 border-blue-300"
                   : "bg-white border-gray-200 hover:bg-gray-50"
               }`}
             >
-              <div className="text-[11px] font-bold text-blue-700 uppercase">
-                1. Not Yet Due (&gt;7d)
-              </div>
-              <div className="text-base font-bold text-gray-900 mt-1">
+              <div className="text-xs font-bold text-blue-700 uppercase">Not yet due</div>
+              <div className="text-xl font-bold text-gray-900 mt-1 font-mono">
                 Tk {formatBDT(receivablesAgeing.notYetDueTotal)}
               </div>
               <div className="text-[11px] text-gray-500 mt-0.5">
@@ -2340,45 +3886,15 @@ export default function FinanceClient({
 
             <button
               type="button"
-              onClick={() =>
-                setAgeingFilter(
-                  ageingFilter === "DUE_SOON" ? "ALL" : "DUE_SOON"
-                )
-              }
-              className={`text-left rounded-xl p-4 border shadow-sm transition-all ${
-                ageingFilter === "DUE_SOON"
-                  ? "ring-2 ring-orange-600 bg-orange-50 border-orange-300"
-                  : "bg-orange-50/40 border-orange-200 hover:bg-orange-50"
-              }`}
-            >
-              <div className="text-[11px] font-bold text-orange-800 uppercase">
-                2. Due Soon (≤7 Days)
-              </div>
-              <div className="text-base font-bold text-orange-950 mt-1">
-                Tk {formatBDT(receivablesAgeing.dueSoonTotal)}
-              </div>
-              <div className="text-[11px] text-orange-700 mt-0.5">
-                {receivablesAgeing.dueSoonCount} bill(s) maturing soon
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() =>
-                setAgeingFilter(
-                  ageingFilter === "OVERDUE_1_30" ? "ALL" : "OVERDUE_1_30"
-                )
-              }
-              className={`text-left rounded-xl p-4 border shadow-sm transition-all ${
+              onClick={() => setAgeingFilter(ageingFilter === "OVERDUE_1_30" ? "ALL" : "OVERDUE_1_30")}
+              className={`text-left p-4 rounded-xl border transition-all ${
                 ageingFilter === "OVERDUE_1_30"
-                  ? "ring-2 ring-amber-600 bg-amber-100 border-amber-400"
-                  : "bg-amber-50/60 border-amber-200 hover:bg-amber-50"
+                  ? "ring-2 ring-amber-600 bg-amber-50 border-amber-300"
+                  : "bg-white border-gray-200 hover:bg-gray-50"
               }`}
             >
-              <div className="text-[11px] font-bold text-amber-900 uppercase">
-                3. Overdue 1–30 Days
-              </div>
-              <div className="text-base font-bold text-amber-950 mt-1">
+              <div className="text-xs font-bold text-amber-900 uppercase">1–30 days overdue</div>
+              <div className="text-xl font-bold text-amber-950 mt-1 font-mono">
                 Tk {formatBDT(receivablesAgeing.overdue1To30Total)}
               </div>
               <div className="text-[11px] text-amber-800 mt-0.5">
@@ -2388,45 +3904,33 @@ export default function FinanceClient({
 
             <button
               type="button"
-              onClick={() =>
-                setAgeingFilter(
-                  ageingFilter === "OVERDUE_31_60" ? "ALL" : "OVERDUE_31_60"
-                )
-              }
-              className={`text-left rounded-xl p-4 border shadow-sm transition-all ${
+              onClick={() => setAgeingFilter(ageingFilter === "OVERDUE_31_60" ? "ALL" : "OVERDUE_31_60")}
+              className={`text-left p-4 rounded-xl border transition-all ${
                 ageingFilter === "OVERDUE_31_60"
-                  ? "ring-2 ring-red-600 bg-red-100 border-red-400"
-                  : "bg-red-50/50 border-red-200 hover:bg-red-50"
+                  ? "ring-2 ring-orange-600 bg-orange-50 border-orange-300"
+                  : "bg-white border-gray-200 hover:bg-gray-50"
               }`}
             >
-              <div className="text-[11px] font-bold text-red-800 uppercase">
-                4. Overdue 31–60 Days
-              </div>
-              <div className="text-base font-bold text-red-950 mt-1">
+              <div className="text-xs font-bold text-orange-900 uppercase">31–60 days overdue</div>
+              <div className="text-xl font-bold text-orange-950 mt-1 font-mono">
                 Tk {formatBDT(receivablesAgeing.overdue31To60Total)}
               </div>
-              <div className="text-[11px] text-red-700 mt-0.5">
+              <div className="text-[11px] text-orange-800 mt-0.5">
                 {receivablesAgeing.overdue31To60Count} bill(s) overdue
               </div>
             </button>
 
             <button
               type="button"
-              onClick={() =>
-                setAgeingFilter(
-                  ageingFilter === "OVERDUE_60_PLUS" ? "ALL" : "OVERDUE_60_PLUS"
-                )
-              }
-              className={`text-left rounded-xl p-4 border shadow-sm transition-all ${
+              onClick={() => setAgeingFilter(ageingFilter === "OVERDUE_60_PLUS" ? "ALL" : "OVERDUE_60_PLUS")}
+              className={`text-left p-4 rounded-xl border transition-all ${
                 ageingFilter === "OVERDUE_60_PLUS"
-                  ? "ring-2 ring-rose-700 bg-rose-100 border-rose-400"
-                  : "bg-rose-50/70 border-rose-300 hover:bg-rose-100/70"
+                  ? "ring-2 ring-rose-700 bg-rose-50 border-rose-300"
+                  : "bg-white border-gray-200 hover:bg-gray-50"
               }`}
             >
-              <div className="text-[11px] font-bold text-rose-900 uppercase">
-                5. Over 60 Days Overdue
-              </div>
-              <div className="text-base font-bold text-rose-950 mt-1">
+              <div className="text-xs font-bold text-rose-900 uppercase">Over 60 days</div>
+              <div className="text-xl font-bold text-rose-950 mt-1 font-mono">
                 Tk {formatBDT(receivablesAgeing.overdue60PlusTotal)}
               </div>
               <div className="text-[11px] text-rose-800 mt-0.5">
@@ -2435,120 +3939,718 @@ export default function FinanceClient({
             </button>
           </div>
 
-          {/* Receivables & Bills Table */}
-          <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/60">
+          {/* Expenses to confirm (entered directly by KAMs) with Batch Confirm */}
+          <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-4">
+            <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-bold text-gray-900">
-                  ⏰ Client Bills, Maturity Dates & Overdue Receivables (
-                  {receivablesAgeing.filteredRows.length})
+                  Expenses to confirm ({allPendingExpenses.length}, entered directly by KAMs)
                 </h3>
                 <p className="text-xs text-gray-500">
-                  Click any tile above to filter by ageing bucket. Status is derived automatically from Submitted Date, Due Date, and Received Amount.
+                  Direct expenses waiting for Finance review before they count in P&amp;L.
                 </p>
               </div>
+              {allPendingExpenses.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleBatchConfirmExpenses}
+                  disabled={saving || selectedPendingKeys.length === 0}
+                  className="px-4 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800 disabled:opacity-50"
+                >
+                  Confirm all selected ({selectedPendingKeys.length})
+                </button>
+              )}
             </div>
 
-            {receivablesAgeing.filteredRows.length === 0 ? (
-              <div className="p-10 text-center text-xs text-gray-500">
-                No client bills match the selected ageing bucket.
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
+                  <tr>
+                    <th className="py-2.5 px-3 w-8">
+                      <input
+                        type="checkbox"
+                        checked={
+                          selectedPendingKeys.length > 0 &&
+                          selectedPendingKeys.length === allPendingExpenses.length
+                        }
+                        onChange={(e) => {
+                          if (e.target.checked) {
+                            setSelectedPendingKeys(
+                              allPendingExpenses.map(
+                                (x) => `${x.project.id}::${x.expense.id}`
+                              )
+                            );
+                          } else {
+                            setSelectedPendingKeys([]);
+                          }
+                        }}
+                      />
+                    </th>
+                    <th className="py-2.5 px-3">Date</th>
+                    <th className="py-2.5 px-3">Project</th>
+                    <th className="py-2.5 px-3">Cost head</th>
+                    <th className="py-2.5 px-3">Type</th>
+                    <th className="py-2.5 px-3">Entered by</th>
+                    <th className="py-2.5 px-3 text-right">Amount</th>
+                    <th className="py-2.5 px-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {allPendingExpenses.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-6 text-center text-gray-400">
+                        ✓ No pending direct expenses waiting for confirmation.
+                      </td>
+                    </tr>
+                  ) : (
+                    allPendingExpenses.map(({ project, expense }) => {
+                      const key = `${project.id}::${expense.id}`;
+                      const isChecked = selectedPendingKeys.includes(key);
+                      return (
+                        <tr key={expense.id} className="hover:bg-gray-50">
+                          <td className="py-2.5 px-3">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedPendingKeys([...selectedPendingKeys, key]);
+                                } else {
+                                  setSelectedPendingKeys(
+                                    selectedPendingKeys.filter((k) => k !== key)
+                                  );
+                                }
+                              }}
+                            />
+                          </td>
+                          <td className="py-2.5 px-3 text-gray-600">{expense.paidOn}</td>
+                          <td className="py-2.5 px-3 font-semibold text-gray-900">{project.name}</td>
+                          <td className="py-2.5 px-3 text-gray-700">{expense.costHead}</td>
+                          <td className="py-2.5 px-3">
+                            <span
+                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                expense.costTag === "IMS_INVESTMENT"
+                                  ? "bg-amber-100 text-amber-900"
+                                  : "bg-blue-100 text-blue-900"
+                              }`}
+                            >
+                              {expense.costTag === "IMS_INVESTMENT" ? "IMS investment" : "Billable"}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-gray-500">{expense.createdByName || "KAM"}</td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold">
+                            Tk {formatBDT(expense.amount)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleReviewDirectExpense(expense.id, "CONFIRMED")}
+                              className="px-2.5 py-1 rounded bg-blue-700 text-white font-bold text-[10px] hover:bg-blue-800"
+                            >
+                              Confirm
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* 2-Column Split: Bills Awaiting Payment (Left 2/3) + Record Payment Received (Right 1/3) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+            {/* Left 2/3: Bills awaiting payment */}
+            <div className="lg:col-span-2 bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                <h3 className="text-sm font-bold text-gray-900">
+                  Bills awaiting payment ({receivablesAgeing.filteredRows.filter((r) => r.derived.code !== "PAID").length})
+                </h3>
+                <span className="text-xs text-gray-500">
+                  Click any row to select for payment recording
+                </span>
               </div>
-            ) : (
-              <div className="overflow-x-auto">
+
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
                 <table className="w-full text-xs text-left">
                   <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
                     <tr>
-                      <th className="py-2.5 px-3">Project / Event</th>
-                      <th className="py-2.5 px-3">Month & Ref #</th>
-                      <th className="py-2.5 px-3">Submitted → Due Date</th>
-                      <th className="py-2.5 px-3">Derived Status</th>
-                      <th className="py-2.5 px-3 text-right">
-                        Expected Inflow
-                      </th>
-                      <th className="py-2.5 px-3 text-right">Received</th>
-                      <th className="py-2.5 px-3 text-right">
-                        Outstanding Due
-                      </th>
-                      {canEditFinance && (
-                        <th className="py-2.5 px-3 text-right">Action</th>
-                      )}
+                      <th className="py-2.5 px-3">Project</th>
+                      <th className="py-2.5 px-3">Bill no.</th>
+                      <th className="py-2.5 px-3">Due date</th>
+                      <th className="py-2.5 px-3 text-right">Expected</th>
+                      <th className="py-2.5 px-3 text-right">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-200">
-                    {receivablesAgeing.filteredRows.map(
-                      ({ bill, project, derived }) => (
-                        <tr key={bill.id} className="hover:bg-gray-50">
-                          <td className="py-3 px-3">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setSelectedId(project.id);
-                                setViewMode("SINGLE");
-                              }}
-                              className="font-bold text-blue-700 hover:underline text-left"
-                            >
-                              {project.name}
-                            </button>
-                            <div className="text-[10px] text-gray-500">
-                              {project.code} • Cycle:{" "}
-                              {project.terms.billCycleDays}d
-                            </div>
+                  <tbody className="divide-y divide-gray-100">
+                    {receivablesAgeing.filteredRows
+                      .filter((r) => r.derived.code !== "PAID")
+                      .map(({ bill, project, derived }) => (
+                        <tr
+                          key={bill.id}
+                          onClick={() => {
+                            setQuickPayBillId(bill.id);
+                            setQuickPayAmountStr(String(derived.outstanding));
+                            setSelectedTimelineBillId(bill.id);
+                          }}
+                          className={`cursor-pointer hover:bg-blue-50/60 transition-colors ${
+                            quickPayBillId === bill.id ? "bg-blue-50 font-semibold" : ""
+                          }`}
+                        >
+                          <td className="py-2.5 px-3 font-semibold text-gray-900">{project.name}</td>
+                          <td className="py-2.5 px-3 font-mono text-gray-600">{bill.billNumber || "—"}</td>
+                          <td className="py-2.5 px-3 text-gray-700">{bill.dueDate || "—"}</td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-gray-900">
+                            Tk {formatBDT(derived.outstanding)}
                           </td>
-                          <td className="py-3 px-3">
-                            <div className="font-mono font-bold text-gray-800">
-                              {bill.forMonth}
-                            </div>
-                            <div className="text-[10px] text-gray-500">
-                              {bill.billNumber || "No Bill #"}
-                              {bill.poNumber ? ` • PO: ${bill.poNumber}` : ""}
-                            </div>
-                          </td>
-                          <td className="py-3 px-3">
-                            <div className="text-gray-700">
-                              Sub: <strong>{bill.submittedAt || "—"}</strong>
-                            </div>
-                            <div className="text-gray-700">
-                              Due: <strong>{bill.dueDate || "—"}</strong>
-                            </div>
-                          </td>
-                          <td className="py-3 px-3">
-                            <span
-                              className={`inline-block px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${derived.cls}`}
-                            >
+                          <td className="py-2.5 px-3 text-right">
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${derived.cls}`}>
                               {derived.label}
                             </span>
                           </td>
-                          <td className="py-3 px-3 text-right font-mono text-gray-800">
-                            Tk {formatBDT(bill.expectedInflow)}
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono font-semibold text-emerald-700">
-                            Tk {formatBDT(bill.receivedAmount)}
-                          </td>
-                          <td className="py-3 px-3 text-right font-mono font-bold text-amber-900">
-                            Tk {formatBDT(derived.outstanding)}
-                          </td>
-                          {canEditFinance && (
-                            <td className="py-3 px-3 text-right">
-                              <button
-                                type="button"
-                                onClick={() => openPaymentModal(bill, project)}
-                                className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold text-[11px] hover:bg-emerald-700"
-                              >
-                                💰 Update / Pay
-                              </button>
-                            </td>
-                          )}
                         </tr>
-                      )
-                    )}
+                      ))}
                   </tbody>
                 </table>
               </div>
-            )}
+            </div>
+
+            {/* Right 1/3: Record Payment Received Form */}
+            <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-4">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">Record payment received</h3>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Select a bill from the left table or pick from dropdown.
+                </p>
+              </div>
+
+              <form onSubmit={handleQuickRecordPayment} className="space-y-3.5">
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Bill</label>
+                  <select
+                    value={quickPayBillId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setQuickPayBillId(id);
+                      const b = receivablesAgeing.allBillRows.find((x) => x.bill.id === id);
+                      if (b) {
+                        setQuickPayAmountStr(String(b.derived.outstanding));
+                        setSelectedTimelineBillId(id);
+                      }
+                    }}
+                    className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                    required
+                  >
+                    <option value="">Select a bill to pay...</option>
+                    {receivablesAgeing.allBillRows
+                      .filter((r) => r.derived.code !== "PAID")
+                      .map(({ bill, project, derived }) => (
+                        <option key={bill.id} value={bill.id}>
+                          {project.name} • {bill.billNumber || bill.forMonth} (Tk {formatBDT(derived.outstanding)})
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Date received</label>
+                  <input
+                    type="date"
+                    value={quickPayDate}
+                    onChange={(e) => setQuickPayDate(e.target.value)}
+                    className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">Amount received (BDT)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={quickPayAmountStr}
+                    onChange={(e) => setQuickPayAmountStr(e.target.value)}
+                    className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold font-mono"
+                    required
+                  />
+                  <div className="mt-1 text-[11px] text-emerald-700 font-semibold">
+                    ✓ Matches the expected amount.
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-700 mb-1">
+                    Deviation reason (if different)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Optional note"
+                    value={quickPayDeviationReason}
+                    onChange={(e) => setQuickPayDeviationReason(e.target.value)}
+                    className="w-full h-9 px-3 rounded-lg border border-gray-300 text-xs"
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={saving || !quickPayBillId}
+                  className="w-full py-2.5 rounded-lg bg-blue-700 text-white text-xs font-bold hover:bg-blue-800 disabled:opacity-50 shadow-sm"
+                >
+                  {saving ? "Saving..." : "Save payment"}
+                </button>
+              </form>
+            </div>
           </div>
         </div>
       )}
 
+      {/* ========================================================================
+          VIEW 4: DISBURSE APPROVED FUNDS (FINANCE DISBURSE SCREEN)
+         ======================================================================== */}
+      {viewMode === "DISBURSE" && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div>
+                <h3 className="text-sm font-bold text-gray-900">
+                  Approved requisitions waiting for payment ({disburseWaitingReqs.length})
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Requisitions approved by MD ready for fund payout. Part payments allowed.
+                </p>
+              </div>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
+                  <tr>
+                    <th className="py-2.5 px-3">Requisition</th>
+                    <th className="py-2.5 px-3">Project</th>
+                    <th className="py-2.5 px-3">Approved on</th>
+                    <th className="py-2.5 px-3 text-right">Approved</th>
+                    <th className="py-2.5 px-3 text-right">Needed by</th>
+                    <th className="py-2.5 px-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {disburseWaitingReqs.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-6 text-center text-gray-400">
+                        ✓ No approved requisitions waiting for payment. All funds are disbursed.
+                      </td>
+                    </tr>
+                  ) : (
+                    disburseWaitingReqs.map(({ project, req }) => (
+                      <tr
+                        key={req.id}
+                        className={`hover:bg-emerald-50/50 transition-colors ${
+                          selectedDisburseReqId === req.id ? "bg-emerald-50" : ""
+                        }`}
+                      >
+                        <td className="py-2.5 px-3 font-mono font-bold text-gray-900">
+                          {req.number}
+                        </td>
+                        <td className="py-2.5 px-3 font-semibold text-gray-800">
+                          {project.name}
+                        </td>
+                        <td className="py-2.5 px-3 text-gray-600">
+                          {req.approvedAt || req.date}
+                        </td>
+                        <td className="py-2.5 px-3 text-right font-mono font-bold text-gray-900">
+                          Tk {formatBDT(req.total)}
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-gray-600">
+                          {req.disburseOn || "Immediate"}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDisburseReqId(req.id)}
+                            className="px-3 py-1 rounded bg-emerald-700 text-white font-bold text-xs hover:bg-emerald-800"
+                          >
+                            Pay Out →
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* Line-by-line payout section when a requisition is selected */}
+          {selectedDisburseReqId && (() => {
+            const matched = disburseWaitingReqs.find((x) => x.req.id === selectedDisburseReqId);
+            if (!matched) return null;
+            const { project, req } = matched;
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+                <div className="lg:col-span-2 bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-4">
+                  <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-900">
+                        Lines to pay · {req.number} ({project.name})
+                      </h4>
+                      <p className="text-xs text-gray-500">
+                        Adjust amounts per line if paying partially.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    {(req.items && req.items.length > 0 ? req.items : [
+                      { id: "def", costHead: "General Spend", particulars: "Approved Requisition Spend", amount: req.total }
+                    ]).map((it) => (
+                      <div
+                        key={it.id}
+                        className="flex items-center justify-between p-3 rounded-lg border border-gray-200 bg-gray-50/60"
+                      >
+                        <div>
+                          <div className="font-bold text-xs text-gray-900">{it.costHead || it.particulars}</div>
+                          <div className="text-[11px] text-gray-500">Approved: Tk {formatBDT(it.amount)}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs text-gray-600 font-semibold">Paying now:</span>
+                          <input
+                            type="number"
+                            step="0.01"
+                            defaultValue={it.amount}
+                            onChange={(e) => {
+                              setDisburseLineAmounts({
+                                ...disburseLineAmounts,
+                                [it.id]: e.target.value,
+                              });
+                            }}
+                            className="w-32 h-8 px-2 rounded border border-gray-300 text-xs font-mono font-bold text-right"
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-4">
+                  <h4 className="text-sm font-bold text-gray-900">Payment details</h4>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Payment date</label>
+                      <input
+                        type="date"
+                        value={disbursePaymentDate}
+                        onChange={(e) => setDisbursePaymentDate(e.target.value)}
+                        className="w-full h-9 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Paid via</label>
+                      <select
+                        value={disbursePaidBy}
+                        onChange={(e) => setDisbursePaidBy(e.target.value)}
+                        className="w-full h-9 px-3 rounded-lg border border-gray-300 text-xs font-bold"
+                      >
+                        <option value="BANK">Bank Transfer / Cheque</option>
+                        <option value="PETTY_CASH">Petty Cash</option>
+                        <option value="BKASH">bKash / MFS</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">Reference / Cheque #</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. TR-2026-9021"
+                        value={disburseBankRef}
+                        onChange={(e) => setDisburseBankRef(e.target.value)}
+                        className="w-full h-9 px-3 rounded-lg border border-gray-300 text-xs"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => handleDisburseRequisition(req)}
+                      className="w-full py-2.5 rounded-lg bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800 disabled:opacity-50 shadow-sm mt-2"
+                    >
+                      {saving ? "Executing..." : "Record Payment & Disburse"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* ========================================================================
+          VIEW 5: MONTH CLOSE CHECKLIST
+         ======================================================================== */}
+      {viewMode === "MONTH_CLOSE" && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+              <div>
+                <h3 className="text-base font-bold text-gray-900">
+                  Month close: {allCloseMonthTarget}
+                </h3>
+                <p className="text-xs text-gray-500">
+                  Closing a month locks its figures; net profit then counts as verified actual.
+                </p>
+              </div>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
+                  <tr>
+                    <th className="py-2.5 px-3">Project</th>
+                    <th className="py-2.5 px-3">Requisition paid</th>
+                    <th className="py-2.5 px-3">Expenses confirmed</th>
+                    <th className="py-2.5 px-3">Bill submitted</th>
+                    <th className="py-2.5 px-3 text-right">Net profit</th>
+                    <th className="py-2.5 px-3 text-right">Status</th>
+                    <th className="py-2.5 px-3 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {currentList
+                    .filter((p) => p.id !== "ALL_COMPANY")
+                    .map((project) => {
+                      const isClosed = Boolean(
+                        project.closedMonths && project.closedMonths[allCloseMonthTarget]
+                      );
+                      const monthBills = project.bills.filter(
+                        (b) => b.forMonth === allCloseMonthTarget
+                      );
+                      const hasBill = monthBills.length > 0;
+                      return (
+                        <tr key={project.id} className="hover:bg-gray-50">
+                          <td className="py-3 px-3 font-semibold text-gray-900">{project.name}</td>
+                          <td className="py-3 px-3 text-emerald-700 font-bold">Yes</td>
+                          <td className="py-3 px-3 text-emerald-700 font-bold">All confirmed</td>
+                          <td className="py-3 px-3">
+                            {hasBill ? (
+                              <span className="text-emerald-700 font-bold">
+                                {monthBills[0].submittedAt || "Yes"}
+                              </span>
+                            ) : (
+                              <span className="text-amber-800 font-semibold">No bill</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-right font-mono font-bold">
+                            Tk {formatBDT(project.overallCalc?.netProfit || 0)}
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            {isClosed ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900">
+                                Closed
+                              </span>
+                            ) : hasBill ? (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-900">
+                                Ready
+                              </span>
+                            ) : (
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900">
+                                No bill
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            {canCloseMonth && (
+                              <button
+                                type="button"
+                                disabled={saving}
+                                onClick={() =>
+                                  handleRowCloseOrReopenMonth(
+                                    project,
+                                    allCloseMonthTarget,
+                                    isClosed
+                                  )
+                                }
+                                className={`px-3 py-1 rounded text-xs font-bold ${
+                                  isClosed
+                                    ? "bg-gray-100 hover:bg-gray-200 text-gray-800"
+                                    : "bg-blue-700 hover:bg-blue-800 text-white"
+                                }`}
+                              >
+                                {isClosed ? "Reopen" : "Close"}
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
+            <h4 className="text-xs font-bold text-gray-900 uppercase">Close rules</h4>
+            <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+              A project-month can be closed when its requisition is fully paid or settled, every expense is confirmed, and at least one bill is recorded. Reopening needs a reason and is recorded in the audit log.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================
+          VIEW 6: GROUP OVERVIEW & FOLLOW-UP (GROUP HEAD DASHBOARD)
+         ======================================================================== */}
+      {viewMode === "GROUP_OVERVIEW" && (
+        <div className="space-y-6">
+          {/* Top 4 KPI Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
+              <div className="text-xs font-bold text-gray-500 uppercase tracking-wide">
+                Net profit, YTD
+              </div>
+              <div className="text-2xl font-black text-gray-900 mt-1 font-mono">
+                Tk {formatBDT(managementMatrix.grandActualYtd)}
+              </div>
+              <div className="text-[11px] text-gray-500 mt-1">
+                From {currentList.length} portfolio project(s)
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
+              <div className="text-xs font-bold text-blue-700 uppercase tracking-wide">
+                Outstanding bills
+              </div>
+              <div className="text-2xl font-black text-blue-950 mt-1 font-mono">
+                Tk {formatBDT(receivablesAgeing.notYetDueTotal + receivablesAgeing.overdue1To30Total + receivablesAgeing.overdue31To60Total + receivablesAgeing.overdue60PlusTotal)}
+              </div>
+              <div className="text-[11px] text-blue-600 mt-1">
+                Awaiting client collection
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
+              <div className="text-xs font-bold text-red-700 uppercase tracking-wide">
+                Overdue bills
+              </div>
+              <div className="text-2xl font-black text-red-950 mt-1 font-mono">
+                {receivablesAgeing.overdue1To30Count + receivablesAgeing.overdue31To60Count + receivablesAgeing.overdue60PlusCount}
+              </div>
+              <div className="text-[11px] text-red-600 mt-1">
+                Bills past contractual credit cycle
+              </div>
+            </div>
+
+            <div className="bg-amber-50/70 rounded-xl p-5 border border-amber-200 shadow-sm">
+              <div className="text-xs font-bold text-amber-900 uppercase tracking-wide">
+                IMS investment, YTD
+              </div>
+              <div className="text-2xl font-black text-amber-950 mt-1 font-mono">
+                Tk {formatBDT(currentList.reduce((s, p) => s + p.totalImsInvReq, 0))}
+              </div>
+              <div className="text-[11px] text-amber-800 mt-1">
+                Costs borne by agency
+              </div>
+            </div>
+          </div>
+
+          {/* 2-Column Split: Projects in Group Table (2/3) + Follow Up Card (1/3) */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+            <div className="lg:col-span-2 bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-4">
+              <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                <h3 className="text-sm font-bold text-gray-900">
+                  Projects in my group ({currentList.filter((p) => p.id !== "ALL_COMPANY").length})
+                </h3>
+              </div>
+
+              <div className="border border-gray-200 rounded-lg overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
+                    <tr>
+                      <th className="py-2.5 px-3">Project</th>
+                      <th className="py-2.5 px-3">KAM</th>
+                      <th className="py-2.5 px-3 text-right">Net profit, YTD</th>
+                      <th className="py-2.5 px-3 text-right">Bills</th>
+                      <th className="py-2.5 px-3 text-right">Entries</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {currentList
+                      .filter(
+                        (p) =>
+                          p.id !== "ALL_COMPANY" &&
+                          (groupKamFilter === "ALL" || p.headName === groupKamFilter)
+                      )
+                      .map((p) => (
+                        <tr key={p.id} className="hover:bg-gray-50">
+                          <td className="py-2.5 px-3 font-semibold text-gray-900">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedId(p.id);
+                                setViewMode("SINGLE");
+                              }}
+                              className="text-left text-blue-700 hover:underline"
+                            >
+                              {p.name}
+                            </button>
+                          </td>
+                          <td className="py-2.5 px-3 text-gray-600">{p.headName || "KAM"}</td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold">
+                            Tk {formatBDT(p.overallCalc?.netProfit || 0)}
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-900">
+                              On time
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-100 text-blue-900">
+                              Complete
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-3">
+                <h4 className="text-xs font-bold text-gray-900 uppercase">Follow up this week</h4>
+                <ul className="text-xs space-y-2 text-gray-700">
+                  <li className="flex items-start gap-2">
+                    <span className="text-amber-500">●</span>
+                    <span>
+                      {receivablesAgeing.overdue1To30Count + receivablesAgeing.overdue31To60Count + receivablesAgeing.overdue60PlusCount} bills overdue across portfolio
+                    </span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-blue-500">●</span>
+                    <span>Q4 forecasts due from all KAMs by 25th of month</span>
+                  </li>
+                  <li className="flex items-start gap-2">
+                    <span className="text-emerald-500">●</span>
+                    <span>{approvalPipelineCounts.groupHeadCount} requisition(s) waiting for Group Head approval</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-2">
+                <h4 className="text-xs font-bold text-gray-900 uppercase">Fund requisitions</h4>
+                <p className="text-xs text-gray-500">
+                  {approvalPipelineCounts.totalPending} requisitions waiting in the approval chain.
+                </p>
+                <a
+                  href="/approvals"
+                  className="inline-block mt-1 text-xs font-bold text-[#E42528] hover:underline"
+                >
+                  Open Approvals Queue →
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
       {/* ========================================================================
           VIEW MODE 1: SINGLE PROJECT / EVENT / IMS GROUP DIVISION VIEW (DEFAULT)
          ======================================================================== */}

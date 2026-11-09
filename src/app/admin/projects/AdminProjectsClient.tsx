@@ -709,7 +709,7 @@ export default function AdminProjectsClient({
       {/* Edit / View Project / Event Setup & Billing Modal */}
       {editingProject && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-6 border border-gray-200 max-h-[92vh] overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-6xl w-full p-6 border border-gray-200 max-h-[92vh] overflow-y-auto">
             <div className="flex items-center justify-between pb-3 border-b border-gray-200">
               <div>
                 <div className="flex items-center gap-2">
@@ -988,8 +988,78 @@ export default function AdminProjectsClient({
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="col-span-full space-y-2">
+                    <label className="block text-xs font-bold text-gray-800">Choose Billing Model</label>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditBillingProfile("COST_PLUS");
+                          if (!editFeeRatePct) setEditFeeRatePct("8");
+                        }}
+                        className={`p-3 rounded-lg border text-left transition-all ${
+                          editBillingProfile === "COST_PLUS"
+                            ? "bg-red-50 border-[#E42528] ring-1 ring-[#E42528]"
+                            : "bg-white border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        <div className="font-bold text-xs text-gray-900">Cost + fee</div>
+                        <div className="text-[10px] text-gray-500 mt-0.5">e.g. UBL CM, 8%</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditBillingProfile("COST_PLUS_GROSSUP");
+                          if (!editFeeRatePct) setEditFeeRatePct("4.5");
+                          if (!editAitRatePct) setEditAitRatePct("2");
+                        }}
+                        className={`p-3 rounded-lg border text-left transition-all ${
+                          editBillingProfile === "COST_PLUS_GROSSUP"
+                            ? "bg-red-50 border-[#E42528] ring-1 ring-[#E42528]"
+                            : "bg-white border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        <div className="font-bold text-xs text-gray-900">Cost + fee + AIT gross-up</div>
+                        <div className="text-[10px] text-gray-500 mt-0.5">e.g. Robi SME, 4.5%</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditBillingProfile("COMMISSION");
+                          if (!editFeeRatePct) setEditFeeRatePct("1.2");
+                        }}
+                        className={`p-3 rounded-lg border text-left transition-all ${
+                          editBillingProfile === "COMMISSION"
+                            ? "bg-red-50 border-[#E42528] ring-1 ring-[#E42528]"
+                            : "bg-white border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        <div className="font-bold text-xs text-gray-900">Commission</div>
+                        <div className="text-[10px] text-gray-500 mt-0.5">e.g. Banglalink, 1.2%</div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditBillingProfile(editKind === "EVENT" ? "FIXED_QUOTE" : "FIXED_FEE");
+                        }}
+                        className={`p-3 rounded-lg border text-left transition-all ${
+                          editBillingProfile === "FIXED_FEE" || editBillingProfile === "FIXED_QUOTE"
+                            ? "bg-red-50 border-[#E42528] ring-1 ring-[#E42528]"
+                            : "bg-white border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        <div className="font-bold text-xs text-gray-900">
+                          {editKind === "EVENT" ? "Fixed quote" : "Fixed monthly fee"}
+                        </div>
+                        <div className="text-[10px] text-gray-500 mt-0.5">e.g. DBH office</div>
+                      </button>
+                    </div>
+                  </div>
                   <div className="sm:col-span-2">
-                    <label className="block text-xs font-semibold text-gray-700">Billing Profile</label>
+                    <label className="block text-xs font-semibold text-gray-700">Billing Profile Dropdown</label>
                     <select
                       value={editBillingProfile}
                       onChange={(e) => setEditBillingProfile(e.target.value)}
