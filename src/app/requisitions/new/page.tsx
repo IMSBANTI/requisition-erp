@@ -5,6 +5,7 @@ import {
   resolveCostHeadsForKind,
   getDefaultProjectTermsByCode,
 } from "@/lib/profitEngine";
+import { ensureUploadedKitProjectsSynced } from "@/lib/projectSync";
 import AppShell from "@/components/AppShell";
 import RequisitionForm from "./RequisitionForm";
 
@@ -13,6 +14,7 @@ export const revalidate = 0;
 
 export default async function NewRequisitionPage() {
   const user = await requireUser();
+  await ensureUploadedKitProjectsSynced();
 
   // Ensure default Operations & Event projects exist if DB was bootstrapped before they were added
   const eventCount = await prisma.project.count({

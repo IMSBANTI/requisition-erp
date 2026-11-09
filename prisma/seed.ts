@@ -458,10 +458,10 @@ async function main() {
   };
 
   const PROJECTS: SeedProject[] = [
-    // Named Projects (Robi, UPY, GP, Singer, BAT CE, Unilever, Unilever Pureit, Modern Trade, BeHereNow)
+    // Named Projects (Robi SME, UBL sub-projects, BL RSO, DBH Office Set-up, Nagad, Rocket, Marico, Pureit, Xiaomi BP, Sales Officer, UPY, GP, Singer, BAT CE, Modern Trade, BeHereNow)
     {
       code: "PROJ-ROBI",
-      name: "Project Robi",
+      name: "Project Robi SME",
       company: "IMS",
       category: "OUTSOURCING",
       headEmpId: "1070",
@@ -469,6 +469,138 @@ async function main() {
       directorEmpId: "1004",
       md: "MONTHLY",
       memberEmpIds: ["1074", "1070", "1071", "1072"],
+    },
+    {
+      code: "PROJ-UBL-CM",
+      name: "UBL CM (Unilever Customer Marketing)",
+      company: "IMS",
+      category: "OUTSOURCING",
+      headEmpId: "1070",
+      checkerEmpId: "1071",
+      directorEmpId: "1004",
+      md: "MONTHLY",
+      memberEmpIds: ["1078", "1070", "1071", "1072"],
+    },
+    {
+      code: "PROJ-UBL-PS",
+      name: "UBL PS (Unilever Perfect Store)",
+      company: "IMS",
+      category: "OUTSOURCING",
+      headEmpId: "1070",
+      checkerEmpId: "1071",
+      directorEmpId: "1004",
+      md: "MONTHLY",
+      memberEmpIds: ["1078", "1070", "1071", "1072"],
+    },
+    {
+      code: "PROJ-UBL-DDT",
+      name: "UBL DDT (Unilever Direct Distribution)",
+      company: "IMS",
+      category: "OUTSOURCING",
+      headEmpId: "1070",
+      checkerEmpId: "1071",
+      directorEmpId: "1004",
+      md: "MONTHLY",
+      memberEmpIds: ["1078", "1070", "1071", "1072"],
+    },
+    {
+      code: "PROJ-UBL-DFF",
+      name: "UBL DFF (Unilever Dedicated Field Force)",
+      company: "IMS",
+      category: "OUTSOURCING",
+      headEmpId: "1070",
+      checkerEmpId: "1071",
+      directorEmpId: "1004",
+      md: "MONTHLY",
+      memberEmpIds: ["1078", "1070", "1071", "1072"],
+    },
+    {
+      code: "PROJ-UBL-MDO",
+      name: "UBL MDO (Unilever Market Development)",
+      company: "IMS",
+      category: "OUTSOURCING",
+      headEmpId: "1070",
+      checkerEmpId: "1071",
+      directorEmpId: "1004",
+      md: "MONTHLY",
+      memberEmpIds: ["1078", "1070", "1071", "1072"],
+    },
+    {
+      code: "PROJ-BL-RSO",
+      name: "BL RSO, MDO, Rollout, BP",
+      company: "IMS",
+      category: "OUTSOURCING",
+      headEmpId: "1070",
+      checkerEmpId: "1071",
+      directorEmpId: "1004",
+      md: "MONTHLY",
+      memberEmpIds: ["1070", "1071", "1072"],
+    },
+    {
+      code: "PROJ-DBH",
+      name: "DBH Office Set-up",
+      company: "IMS",
+      category: "OUTSOURCING",
+      headEmpId: "1070",
+      checkerEmpId: "1071",
+      directorEmpId: "1004",
+      md: "MONTHLY",
+      memberEmpIds: ["1070", "1071", "1072"],
+    },
+    {
+      code: "PROJ-NAGAD",
+      name: "Project Nagad",
+      company: "IMS",
+      category: "OUTSOURCING",
+      headEmpId: "1070",
+      checkerEmpId: "1071",
+      directorEmpId: "1004",
+      md: "MONTHLY",
+      memberEmpIds: ["1070", "1071", "1072"],
+    },
+    {
+      code: "PROJ-ROCKET",
+      name: "Project Rocket",
+      company: "IMS",
+      category: "OUTSOURCING",
+      headEmpId: "1070",
+      checkerEmpId: "1071",
+      directorEmpId: "1004",
+      md: "MONTHLY",
+      memberEmpIds: ["1070", "1071", "1072"],
+    },
+    {
+      code: "PROJ-MARICO",
+      name: "Project Marico",
+      company: "IMS",
+      category: "OUTSOURCING",
+      headEmpId: "1070",
+      checkerEmpId: "1071",
+      directorEmpId: "1004",
+      md: "MONTHLY",
+      memberEmpIds: ["1070", "1071", "1072"],
+    },
+    {
+      code: "PROJ-XIAOMI-BP",
+      name: "Project Xiaomi BP",
+      company: "IMS",
+      category: "OUTSOURCING",
+      headEmpId: "1070",
+      checkerEmpId: "1071",
+      directorEmpId: "1004",
+      md: "MONTHLY",
+      memberEmpIds: ["1070", "1071", "1072"],
+    },
+    {
+      code: "PROJ-SALES-OFFICER",
+      name: "Project Sales Officer",
+      company: "IMS",
+      category: "OUTSOURCING",
+      headEmpId: "1070",
+      checkerEmpId: "1071",
+      directorEmpId: "1004",
+      md: "MONTHLY",
+      memberEmpIds: ["1070", "1071", "1072"],
     },
     {
       code: "PROJ-UPY",
@@ -760,18 +892,29 @@ async function main() {
           billCycleDays: Number(defaultTerms.billCycleDays ?? 30),
           funding: String(defaultTerms.funding || "POSTPAID"),
           salaryMonthLag: Number(defaultTerms.salaryMonthLag ?? (isEvt ? 0 : 1)),
+          fixedMonthlyBill: defaultTerms.fixedMonthlyBill ? Number(defaultTerms.fixedMonthlyBill) : null,
+          maintenanceBudget: defaultTerms.maintenanceBudget ? Number(defaultTerms.maintenanceBudget) : 0,
+          monthlyAmortization: defaultTerms.monthlyAmortization ? Number(defaultTerms.monthlyAmortization) : 0,
           costHeads: (isEvt ? DEFAULT_EVENT_COST_HEADS : DEFAULT_PROJECT_COST_HEADS) as any,
           members: { connect: memberIds.map((id) => ({ id })) },
         },
       });
-    } else if (existingProj.category === "IMS_OUTSOURCING_STUDIO") {
-      // One-time migration for legacy combined category only; never overwrite user-configured workflow heads/checkers
-      await prisma.project.update({
-        where: { code: p.code },
-        data: {
-          category: p.category,
-        },
-      });
+    } else {
+      if (existingProj.category === "IMS_OUTSOURCING_STUDIO") {
+        // One-time migration for legacy combined category only; never overwrite user-configured workflow heads/checkers
+        await prisma.project.update({
+          where: { code: p.code },
+          data: {
+            category: p.category,
+          },
+        });
+      }
+      if (p.code === "PROJ-ROBI" && existingProj.name === "Project Robi") {
+        await prisma.project.update({
+          where: { code: "PROJ-ROBI" },
+          data: { name: "Project Robi SME" },
+        });
+      }
     }
   }
 

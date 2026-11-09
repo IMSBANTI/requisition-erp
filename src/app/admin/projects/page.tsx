@@ -6,6 +6,7 @@ import {
   getDefaultProjectTermsByCode,
   extractProjectMeta,
 } from "@/lib/profitEngine";
+import { ensureUploadedKitProjectsSynced } from "@/lib/projectSync";
 import AppShell from "@/components/AppShell";
 import AdminProjectsClient from "./AdminProjectsClient";
 
@@ -14,6 +15,7 @@ export const revalidate = 0;
 
 export default async function AdminProjectsPage() {
   const user = await requireUser();
+  await ensureUploadedKitProjectsSynced();
 
   const isSuperAdmin =
     user.permissions.includes("project.manage") ||

@@ -477,20 +477,20 @@ export function getDefaultProjectTermsByCode(code: string, kind?: string): Billi
     };
   }
 
-  if (c.includes("RSO")) {
+  if (c.includes("RSO") || c.includes("PROJ-BL")) {
     return {
       billingProfile: "COMMISSION",
       feeRate: 0.012, // 1.2% Commission
       aitRate: 0.012, // 1.2% AIT on commission
       vatRate: 0.15,
-      billCycleDays: 0,
+      billCycleDays: 30,
       funding: "PREPAID",
       salaryMonthLag: 0,
       varianceThresholdPct: 10,
     };
   }
 
-  if (c.includes("DBH")) {
+  if (c.includes("DBH") || c.includes("OFFICE-SETUP")) {
     return {
       billingProfile: "FIXED_FEE",
       feeRate: 0,
@@ -501,7 +501,7 @@ export function getDefaultProjectTermsByCode(code: string, kind?: string): Billi
       salaryMonthLag: 0,
       fixedMonthlyBill: 278685,
       maintenanceBudget: 7200,
-      monthlyAmortization: 112627.06,
+      monthlyAmortization: 43514.8,
       varianceThresholdPct: 10,
     };
   }

@@ -8,6 +8,7 @@ import {
   extractProjectMeta,
   resolveCostHeadsForKind,
 } from "@/lib/profitEngine";
+import { ensureUploadedKitProjectsSynced } from "@/lib/projectSync";
 import AppShell from "@/components/AppShell";
 import FinanceClient from "./FinanceClient";
 
@@ -27,6 +28,7 @@ const COMPANY_DIVISION_CODES = new Set([
 
 export default async function FinancePnlPage() {
   const user = await requireUser();
+  await ensureUploadedKitProjectsSynced();
 
   const canViewFinance =
     user.permissions.includes("req.accounts.check") ||
