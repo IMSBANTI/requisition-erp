@@ -11,7 +11,7 @@ import {
   DirectExpenseItem,
 } from "@/lib/profitEngine";
 
-export const OPENING_BILL_PREFIX = "[OPENING_BALANCE]";
+const OPENING_BILL_PREFIX = "[OPENING_BALANCE]";
 
 export async function POST(request: Request) {
   try {
