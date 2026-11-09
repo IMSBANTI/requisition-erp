@@ -603,61 +603,6 @@ async function main() {
       memberEmpIds: ["1070", "1071", "1072"],
     },
     {
-      code: "PROJ-UPY",
-      name: "Project UPY (Upay)",
-      company: "IMS",
-      category: "OUTSOURCING",
-      headEmpId: "1070",
-      checkerEmpId: "1071",
-      directorEmpId: "1004",
-      md: "MONTHLY",
-      memberEmpIds: ["1070", "1071", "1072"],
-    },
-    {
-      code: "PROJ-GP",
-      name: "Project GP (Grameenphone)",
-      company: "IMS",
-      category: "OUTSOURCING",
-      headEmpId: "1070",
-      checkerEmpId: "1071",
-      directorEmpId: "1004",
-      md: "MONTHLY",
-      memberEmpIds: ["1077", "1080", "1070", "1071", "1072"],
-    },
-    {
-      code: "PROJ-SINGER",
-      name: "Project Singer",
-      company: "IMS",
-      category: "OUTSOURCING",
-      headEmpId: "1070",
-      checkerEmpId: "1071",
-      directorEmpId: "1004",
-      md: "MONTHLY",
-      memberEmpIds: ["1073", "1070", "1071", "1072"],
-    },
-    {
-      code: "PROJ-BAT-CE",
-      name: "Project BAT CE",
-      company: "IMS",
-      category: "OUTSOURCING",
-      headEmpId: "1070",
-      checkerEmpId: "1071",
-      directorEmpId: "1004",
-      md: "MONTHLY",
-      memberEmpIds: ["1075", "1076", "1070", "1071", "1072"],
-    },
-    {
-      code: "PROJ-UNILEVER",
-      name: "Project Unilever",
-      company: "IMS",
-      category: "OUTSOURCING",
-      headEmpId: "1070",
-      checkerEmpId: "1071",
-      directorEmpId: "1004",
-      md: "MONTHLY",
-      memberEmpIds: ["1078", "1070", "1071", "1072"],
-    },
-    {
       code: "PROJ-PUREIT",
       name: "Project Unilever Pureit",
       company: "IMS",
@@ -667,25 +612,6 @@ async function main() {
       directorEmpId: "1004",
       md: "MONTHLY",
       memberEmpIds: ["1079", "1070", "1071", "1072"],
-    },
-    {
-      code: "PROJ-MT",
-      name: "Modern Trade (MT)",
-      company: "IMS",
-      category: "OUTSOURCING",
-      headEmpId: "1070",
-      checkerEmpId: "1071",
-      directorEmpId: "1004",
-      memberEmpIds: ["1070", "1071", "1072"],
-    },
-    {
-      code: "PROJ-BHN",
-      name: "BeHereNow (BHN)",
-      company: "IMS",
-      category: "OPERATIONS_EVENT",
-      headEmpId: "1092",
-      directorEmpId: "1026",
-      memberEmpIds: ["1092", "1093", "1094", "1026"],
     },
     // Events (Banglalink, GP, Bkash, BAT, Events General)
     {
@@ -915,6 +841,47 @@ async function main() {
           data: { name: "Project Robi SME" },
         });
       }
+    }
+  }
+
+  // Remove legacy non-Handover-v3 projects (PROJ-UPY, PROJ-GP, PROJ-SINGER, PROJ-BAT-CE, PROJ-UNILEVER, PROJ-MT, PROJ-BHN)
+  const legacyProjectCodes = [
+    "PROJ-UPY",
+    "PROJ-GP",
+    "PROJ-SINGER",
+    "PROJ-BAT-CE",
+    "PROJ-UNILEVER",
+    "PROJ-MT",
+    "PROJ-BHN",
+  ];
+  const legacyProjects = await prisma.project.findMany({
+    where: { code: { in: legacyProjectCodes } },
+    select: { id: true, code: true },
+  });
+  if (legacyProjects.length > 0) {
+    const [robiProj, ublPsProj] = await Promise.all([
+      prisma.project.findUnique({ where: { code: "PROJ-ROBI" }, select: { id: true } }),
+      prisma.project.findUnique({ where: { code: "PROJ-UBL-PS" }, select: { id: true } }),
+    ]);
+    for (const lp of legacyProjects) {
+      const reqCount = await prisma.requisition.count({ where: { projectId: lp.id } });
+      if (reqCount > 0) {
+        const fallbackId =
+          lp.code === "PROJ-UNILEVER"
+            ? ublPsProj?.id || robiProj?.id
+            : robiProj?.id || ublPsProj?.id;
+        if (fallbackId) {
+          await prisma.requisition.updateMany({
+            where: { projectId: lp.id },
+            data: { projectId: fallbackId },
+          });
+        }
+      }
+      await prisma.project.update({
+        where: { id: lp.id },
+        data: { members: { set: [] } },
+      });
+      await prisma.project.delete({ where: { id: lp.id } });
     }
   }
 

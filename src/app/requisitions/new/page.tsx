@@ -40,15 +40,6 @@ export default async function NewRequisitionPage() {
       );
       const defaultOpsEvents = [
         {
-          code: "PROJ-BHN",
-          name: "BeHereNow (BHN)",
-          kind: "PERMANENT",
-          category: "OPERATIONS_EVENT",
-          headId: ringku?.id || null,
-          directorId: shible?.id || null,
-          requisitionTypes: ["BPO", "ADMIN", "CASH"],
-        },
-        {
           code: "EVT-BL",
           name: "Event — Banglalink",
           kind: "EVENT",

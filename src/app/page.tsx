@@ -4,10 +4,12 @@ import { prisma } from "@/lib/db";
 import { requisitionScope } from "@/lib/rbac";
 import { formatTaka } from "@/lib/money";
 import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
+import { ensureUploadedKitProjectsSynced } from "@/lib/projectSync";
 import AppShell from "@/components/AppShell";
 
 export default async function DashboardPage() {
   const user = await requireUser();
+  await ensureUploadedKitProjectsSynced();
 
   // Scoped queries
   const scope = requisitionScope(user);

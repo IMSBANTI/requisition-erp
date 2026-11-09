@@ -4,7 +4,7 @@ import {
   getDefaultProjectTermsByCode,
 } from "@/lib/profitEngine";
 
-const UPLOADED_KIT_PROJECTS = [
+export const UPLOADED_KIT_PROJECTS = [
   {
     code: "PROJ-ROBI",
     name: "Project Robi SME",
@@ -119,16 +119,32 @@ const UPLOADED_KIT_PROJECTS = [
   },
 ];
 
+export const LEGACY_PROJECTS_TO_REMOVE = [
+  "PROJ-UPY",
+  "PROJ-GP",
+  "PROJ-SINGER",
+  "PROJ-BAT-CE",
+  "PROJ-UNILEVER",
+  "PROJ-MT",
+  "PROJ-BHN",
+];
+
 let syncedInProcess = false;
 
 export async function ensureUploadedKitProjectsSynced(): Promise<void> {
   if (syncedInProcess) return;
   try {
-    const existingdbh = await prisma.project.findUnique({
-      where: { code: "PROJ-DBH" },
-      select: { id: true },
-    });
-    if (existingdbh) {
+    const [existingDbh, legacyCount] = await Promise.all([
+      prisma.project.findUnique({
+        where: { code: "PROJ-DBH" },
+        select: { id: true },
+      }),
+      prisma.project.count({
+        where: { code: { in: LEGACY_PROJECTS_TO_REMOVE } },
+      }),
+    ]);
+
+    if (existingDbh && legacyCount === 0) {
       syncedInProcess = true;
       return;
     }
@@ -172,6 +188,7 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
       }
     }
 
+    // 1. Ensure all 14 uploaded projects exist
     for (const p of UPLOADED_KIT_PROJECTS) {
       if (deletedCodes.has(p.code.toUpperCase())) continue;
 
@@ -219,6 +236,40 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
           where: { code: "PROJ-ROBI" },
           data: { name: "Project Robi SME" },
         });
+      }
+    }
+
+    // 2. Delete all other non-kit legacy projects (PROJ-UPY, PROJ-GP, PROJ-SINGER, PROJ-BAT-CE, PROJ-UNILEVER, PROJ-MT, PROJ-BHN)
+    const legacyProjects = await prisma.project.findMany({
+      where: { code: { in: LEGACY_PROJECTS_TO_REMOVE } },
+      select: { id: true, code: true },
+    });
+
+    if (legacyProjects.length > 0) {
+      const [robiProj, ublPsProj] = await Promise.all([
+        prisma.project.findUnique({ where: { code: "PROJ-ROBI" }, select: { id: true } }),
+        prisma.project.findUnique({ where: { code: "PROJ-UBL-PS" }, select: { id: true } }),
+      ]);
+
+      for (const lp of legacyProjects) {
+        const reqCount = await prisma.requisition.count({ where: { projectId: lp.id } });
+        if (reqCount > 0) {
+          const fallbackId =
+            lp.code === "PROJ-UNILEVER"
+              ? ublPsProj?.id || robiProj?.id
+              : robiProj?.id || ublPsProj?.id;
+          if (fallbackId) {
+            await prisma.requisition.updateMany({
+              where: { projectId: lp.id },
+              data: { projectId: fallbackId },
+            });
+          }
+        }
+        await prisma.project.update({
+          where: { id: lp.id },
+          data: { members: { set: [] } },
+        });
+        await prisma.project.delete({ where: { id: lp.id } });
       }
     }
 

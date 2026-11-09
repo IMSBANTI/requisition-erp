@@ -4,6 +4,7 @@ import { prisma } from "@/lib/db";
 import { requisitionScope } from "@/lib/rbac";
 import { formatTaka } from "@/lib/money";
 import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
+import { ensureUploadedKitProjectsSynced } from "@/lib/projectSync";
 import AppShell from "@/components/AppShell";
 
 interface Props {
@@ -12,6 +13,7 @@ interface Props {
 
 export default async function RequisitionsListPage({ searchParams }: Props) {
   const user = await requireUser();
+  await ensureUploadedKitProjectsSynced();
   const { filter, company, search } = await searchParams;
 
   const baseScope = requisitionScope(user);
