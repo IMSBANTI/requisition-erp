@@ -82,8 +82,6 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
     });
   }
 
-  links.push({ href: "/print/blank", label: "Print Blank Form", icon: "🖨️" });
-
   const canViewReports =
     perms.includes("report.view") ||
     perms.includes("admin.users") ||
@@ -94,18 +92,20 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
     Boolean(user.role.isManager) ||
     user.role.key.includes("manager");
 
-  if (canViewReports) {
-    links.push({
-      href: "/finance",
-      label: "Project & Event P&L",
-      icon: "💹",
-    });
-    links.push({
-      href: "/reports",
-      label: "Query & Custom Reports",
-      icon: "📈",
-    });
-  }
+  const reportLinks = canViewReports
+    ? [
+        {
+          href: "/finance",
+          label: "Projects, Events & P&L",
+          icon: "💹",
+        },
+        {
+          href: "/reports",
+          label: "Query & Financial Reports",
+          icon: "📈",
+        },
+      ]
+    : [];
 
   const isAdmin = perms.includes("admin.users") || perms.includes("admin.readonly");
   const canManageProjects = true; // All roles can access Projects & Workflows (Group Heads edit their own, others view read-only)
@@ -176,6 +176,32 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
             </Link>
           );
         })}
+
+        {reportLinks.length > 0 && (
+          <>
+            <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 mt-6 mb-1">
+              Financial Reports
+            </div>
+            {reportLinks.map((link) => {
+              const isActive = pathname === link.href || pathname.startsWith(`${link.href}/`);
+              return (
+                <Link
+                  key={link.href}
+                  href={link.href}
+                  onClick={() => setMobileOpen(false)}
+                  className={`flex items-center px-3 py-2.5 md:py-2 text-xs font-medium rounded-md transition-colors ${
+                    isActive
+                      ? "bg-red-50 text-[#E42528] font-semibold"
+                      : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                  }`}
+                >
+                  <span className="mr-2.5 text-sm">{link.icon}</span>
+                  <span className="truncate">{link.label}</span>
+                </Link>
+              );
+            })}
+          </>
+        )}
 
         {(isAdmin || canManageProjects) && (
           <>

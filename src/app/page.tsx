@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { requisitionScope } from "@/lib/rbac";
-import { formatTaka } from "@/lib/money";
+import { formatMoney, getCurrencyMeta } from "@/lib/money";
 import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
 import { ensureUploadedKitProjectsSynced } from "@/lib/projectSync";
 import AppShell from "@/components/AppShell";
@@ -79,12 +79,6 @@ export default async function DashboardPage() {
             </p>
           </div>
           <div className="flex items-center space-x-2">
-            <Link
-              href="/print/blank"
-              className="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors shadow-sm"
-            >
-              Print Blank Form
-            </Link>
             <Link
               href="/requisitions/new"
               className="px-3.5 py-1.5 text-xs font-semibold text-white bg-[#E42528] hover:bg-[#B81D20] rounded-md transition-colors shadow-sm flex items-center space-x-1"
@@ -194,7 +188,8 @@ export default async function DashboardPage() {
                         </div>
                         <div className="text-right shrink-0">
                           <span className="text-xs font-extrabold text-gray-900">
-                            Tk {formatTaka(req.total)}
+                            {getCurrencyMeta((req as any).currency, req.amountInWords).listPrefix}{" "}
+                            {formatMoney(req.total, getCurrencyMeta((req as any).currency, req.amountInWords).code)}
                           </span>
                         </div>
                       </div>
@@ -262,7 +257,7 @@ export default async function DashboardPage() {
                       <th className="py-2.5 px-4">Company & Project</th>
                       <th className="py-2.5 px-4">Type</th>
                       <th className="py-2.5 px-4">Requested By</th>
-                      <th className="py-2.5 px-4 text-right">Amount (Tk)</th>
+                      <th className="py-2.5 px-4 text-right">Amount</th>
                       <th className="py-2.5 px-4 text-center">Status</th>
                       <th className="py-2.5 px-4 text-right">Actions</th>
                     </tr>
@@ -327,8 +322,11 @@ export default async function DashboardPage() {
                           <span className="font-medium text-gray-800">{req.makerName}</span>
                           <span className="block text-[11px] text-gray-500">{req.makerDesignation}</span>
                         </td>
-                        <td className="py-3 px-4 text-right font-semibold text-gray-900">
-                          {formatTaka(req.total)}
+                        <td className="py-3 px-4 text-right font-semibold text-gray-900 whitespace-nowrap">
+                          <span className="text-[10px] font-semibold text-gray-500 mr-1">
+                            {getCurrencyMeta((req as any).currency, req.amountInWords).listPrefix}
+                          </span>
+                          {formatMoney(req.total, getCurrencyMeta((req as any).currency, req.amountInWords).code)}
                         </td>
                         <td className="py-3 px-4 text-center">
                           <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_COLORS[req.status] || "bg-gray-100"}`}>

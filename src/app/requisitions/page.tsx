@@ -90,12 +90,21 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
               Review, track, and approve requisitions across IMS Group companies.
             </p>
           </div>
-          <Link
-            href="/requisitions/new"
-            className="px-3.5 py-1.5 text-xs font-bold text-white bg-[#E42528] hover:bg-[#B81D20] rounded-md transition-colors shadow-sm self-start sm:self-auto"
-          >
-            + New Requisition
-          </Link>
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <Link
+              href="/print/blank"
+              className="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors shadow-2xs inline-flex items-center gap-1.5"
+            >
+              <span>🖨️</span>
+              <span>Print Blank Form</span>
+            </Link>
+            <Link
+              href="/requisitions/new"
+              className="px-3.5 py-1.5 text-xs font-bold text-white bg-[#E42528] hover:bg-[#B81D20] rounded-md transition-colors shadow-sm"
+            >
+              + New Requisition
+            </Link>
+          </div>
         </div>
 
         {/* Filters and Search Bar */}

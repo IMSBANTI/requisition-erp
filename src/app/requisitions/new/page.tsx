@@ -1,4 +1,5 @@
 import { requireUser } from "@/lib/auth";
+import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { projectScope } from "@/lib/rbac";
 import {
@@ -176,13 +177,22 @@ export default async function NewRequisitionPage() {
   return (
     <AppShell>
       <div className="p-3 sm:p-6 max-w-5xl mx-auto w-full">
-        <div className="pb-4 border-b border-gray-200">
-          <h1 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
-            New Requisition for Fund
-          </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Fill out the digital requisition voucher below.
-          </p>
+        <div className="pb-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
+              New Requisition for Fund
+            </h1>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Fill out the digital requisition voucher below.
+            </p>
+          </div>
+          <Link
+            href="/print/blank"
+            className="px-3 py-1.5 text-xs font-semibold text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 transition-colors shadow-2xs inline-flex items-center gap-1.5 self-start sm:self-auto"
+          >
+            <span>🖨️</span>
+            <span>Print Blank Requisition Form</span>
+          </Link>
         </div>
 
         <RequisitionForm
