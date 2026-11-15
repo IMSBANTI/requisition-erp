@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { projectScope } from "@/lib/rbac";
+import {
+  canAccessFinancialReports,
+  financialReportProjectScope,
+  hasFullReportAccess,
+} from "@/lib/rbac";
 import {
   calculateProfitSummary,
   getDefaultProjectTermsByCode,
@@ -30,18 +34,7 @@ export default async function FinancePnlPage() {
   const user = await requireUser();
   await ensureUploadedKitProjectsSynced();
 
-  const canViewFinance =
-    user.permissions.includes("req.accounts.check") ||
-    user.permissions.includes("req.execute") ||
-    user.permissions.includes("req.director") ||
-    user.permissions.includes("req.md") ||
-    user.permissions.includes("admin.users") ||
-    user.permissions.includes("admin.readonly") ||
-    user.permissions.includes("report.view") ||
-    user.permissions.includes("project.manage") ||
-    Boolean(user.role.isManager);
-
-  if (!canViewFinance) {
+  if (!canAccessFinancialReports(user)) {
     redirect("/?denied=1");
   }
 
@@ -55,7 +48,7 @@ export default async function FinancePnlPage() {
     Boolean(user.role.isManager);
 
   const projects = await prisma.project.findMany({
-    where: projectScope(user),
+    where: financialReportProjectScope(user),
     include: {
       company: true,
       head: true,
@@ -365,16 +358,33 @@ export default async function FinancePnlPage() {
     user.permissions.includes("admin.users") ||
     user.permissions.includes("project.manage");
 
+  const isFullReportAccess = hasFullReportAccess(user);
+
   return (
     <AppShell>
       <div className="p-3 sm:p-6 max-w-7xl mx-auto w-full">
-        <div className="pb-4 border-b border-gray-200">
-          <h1 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
-            Projects, Events & IMS Group Expenses — P&L & Client Collections
-          </h1>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Track Client Projects, Events, and IMS Group Internal Overhead Expenses (Head Office, IT, Studio, BD, CLAN, SCL, TradePULSE) along with Consolidated Group Net Profit for Accounts, Directors & MD.
-          </p>
+        <div className="pb-4 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h1 className="text-lg sm:text-xl font-bold text-gray-900 tracking-tight">
+              Projects, Events &amp; IMS Group Expenses — P&amp;L &amp; Client Collections
+            </h1>
+            <p className="text-xs text-gray-500 mt-0.5">
+              {isFullReportAccess
+                ? "Full unrestricted view across all Client Projects, Events, and IMS Group Internal Overhead Expenses."
+                : "Restricted view: showing financial reports only for the specific Projects, Events, or IMS Group Divisions assigned to you."}
+            </p>
+          </div>
+          <div className="text-xs">
+            {isFullReportAccess ? (
+              <span className="px-2.5 py-1 rounded-full bg-red-50 text-[#E42528] border border-red-200 font-bold">
+                🌐 Full Financial Report Access ({formattedProjects.length})
+              </span>
+            ) : (
+              <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-800 border border-blue-200 font-bold">
+                🔒 Assigned Scope Only ({formattedProjects.length} Item{formattedProjects.length === 1 ? "" : "s"})
+              </span>
+            )}
+          </div>
         </div>
 
         <FinanceClient

@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import {
+  canAccessFinancialReports,
+  financialReportProjectScope,
+} from "@/lib/rbac";
+import {
   calculateProfitSummary,
   getDefaultProjectTermsByCode,
   round2,
@@ -18,13 +22,14 @@ export async function POST(request: Request) {
     const user = await requireUser();
 
     const canManageFinance =
-      user.permissions.includes("req.accounts.check") ||
-      user.permissions.includes("req.execute") ||
-      user.permissions.includes("req.director") ||
-      user.permissions.includes("req.md") ||
-      user.permissions.includes("admin.users") ||
-      user.permissions.includes("project.manage") ||
-      Boolean(user.role.isManager);
+      canAccessFinancialReports(user) &&
+      (user.permissions.includes("req.accounts.check") ||
+        user.permissions.includes("req.execute") ||
+        user.permissions.includes("req.director") ||
+        user.permissions.includes("req.md") ||
+        user.permissions.includes("admin.users") ||
+        user.permissions.includes("project.manage") ||
+        Boolean(user.role.isManager));
 
     if (!canManageFinance) {
       return NextResponse.json(
@@ -60,12 +65,17 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Project or Event is required" }, { status: 400 });
     }
 
-    const project: any = await prisma.project.findUnique({
-      where: { id: projectId },
+    const project: any = await prisma.project.findFirst({
+      where: {
+        AND: [{ id: projectId }, financialReportProjectScope(user)],
+      },
     });
 
     if (!project) {
-      return NextResponse.json({ error: "Project/Event not found" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Project/Event not found or you do not have report access to this project." },
+        { status: 403 }
+      );
     }
 
     const isEvt =
@@ -587,6 +597,19 @@ export async function DELETE(request: Request) {
     const id = searchParams.get("id");
     if (!id) {
       return NextResponse.json({ error: "Bill ID required" }, { status: 400 });
+    }
+
+    const existingBill = await (prisma as any).clientBill.findFirst({
+      where: {
+        id,
+        project: financialReportProjectScope(user),
+      },
+    });
+    if (!existingBill) {
+      return NextResponse.json(
+        { error: "Bill not found or access denied for this project" },
+        { status: 403 }
+      );
     }
 
     await (prisma as any).clientBill.delete({ where: { id } });

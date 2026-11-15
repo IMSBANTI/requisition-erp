@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { getCurrentUser } from "@/lib/auth";
-import { requisitionScope } from "@/lib/rbac";
+import {
+  canAccessFinancialReports,
+  financialReportRequisitionScope,
+} from "@/lib/rbac";
 import { prisma } from "@/lib/db";
 import { formatTaka } from "@/lib/money";
 
@@ -10,17 +13,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  // Permission check: report.view, manager, accounts, director, md, or admin
-  const hasAccess =
-    user.permissions.includes("report.view") ||
-    user.permissions.includes("admin.users") ||
-    user.permissions.includes("admin.readonly") ||
-    user.permissions.includes("req.director") ||
-    user.permissions.includes("req.md") ||
-    user.permissions.includes("req.accounts.check") ||
-    user.role.isManager;
-
-  if (!hasAccess) {
+  if (!canAccessFinancialReports(user)) {
     return NextResponse.json({ error: "Access denied: Reports permission required" }, { status: 403 });
   }
 
@@ -37,8 +30,8 @@ export async function GET(request: Request) {
   const search = searchParams.get("search")?.trim();
   const exportFormat = searchParams.get("export");
 
-  // Base scope based on RBAC
-  const baseScope = requisitionScope(user);
+  // Base scope based on strict Financial Report project/event/division RBAC
+  const baseScope = financialReportRequisitionScope(user);
 
   // Construct where clause
   const where: any = {

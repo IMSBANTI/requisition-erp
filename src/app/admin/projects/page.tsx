@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { financialReportProjectScope } from "@/lib/rbac";
 import {
   resolveCostHeadsForKind,
   getDefaultProjectTermsByCode,
@@ -23,6 +24,7 @@ export default async function AdminProjectsPage() {
 
   const [projects, companies, users] = await Promise.all([
     prisma.project.findMany({
+      where: isSuperAdmin ? {} : financialReportProjectScope(user),
       include: {
         company: true,
         head: true,

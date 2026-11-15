@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { projectScope } from "@/lib/rbac";
+import {
+  canAccessFinancialReports,
+  financialReportProjectScope,
+  hasFullReportAccess,
+} from "@/lib/rbac";
 import { CATEGORIES } from "@/lib/constants";
 import AppShell from "@/components/AppShell";
 import ReportsClient from "./ReportsClient";
@@ -9,37 +13,29 @@ import ReportsClient from "./ReportsClient";
 export default async function ReportsPage() {
   const user = await requireUser();
 
-  const hasAccess =
-    user.permissions.includes("report.view") ||
-    user.permissions.includes("admin.users") ||
-    user.permissions.includes("admin.readonly") ||
-    user.permissions.includes("req.director") ||
-    user.permissions.includes("req.md") ||
-    user.permissions.includes("req.accounts.check") ||
-    user.role.isManager;
-
-  if (!hasAccess) {
+  if (!canAccessFinancialReports(user)) {
     redirect("/?denied=1");
   }
 
-  // Fetch companies accessible to this user
-  const isSuper =
-    user.permissions.includes("req.view.all") ||
-    user.permissions.includes("admin.users") ||
-    user.permissions.includes("admin.readonly") ||
-    user.permissions.includes("req.md") ||
-    user.permissions.includes("req.accounts.check");
-
-  const companies = await prisma.company.findMany({
-    where: isSuper ? {} : { id: { in: user.companyScopes.map((c) => c.id) } },
-    select: { id: true, name: true, code: true },
+  // Fetch projects accessible to this user under Financial Report scope
+  const projects = await prisma.project.findMany({
+    where: financialReportProjectScope(user),
+    select: { id: true, name: true, category: true, budget: true, companyId: true },
     orderBy: { name: "asc" },
   });
 
-  // Fetch projects accessible to this user
-  const projects = await prisma.project.findMany({
-    where: projectScope(user),
-    select: { id: true, name: true, category: true, budget: true, companyId: true },
+  // Fetch companies accessible to this user (from their permitted projects or company scopes)
+  const isFullReport = hasFullReportAccess(user);
+  const allowedCompanyIds = Array.from(
+    new Set([
+      ...projects.map((p) => p.companyId),
+      ...(isFullReport ? [] : user.companyScopes.map((c) => c.id)),
+    ])
+  );
+
+  const companies = await prisma.company.findMany({
+    where: isFullReport ? {} : { id: { in: allowedCompanyIds } },
+    select: { id: true, name: true, code: true },
     orderBy: { name: "asc" },
   });
 

@@ -71,6 +71,14 @@ export default function AdminUsersClient({
   const [reqTypesAllowed, setReqTypesAllowed] = useState<string[]>([
     "req.type.company",
   ]);
+  const [reportAccessMode, setReportAccessMode] = useState<
+    "ASSIGNED_ONLY" | "ALL_REPORTS" | "NONE"
+  >("ASSIGNED_ONLY");
+  const [reportCategories, setReportCategories] = useState<string[]>([
+    "report.scope.projects",
+    "report.scope.events",
+    "report.scope.company",
+  ]);
   const [active, setActive] = useState(true);
   const [projectSearchFilter, setProjectSearchFilter] = useState("");
 
@@ -161,6 +169,68 @@ export default function AdminUsersClient({
     return ["req.type.company"];
   }
 
+  function getAssociatedProjectIdsForUser(u: any): string[] {
+    const ep: string[] = u.extraPermissions || [];
+    if (ep.includes("report.strict.scope")) {
+      return u.projectScopeIds || [];
+    }
+    const ids = new Set<string>(u.projectScopeIds || []);
+    for (const p of projects) {
+      if (
+        p.headId === u.id ||
+        p.checkerId === u.id ||
+        p.directorId === u.id
+      ) {
+        ids.add(p.id);
+      }
+    }
+    return Array.from(ids);
+  }
+
+  function inferReportAccessModeForUser(
+    u: any
+  ): "ASSIGNED_ONLY" | "ALL_REPORTS" | "NONE" {
+    const ep: string[] = u.extraPermissions || [];
+    if (
+      (u.priorityLevel ?? 2) >= 5 ||
+      ep.includes("report.view.all") ||
+      u.roleKey === "super_admin"
+    ) {
+      return "ALL_REPORTS";
+    }
+    if (ep.includes("report.none")) {
+      return "NONE";
+    }
+    if (
+      (u.roleKey === "accounts_manager" || u.roleKey === "accounts_executive") &&
+      !ep.includes("report.strict.scope")
+    ) {
+      return "ALL_REPORTS";
+    }
+    const rolePerms: string[] = u.rolePermissions || [];
+    const hasReportPerm =
+      ep.includes("report.view") ||
+      rolePerms.includes("report.view") ||
+      rolePerms.includes("req.director") ||
+      rolePerms.includes("req.md") ||
+      rolePerms.includes("req.accounts.check") ||
+      u.levelLabel === "Manager" ||
+      u.levelLabel === "Director" ||
+      u.levelLabel === "MD";
+    return hasReportPerm ? "ASSIGNED_ONLY" : "NONE";
+  }
+
+  function inferReportCategoriesForUser(u: any): string[] {
+    const ep: string[] = u.extraPermissions || [];
+    const cats = ep.filter((p) => p.startsWith("report.scope."));
+    if (cats.length > 0) return cats;
+    return [
+      "report.scope.projects",
+      "report.scope.events",
+      "report.scope.company",
+    ];
+  }
+
   function openCreateUserModal() {
     const execRole = roles.find((r) => r.key === "executive") || roles[0];
     const imsComp = companies.find((c) => c.code === "IMS") || companies[0];
@@ -184,6 +254,12 @@ export default function AdminUsersClient({
     setDirectorCategories([]);
     setExtraPermissions([]);
     setReqTypesAllowed(["req.type.company"]);
+    setReportAccessMode("NONE");
+    setReportCategories([
+      "report.scope.projects",
+      "report.scope.events",
+      "report.scope.company",
+    ]);
     setActive(true);
     setMsg("");
     setErrorMsg("");
@@ -207,14 +283,22 @@ export default function AdminUsersClient({
     setSupervisorId(u.supervisorId || "");
     setApprovalNotes(u.approvalNotes || "");
     setCompanyScopeIds(u.companyScopeIds || []);
-    setProjectScopeIds(u.projectScopeIds || []);
+    setProjectScopeIds(getAssociatedProjectIdsForUser(u));
     setDirectorCategories(u.directorCategories || []);
     setExtraPermissions(
       (u.extraPermissions || []).filter(
-        (p: string) => !p.startsWith("req.mode.") && !p.startsWith("req.type.")
+        (p: string) =>
+          !p.startsWith("req.mode.") &&
+          !p.startsWith("req.type.") &&
+          !p.startsWith("report.scope.") &&
+          p !== "report.strict.scope" &&
+          p !== "report.none" &&
+          p !== "report.view.all"
       )
     );
     setReqTypesAllowed(inferReqTypesForUser(u));
+    setReportAccessMode(inferReportAccessModeForUser(u));
+    setReportCategories(inferReportCategoriesForUser(u));
     setActive(u.active ?? true);
     setMsg("");
     setErrorMsg("");
@@ -276,6 +360,13 @@ export default function AdminUsersClient({
     else if (newLevel === "Manager" || newPriority >= 3) targetKey = "manager";
     const foundRole = roles.find((r) => r.key === targetKey);
     if (foundRole) setRoleId(foundRole.id);
+    if (newPriority === 5) {
+      setReportAccessMode("ALL_REPORTS");
+    } else if (newLevel === "Executive" && newPriority < 3) {
+      setReportAccessMode("NONE");
+    } else {
+      setReportAccessMode("ASSIGNED_ONLY");
+    }
     if (!designation || ["Executive", "Manager", "Director", "MD"].includes(designation)) {
       setDesignation(newLevel);
     }
@@ -297,6 +388,25 @@ export default function AdminUsersClient({
 
     try {
       const isCreate = modalType === "CREATE_USER";
+      const reportFlags: string[] = [];
+      if (reportAccessMode === "ALL_REPORTS") {
+        reportFlags.push("report.view", "report.view.all");
+      } else if (reportAccessMode === "NONE") {
+        reportFlags.push("report.none");
+      } else {
+        // ASSIGNED_ONLY — strictly enforce the Super Admin's selected Projects/Events/IMS Group Divisions
+        reportFlags.push("report.view", "report.strict.scope");
+        const cats =
+          reportCategories.length > 0
+            ? reportCategories
+            : [
+                "report.scope.projects",
+                "report.scope.events",
+                "report.scope.company",
+              ];
+        reportFlags.push(...cats);
+      }
+
       const payload = {
         id: selectedUser?.id,
         employeeId: empId,
@@ -319,12 +429,22 @@ export default function AdminUsersClient({
         companyScopeIds,
         projectScopeIds,
         directorCategories,
-        extraPermissions: [
-          ...extraPermissions.filter(
-            (p) => !p.startsWith("req.mode.") && !p.startsWith("req.type.")
-          ),
-          ...(reqTypesAllowed.length > 0 ? reqTypesAllowed : ["req.type.company"]),
-        ],
+        extraPermissions: Array.from(
+          new Set([
+            ...extraPermissions.filter(
+              (p) =>
+                !p.startsWith("req.mode.") &&
+                !p.startsWith("req.type.") &&
+                !p.startsWith("report.scope.") &&
+                p !== "report.strict.scope" &&
+                p !== "report.none" &&
+                p !== "report.view.all" &&
+                (reportAccessMode !== "NONE" || p !== "report.view")
+            ),
+            ...(reqTypesAllowed.length > 0 ? reqTypesAllowed : ["req.type.company"]),
+            ...reportFlags,
+          ])
+        ),
         active,
       };
 
@@ -676,32 +796,60 @@ export default function AdminUsersClient({
                         </span>
                       )}
                     </td>
-                    <td className="py-2.5 px-2.5 max-w-[170px]">
-                      {u.companyScopeCodes?.length > 0 && (
-                        <div className="flex flex-wrap gap-1 mb-1">
-                          {u.companyScopeCodes.map((code: string) => (
-                            <span
-                              key={code}
-                              className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-red-50 text-[#E42528] border border-red-200"
-                            >
-                              {code}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      {u.projectScopeNames?.length > 0 ? (
-                        <span
-                          className="text-[10px] text-gray-600 line-clamp-2 leading-tight"
-                          title={u.projectScopeNames.join(", ")}
-                        >
-                          {u.projectScopeNames.slice(0, 2).join(", ")}
-                          {u.projectScopeNames.length > 2
-                            ? ` +${u.projectScopeNames.length - 2} more`
-                            : ""}
-                        </span>
-                      ) : (
-                        <span className="text-[10px] text-gray-400">All / Dept Default</span>
-                      )}
+                    <td className="py-2.5 px-2.5 max-w-[200px]">
+                      {(() => {
+                        const rMode = inferReportAccessModeForUser(u);
+                        const assocIds = getAssociatedProjectIdsForUser(u);
+                        const assocNames = projects
+                          .filter((p) => assocIds.includes(p.id))
+                          .map((p) => p.name);
+                        return (
+                          <div className="space-y-1">
+                            <div>
+                              {rMode === "ALL_REPORTS" ? (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
+                                  🌐 All Financial Reports
+                                </span>
+                              ) : rMode === "ASSIGNED_ONLY" ? (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                                  🔒 Reports: {assocNames.length} Assigned
+                                </span>
+                              ) : (
+                                <span className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-gray-100 text-gray-500 border border-gray-200">
+                                  🚫 No Report Access
+                                </span>
+                              )}
+                            </div>
+                            {u.companyScopeCodes?.length > 0 && (
+                              <div className="flex flex-wrap gap-1">
+                                {u.companyScopeCodes.map((code: string) => (
+                                  <span
+                                    key={code}
+                                    className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-red-50 text-[#E42528] border border-red-200"
+                                  >
+                                    {code}
+                                  </span>
+                                ))}
+                              </div>
+                            )}
+                            {assocNames.length > 0 ? (
+                              <span
+                                className="text-[10px] text-gray-600 line-clamp-2 leading-tight block"
+                                title={assocNames.join(", ")}
+                              >
+                                {assocNames.slice(0, 2).join(", ")}
+                                {assocNames.length > 2
+                                  ? ` +${assocNames.length - 2} more`
+                                  : ""}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-gray-400 block">
+                                No specific project/event assigned
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()}
                     </td>
                     {!isReadOnly && (
                       <td className="py-2.5 px-3 text-right whitespace-nowrap sticky right-0 bg-white group-hover:bg-gray-50 border-l border-gray-100 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.06)]">
@@ -1145,107 +1293,403 @@ export default function AdminUsersClient({
                 </div>
               </div>
 
-              {/* Row 6: Separate Assigned Projects vs. Assigned Events */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* 6A: Assigned Projects ONLY */}
-                <div className="border border-gray-200 rounded-lg p-3.5">
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <div>
-                      <label className="font-bold text-gray-800">
-                        📁 Assigned Projects
-                      </label>
-                      <p className="text-[10px] text-gray-500">
-                        Select specific Projects (Robi, UPY, GP, Singer, BAT CE, Unilever, BeHereNow, etc.)
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 gap-1.5 max-h-44 overflow-y-auto p-1 bg-gray-50 rounded border border-gray-200">
-                    {projects
-                      .filter(
-                        (p) =>
-                          p.kind !== "EVENT" &&
-                          !p.code?.toUpperCase().startsWith("EVT-") &&
-                          ![
-                            "IMS-HO",
-                            "IMS-IT",
-                            "IMS-STUDIO",
-                            "IMS-BD-BLUE",
-                            "IMS-BD-RED",
-                            "CLAN-MAIN",
-                            "SCL-MAIN",
-                            "TP-OPS",
-                          ].includes(p.code)
-                      )
-                      .map((p) => (
-                        <label
-                          key={p.id}
-                          className={`flex items-center gap-2 px-2 py-1.5 rounded border text-[11px] cursor-pointer ${
-                            projectScopeIds.includes(p.id)
-                              ? "bg-red-50 border-red-300 font-semibold text-gray-900"
-                              : "bg-white border-gray-200 text-gray-700"
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={projectScopeIds.includes(p.id)}
-                            onChange={() =>
-                              toggleArrayItem(projectScopeIds, p.id, setProjectScopeIds)
-                            }
-                          />
-                          <span className="truncate">
-                            <span className="font-mono text-[10px] text-gray-400 mr-1">
-                              [{p.code}]
-                            </span>
-                            {p.name}
-                          </span>
-                        </label>
-                      ))}
+              {/* Row 6: Super Admin Financial Reports & Assigned Projects / Events / IMS Group Control */}
+              <div className="border-2 border-indigo-200 bg-indigo-50/30 rounded-xl p-4 space-y-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <label className="font-bold text-gray-900 text-xs block">
+                      💹 Financial Reports &amp; P&amp;L Access Rights (Super Admin Control)
+                    </label>
+                    <p className="text-[10px] text-gray-600 mt-0.5">
+                      Control whether this user (MD, Director, Group Head, Manager, or Executive) can view Financial Reports and restrict them strictly to the Projects, Events, or IMS Group Divisions checked below.
+                    </p>
                   </div>
                 </div>
 
-                {/* 6B: Assigned Events ONLY */}
-                <div className="border border-gray-200 rounded-lg p-3.5">
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <div>
-                      <label className="font-bold text-gray-800">
-                        🎪 Assigned Events
+                {/* 6.1 Report Access Mode Selector */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  {[
+                    {
+                      mode: "ASSIGNED_ONLY" as const,
+                      title: "🔒 Assigned Scope Only (Recommended)",
+                      desc: "Can ONLY view Financial Reports for the specific Projects, Events, or IMS Group Divisions checked below.",
+                    },
+                    {
+                      mode: "ALL_REPORTS" as const,
+                      title: "🌐 Full Unrestricted Report Access",
+                      desc: "Can view Financial Reports across ALL Projects, Events, and IMS Group Divisions.",
+                    },
+                    {
+                      mode: "NONE" as const,
+                      title: "🚫 No Financial Reports Access",
+                      desc: "Hides Financial Reports (/finance & /reports) completely for this user.",
+                    },
+                  ].map((opt) => {
+                    const activeMode = reportAccessMode === opt.mode;
+                    return (
+                      <label
+                        key={opt.mode}
+                        onClick={() => setReportAccessMode(opt.mode)}
+                        className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                          activeMode
+                            ? "bg-indigo-50 border-indigo-600 ring-1 ring-indigo-600"
+                            : "bg-white border-gray-200 hover:border-gray-300"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="reportAccessMode"
+                          checked={activeMode}
+                          onChange={() => setReportAccessMode(opt.mode)}
+                          className="mt-0.5 accent-indigo-600"
+                        />
+                        <div>
+                          <div className="text-xs font-bold text-gray-900">
+                            {opt.title}
+                          </div>
+                          <div className="text-[10px] text-gray-500 leading-tight mt-0.5">
+                            {opt.desc}
+                          </div>
+                        </div>
                       </label>
-                      <p className="text-[10px] text-gray-500">
-                        Select specific Events (Event — Banglalink, GP, Bkash, BAT, General Events, etc.)
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 gap-1.5 max-h-44 overflow-y-auto p-1 bg-gray-50 rounded border border-gray-200">
-                    {projects
-                      .filter(
-                        (p) =>
-                          p.kind === "EVENT" || p.code?.toUpperCase().startsWith("EVT-")
-                      )
-                      .map((p) => (
+                    );
+                  })}
+                </div>
+
+                {/* 6.2 Allowed Report Categories (when report access is enabled) */}
+                {reportAccessMode !== "NONE" && (
+                  <div className="flex flex-wrap items-center justify-between gap-2 bg-white p-2.5 rounded-lg border border-indigo-100">
+                    <span className="text-[11px] font-bold text-gray-800">
+                      Permitted Report Sections:
+                    </span>
+                    <div className="flex flex-wrap items-center gap-3">
+                      {[
+                        {
+                          key: "report.scope.projects",
+                          label: "📁 Projects P&L Reports",
+                        },
+                        {
+                          key: "report.scope.events",
+                          label: "🎪 Events P&L Reports",
+                        },
+                        {
+                          key: "report.scope.company",
+                          label: "🏢 IMS Group Expense Reports",
+                        },
+                      ].map((cat) => (
                         <label
-                          key={p.id}
-                          className={`flex items-center gap-2 px-2 py-1.5 rounded border text-[11px] cursor-pointer ${
-                            projectScopeIds.includes(p.id)
-                              ? "bg-blue-50 border-blue-300 font-semibold text-blue-900"
-                              : "bg-white border-gray-200 text-gray-700"
-                          }`}
+                          key={cat.key}
+                          className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-gray-800 cursor-pointer"
                         >
                           <input
                             type="checkbox"
-                            checked={projectScopeIds.includes(p.id)}
+                            checked={reportCategories.includes(cat.key)}
                             onChange={() =>
-                              toggleArrayItem(projectScopeIds, p.id, setProjectScopeIds)
+                              toggleArrayItem(
+                                reportCategories,
+                                cat.key,
+                                setReportCategories
+                              )
                             }
+                            className="accent-indigo-600"
                           />
-                          <span className="truncate">
-                            <span className="font-mono text-[10px] text-gray-400 mr-1">
-                              [{p.code}]
-                            </span>
-                            {p.name}
-                          </span>
+                          <span>{cat.label}</span>
                         </label>
                       ))}
+                    </div>
                   </div>
+                )}
+
+                {/* 6.3 3-Column Selector: Assigned Projects | Assigned Events | Assigned IMS Group Divisions */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {/* 6A: Assigned Projects ONLY */}
+                  {(() => {
+                    const projectItems = projects.filter(
+                      (p) =>
+                        p.kind !== "EVENT" &&
+                        !p.code?.toUpperCase().startsWith("EVT-") &&
+                        ![
+                          "IMS-HO",
+                          "IMS-IT",
+                          "IMS-STUDIO",
+                          "IMS-BD-BLUE",
+                          "IMS-BD-RED",
+                          "CLAN-MAIN",
+                          "SCL-MAIN",
+                          "TP-OPS",
+                        ].includes(p.code)
+                    );
+                    const allIds = projectItems.map((p) => p.id);
+                    return (
+                      <div className="border border-gray-200 bg-white rounded-lg p-3">
+                        <div className="flex items-center justify-between gap-1 mb-2">
+                          <div>
+                            <label className="font-bold text-gray-800 block">
+                              📁 Assigned Projects ({projectItems.filter((p) => projectScopeIds.includes(p.id)).length}/{projectItems.length})
+                            </label>
+                            <p className="text-[10px] text-gray-500">
+                              Client Projects (Robi, UBL, Nagad, etc.)
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[10px]">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setProjectScopeIds(
+                                  Array.from(new Set([...projectScopeIds, ...allIds]))
+                                )
+                              }
+                              className="text-blue-600 hover:underline font-semibold cursor-pointer"
+                            >
+                              All
+                            </button>
+                            <span className="text-gray-300">|</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setProjectScopeIds(
+                                  projectScopeIds.filter((id) => !allIds.includes(id))
+                                )
+                              }
+                              className="text-gray-500 hover:underline font-semibold cursor-pointer"
+                            >
+                              None
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-1.5 max-h-48 overflow-y-auto p-1 bg-gray-50 rounded border border-gray-200">
+                          {projectItems.map((p) => {
+                            const isHead = selectedUser?.id && p.headId === selectedUser.id;
+                            const isChecker = selectedUser?.id && p.checkerId === selectedUser.id;
+                            const isDir = selectedUser?.id && p.directorId === selectedUser.id;
+                            return (
+                              <label
+                                key={p.id}
+                                className={`flex items-center justify-between gap-1.5 px-2 py-1.5 rounded border text-[11px] cursor-pointer ${
+                                  projectScopeIds.includes(p.id)
+                                    ? "bg-red-50 border-red-300 font-semibold text-gray-900"
+                                    : "bg-white border-gray-200 text-gray-700"
+                                }`}
+                              >
+                                <div className="flex items-center gap-1.5 truncate">
+                                  <input
+                                    type="checkbox"
+                                    checked={projectScopeIds.includes(p.id)}
+                                    onChange={() =>
+                                      toggleArrayItem(
+                                        projectScopeIds,
+                                        p.id,
+                                        setProjectScopeIds
+                                      )
+                                    }
+                                  />
+                                  <span className="truncate">
+                                    <span className="font-mono text-[10px] text-gray-400 mr-1">
+                                      [{p.code}]
+                                    </span>
+                                    {p.name}
+                                  </span>
+                                </div>
+                                {(isHead || isChecker || isDir) && (
+                                  <span className="px-1 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold shrink-0">
+                                    {isHead ? "Head" : isChecker ? "Checker" : "Director"}
+                                  </span>
+                                )}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* 6B: Assigned Events ONLY */}
+                  {(() => {
+                    const eventItems = projects.filter(
+                      (p) =>
+                        p.kind === "EVENT" || p.code?.toUpperCase().startsWith("EVT-")
+                    );
+                    const allIds = eventItems.map((p) => p.id);
+                    return (
+                      <div className="border border-gray-200 bg-white rounded-lg p-3">
+                        <div className="flex items-center justify-between gap-1 mb-2">
+                          <div>
+                            <label className="font-bold text-gray-800 block">
+                              🎪 Assigned Events ({eventItems.filter((p) => projectScopeIds.includes(p.id)).length}/{eventItems.length})
+                            </label>
+                            <p className="text-[10px] text-gray-500">
+                              Events (BL, GP, Bkash, BAT, General)
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[10px]">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setProjectScopeIds(
+                                  Array.from(new Set([...projectScopeIds, ...allIds]))
+                                )
+                              }
+                              className="text-blue-600 hover:underline font-semibold cursor-pointer"
+                            >
+                              All
+                            </button>
+                            <span className="text-gray-300">|</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setProjectScopeIds(
+                                  projectScopeIds.filter((id) => !allIds.includes(id))
+                                )
+                              }
+                              className="text-gray-500 hover:underline font-semibold cursor-pointer"
+                            >
+                              None
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-1.5 max-h-48 overflow-y-auto p-1 bg-gray-50 rounded border border-gray-200">
+                          {eventItems.map((p) => {
+                            const isHead = selectedUser?.id && p.headId === selectedUser.id;
+                            const isChecker = selectedUser?.id && p.checkerId === selectedUser.id;
+                            const isDir = selectedUser?.id && p.directorId === selectedUser.id;
+                            return (
+                              <label
+                                key={p.id}
+                                className={`flex items-center justify-between gap-1.5 px-2 py-1.5 rounded border text-[11px] cursor-pointer ${
+                                  projectScopeIds.includes(p.id)
+                                    ? "bg-blue-50 border-blue-300 font-semibold text-blue-900"
+                                    : "bg-white border-gray-200 text-gray-700"
+                                }`}
+                              >
+                                <div className="flex items-center gap-1.5 truncate">
+                                  <input
+                                    type="checkbox"
+                                    checked={projectScopeIds.includes(p.id)}
+                                    onChange={() =>
+                                      toggleArrayItem(
+                                        projectScopeIds,
+                                        p.id,
+                                        setProjectScopeIds
+                                      )
+                                    }
+                                  />
+                                  <span className="truncate">
+                                    <span className="font-mono text-[10px] text-gray-400 mr-1">
+                                      [{p.code}]
+                                    </span>
+                                    {p.name}
+                                  </span>
+                                </div>
+                                {(isHead || isChecker || isDir) && (
+                                  <span className="px-1 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold shrink-0">
+                                    {isHead ? "Head" : isChecker ? "Checker" : "Director"}
+                                  </span>
+                                )}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {/* 6C: Assigned IMS Group Divisions ONLY */}
+                  {(() => {
+                    const divisionItems = projects.filter((p) =>
+                      [
+                        "IMS-HO",
+                        "IMS-IT",
+                        "IMS-STUDIO",
+                        "IMS-BD-BLUE",
+                        "IMS-BD-RED",
+                        "CLAN-MAIN",
+                        "SCL-MAIN",
+                        "TP-OPS",
+                      ].includes(p.code)
+                    );
+                    const allIds = divisionItems.map((p) => p.id);
+                    return (
+                      <div className="border border-gray-200 bg-white rounded-lg p-3">
+                        <div className="flex items-center justify-between gap-1 mb-2">
+                          <div>
+                            <label className="font-bold text-gray-800 block">
+                              🏢 Assigned IMS Group ({divisionItems.filter((p) => projectScopeIds.includes(p.id)).length}/{divisionItems.length})
+                            </label>
+                            <p className="text-[10px] text-gray-500">
+                              Internal Divisions (HO, Studio, BD, CLAN, SCL, TP)
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-1.5 text-[10px]">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setProjectScopeIds(
+                                  Array.from(new Set([...projectScopeIds, ...allIds]))
+                                )
+                              }
+                              className="text-blue-600 hover:underline font-semibold cursor-pointer"
+                            >
+                              All
+                            </button>
+                            <span className="text-gray-300">|</span>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setProjectScopeIds(
+                                  projectScopeIds.filter((id) => !allIds.includes(id))
+                                )
+                              }
+                              className="text-gray-500 hover:underline font-semibold cursor-pointer"
+                            >
+                              None
+                            </button>
+                          </div>
+                        </div>
+                        <div className="grid grid-cols-1 gap-1.5 max-h-48 overflow-y-auto p-1 bg-gray-50 rounded border border-gray-200">
+                          {divisionItems.map((p) => {
+                            const isHead = selectedUser?.id && p.headId === selectedUser.id;
+                            const isChecker = selectedUser?.id && p.checkerId === selectedUser.id;
+                            const isDir = selectedUser?.id && p.directorId === selectedUser.id;
+                            return (
+                              <label
+                                key={p.id}
+                                className={`flex items-center justify-between gap-1.5 px-2 py-1.5 rounded border text-[11px] cursor-pointer ${
+                                  projectScopeIds.includes(p.id)
+                                    ? "bg-rose-50 border-rose-300 font-semibold text-rose-900"
+                                    : "bg-white border-gray-200 text-gray-700"
+                                }`}
+                              >
+                                <div className="flex items-center gap-1.5 truncate">
+                                  <input
+                                    type="checkbox"
+                                    checked={projectScopeIds.includes(p.id)}
+                                    onChange={() =>
+                                      toggleArrayItem(
+                                        projectScopeIds,
+                                        p.id,
+                                        setProjectScopeIds
+                                      )
+                                    }
+                                  />
+                                  <span className="truncate">
+                                    <span className="font-mono text-[10px] text-gray-400 mr-1">
+                                      [{p.code}]
+                                    </span>
+                                    {p.name}
+                                  </span>
+                                </div>
+                                {(isHead || isChecker || isDir) && (
+                                  <span className="px-1 py-0.2 rounded bg-amber-100 text-amber-800 text-[9px] font-bold shrink-0">
+                                    {isHead ? "Head" : isChecker ? "Checker" : "Director"}
+                                  </span>
+                                )}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
 

@@ -1,7 +1,10 @@
 import { notFound, redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { projectScope } from "@/lib/rbac";
+import {
+  canAccessFinancialReports,
+  financialReportProjectScope,
+} from "@/lib/rbac";
 import {
   calculateProfitSummary,
   getDefaultProjectTermsByCode,
@@ -20,18 +23,7 @@ export default async function ProjectFinanceDetailPage({ params }: Props) {
   const user = await requireUser();
   const { id } = await params;
 
-  const canViewFinance =
-    user.permissions.includes("req.accounts.check") ||
-    user.permissions.includes("req.execute") ||
-    user.permissions.includes("req.director") ||
-    user.permissions.includes("req.md") ||
-    user.permissions.includes("admin.users") ||
-    user.permissions.includes("admin.readonly") ||
-    user.permissions.includes("report.view") ||
-    user.permissions.includes("project.manage") ||
-    Boolean(user.role.isManager);
-
-  if (!canViewFinance) {
+  if (!canAccessFinancialReports(user)) {
     redirect("/?denied=1");
   }
 
@@ -46,7 +38,7 @@ export default async function ProjectFinanceDetailPage({ params }: Props) {
 
   const p: any = await prisma.project.findFirst({
     where: {
-      AND: [{ id }, projectScope(user)],
+      AND: [{ id }, financialReportProjectScope(user)],
     },
     include: {
       company: true,

@@ -83,14 +83,17 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
   }
 
   const canViewReports =
-    perms.includes("report.view") ||
     perms.includes("admin.users") ||
-    perms.includes("admin.readonly") ||
-    perms.includes("req.director") ||
-    perms.includes("req.md") ||
-    perms.includes("req.accounts.check") ||
-    Boolean(user.role.isManager) ||
-    user.role.key.includes("manager");
+    (!perms.includes("report.none") &&
+      (perms.includes("report.view") ||
+        perms.includes("report.view.all") ||
+        perms.includes("admin.readonly") ||
+        perms.includes("req.director") ||
+        perms.includes("req.md") ||
+        perms.includes("req.accounts.check") ||
+        perms.includes("req.execute") ||
+        Boolean(user.role.isManager) ||
+        user.role.key.includes("manager")));
 
   const reportLinks = canViewReports
     ? [

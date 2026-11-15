@@ -78,9 +78,9 @@ async function loadUser(id: string) {
   const pLevel = user.priorityLevel ?? 2;
   const extra = user.extraPermissions || [];
 
-  // Base role permissions: strip project.manage / project.view for < P4 unless explicitly granted in Extra User Privileges
+  // Base role permissions: strip project.manage / project.view for < P5 unless explicitly granted in Extra User Privileges
   const rolePerms = (user.role?.permissions || []).filter((perm) => {
-    if (pLevel < 4 && (perm === "project.manage" || perm === "project.view")) {
+    if (pLevel < 5 && (perm === "project.manage" || perm === "project.view")) {
       return false;
     }
     return true;
@@ -88,13 +88,25 @@ async function loadUser(id: string) {
 
   const permissionsSet = new Set<string>([...rolePerms, ...extra]);
 
-  // P4 and P5 automatically get full view & edit access to Projects & Workflow Configuration
-  if (pLevel >= 4) {
+  // Super Admin (P5 or admin.users) automatically gets full view & edit access to Projects, Workflows & Financial Reports
+  if (pLevel >= 5 || permissionsSet.has("admin.users")) {
     permissionsSet.add("project.view");
     permissionsSet.add("project.manage");
-  } else if (extra.includes("project.manage")) {
-    permissionsSet.add("project.view");
-    permissionsSet.add("project.manage");
+    permissionsSet.add("report.view");
+    permissionsSet.add("report.view.all");
+  } else {
+    if (extra.includes("project.manage")) {
+      permissionsSet.add("project.view");
+      permissionsSet.add("project.manage");
+    }
+    if (extra.includes("report.view.all")) {
+      permissionsSet.add("report.view");
+      permissionsSet.add("report.view.all");
+    }
+    if (extra.includes("report.none")) {
+      permissionsSet.delete("report.view");
+      permissionsSet.delete("report.view.all");
+    }
   }
 
   const permissions = Array.from(permissionsSet);

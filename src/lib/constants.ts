@@ -16,6 +16,7 @@ export const PERMISSIONS = {
   PROJECT_VIEW: "project.view",
   PROJECT_MANAGE: "project.manage",
   REPORT_VIEW: "report.view",
+  REPORT_VIEW_ALL: "report.view.all",
   REPORT_DOWNLOAD: "report.download",
   ADMIN_USERS: "admin.users", // full admin (add/edit/delete users, roles, masters, passwords)
   ADMIN_READONLY: "admin.readonly", // HR — view everything in admin, change nothing
@@ -41,8 +42,9 @@ export const PERMISSION_LABELS: Record<Permission, string> = {
   "req.manual": "Enter manual (paper) requisitions",
   "project.view": "View Projects & Workflow Configuration (Read-only)",
   "project.manage": "Edit / Manage Projects & Workflow Configuration",
-  "report.view": "View reports & analysis",
-  "report.download": "Download reports",
+  "report.view": "View Financial Reports (Scoped to Assigned Projects/Events/IMS Group)",
+  "report.view.all": "View All Financial Reports (Unrestricted Across All Projects, Events & IMS Group)",
+  "report.download": "Download / Export Financial Reports",
   "admin.users": "Full admin (users, roles, masters)",
   "admin.readonly": "Admin read-only",
   "grant.view": "Grant view access to Accounts",

@@ -638,7 +638,12 @@ export default function FinanceClient({
 
   const [activeType, setActiveType] = useState<
     "PERMANENT" | "EVENT" | "COMPANY"
-  >("PERMANENT");
+  >(() => {
+    if (permanentProjects.length > 0) return "PERMANENT";
+    if (eventProjects.length > 0) return "EVENT";
+    if (companyDivisions.length > 0) return "COMPANY";
+    return "PERMANENT";
+  });
   const [viewMode, setViewMode] = useState<
     | "SUMMARY_MATRIX"
     | "NEW_ENTRY"
@@ -2107,41 +2112,48 @@ export default function FinanceClient({
       <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
         {/* Top Row: Projects / Events / IMS Group Toggle + 7 View Mode Pills */}
         <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-gray-100">
-          {/* 1A. Toggle between Projects, Events, and IMS Group Expenses */}
+          {/* 1A. Toggle between Projects, Events, and IMS Group Expenses (only shows categories assigned to this user) */}
           <div className="inline-flex flex-wrap bg-gray-100 p-1 rounded-xl border border-gray-200 shrink-0 gap-1">
-            <button
-              type="button"
-              onClick={() => setActiveType("PERMANENT")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeType === "PERMANENT"
-                  ? "bg-gray-900 text-white shadow-sm"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              📁 Projects ({permanentProjects.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveType("EVENT")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeType === "EVENT"
-                  ? "bg-purple-700 text-white shadow-sm"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              🎪 Events ({eventProjects.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveType("COMPANY")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                activeType === "COMPANY"
-                  ? "bg-rose-700 text-white shadow-sm"
-                  : "text-gray-600 hover:text-gray-900"
-              }`}
-            >
-              🏢 IMS Group ({companyDivisions.length})
-            </button>
+            {(permanentProjects.length > 0 ||
+              (eventProjects.length === 0 && companyDivisions.length === 0)) && (
+              <button
+                type="button"
+                onClick={() => setActiveType("PERMANENT")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  activeType === "PERMANENT"
+                    ? "bg-gray-900 text-white shadow-sm"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                📁 Projects ({permanentProjects.length})
+              </button>
+            )}
+            {eventProjects.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveType("EVENT")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  activeType === "EVENT"
+                    ? "bg-purple-700 text-white shadow-sm"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                🎪 Events ({eventProjects.length})
+              </button>
+            )}
+            {companyDivisions.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setActiveType("COMPANY")}
+                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  activeType === "COMPANY"
+                    ? "bg-rose-700 text-white shadow-sm"
+                    : "text-gray-600 hover:text-gray-900"
+                }`}
+              >
+                🏢 IMS Group ({companyDivisions.length})
+              </button>
+            )}
           </div>
 
           {/* 1B. Quick View Mode Pills */}

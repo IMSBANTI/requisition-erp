@@ -62,6 +62,18 @@ export async function POST(request: Request) {
         })
       : undefined;
 
+    const autoMemberIds = Array.from(
+      new Set(
+        [
+          ...(Array.isArray(memberIds) ? memberIds : []),
+          effectiveHeadId,
+          checkerId || null,
+          directorId || null,
+          user.id,
+        ].filter(Boolean) as string[]
+      )
+    );
+
     const project = await prisma.project.create({
       data: {
         code: code.trim().toUpperCase(),
@@ -88,8 +100,8 @@ export async function POST(request: Request) {
         varianceThresholdPct: varianceThresholdPct !== undefined ? Number(varianceThresholdPct) : 10,
         ...(packedCostHeads ? { costHeads: packedCostHeads } : {}),
         createdById: user.id,
-        ...(Array.isArray(memberIds) && memberIds.length > 0
-          ? { members: { connect: memberIds.map((id: string) => ({ id })) } }
+        ...(autoMemberIds.length > 0
+          ? { members: { connect: autoMemberIds.map((id: string) => ({ id })) } }
           : {}),
       },
     });
@@ -182,6 +194,12 @@ export async function PATCH(request: Request) {
     };
     const packedCostHeads = packCostHeadsWithMeta(resolvedHeads, updatedMeta);
 
+    const roleUserIdsToConnect = Array.from(
+      new Set(
+        [headId || null, checkerId || null, directorId || null].filter(Boolean) as string[]
+      )
+    );
+
     const updated = await prisma.project.update({
       where: { id },
       data: {
@@ -195,7 +213,19 @@ export async function PATCH(request: Request) {
         ...(checkerId !== undefined ? { checkerId: checkerId || null } : {}),
         ...(directorId !== undefined ? { directorId: directorId || null } : {}),
         ...(Array.isArray(memberIds)
-          ? { members: { set: memberIds.map((uid: string) => ({ id: uid })) } }
+          ? {
+              members: {
+                set: Array.from(new Set([...memberIds, ...roleUserIdsToConnect])).map(
+                  (uid: string) => ({ id: uid })
+                ),
+              },
+            }
+          : roleUserIdsToConnect.length > 0
+          ? {
+              members: {
+                connect: roleUserIdsToConnect.map((uid: string) => ({ id: uid })),
+              },
+            }
           : {}),
         ...(requisitionTypes ? { requisitionTypes } : {}),
         ...(budget !== undefined ? { budget: budget ? Number(budget) : null } : {}),
