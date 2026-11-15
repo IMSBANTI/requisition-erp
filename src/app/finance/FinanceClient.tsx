@@ -695,6 +695,7 @@ export default function FinanceClient({
 
   // Group Overview filter state
   const [groupKamFilter, setGroupKamFilter] = useState<string>("ALL");
+  const [showSingleCharts, setShowSingleCharts] = useState<boolean>(false);
 
   const currentList = useMemo(() => {
     if (activeType === "PERMANENT") return permanentProjects;
@@ -5131,39 +5132,24 @@ export default function FinanceClient({
                     <h2 className="text-xl font-bold text-gray-900 mt-1">
                       {selectedProject.name}
                     </h2>
-                    <div className="flex flex-wrap items-center gap-4 mt-1.5 text-xs text-gray-600">
-                      <span>
-                        Billing Model:{" "}
-                        <strong className="text-gray-900">
-                          {BILLING_MODEL_LABELS[
-                            selectedProject.terms.billingProfile
-                          ] || selectedProject.terms.billingProfile}
-                        </strong>
+                    <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-gray-600">
+                      <span className="font-semibold text-gray-800">
+                        {BILLING_MODEL_LABELS[
+                          selectedProject.terms.billingProfile
+                        ] || selectedProject.terms.billingProfile}
                       </span>
+                      <span>·</span>
                       <span>
-                        Fee/Markup:{" "}
-                        <strong className="text-gray-900">
-                          {(selectedProject.terms.feeRate * 100).toFixed(1)}%
-                        </strong>
+                        {(selectedProject.terms.feeRate * 100).toFixed(1)}% Fee
                       </span>
+                      <span>·</span>
                       <span>
-                        VAT:{" "}
-                        <strong className="text-gray-900">
-                          {(selectedProject.terms.vatRate * 100).toFixed(1)}%
-                        </strong>
+                        {(selectedProject.terms.vatRate * 100).toFixed(0)}% VAT /{" "}
+                        {(selectedProject.terms.aitRate * 100).toFixed(1)}% AIT
                       </span>
-                      <span>
-                        AIT:{" "}
-                        <strong className="text-gray-900">
-                          {(selectedProject.terms.aitRate * 100).toFixed(1)}%
-                        </strong>
-                      </span>
-                      <span>
-                        Cycle:{" "}
-                        <strong className="text-gray-900">
-                          {selectedProject.terms.billCycleDays} Days
-                        </strong>
-                      </span>
+                      <span>·</span>
+                      <span>{selectedProject.terms.billCycleDays}d Cycle</span>
+                      <span>·</span>
                       <span>
                         Head:{" "}
                         <strong className="text-gray-900">
@@ -5207,8 +5193,8 @@ export default function FinanceClient({
                 </div>
               </div>
 
-              {/* STEP 3: 6 CLEAN KPI CARDS FOR THIS SELECTED PROJECT / EVENT */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+              {/* STEP 3: 4 STREAMLINED KPI CARDS FOR THIS SELECTED PROJECT / EVENT */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
                   <div className="text-[11px] font-bold text-gray-500 uppercase">
                     1. Total Requisitions Spend
@@ -5217,10 +5203,7 @@ export default function FinanceClient({
                     Tk {formatBDT(activeStats.totalSpend)}
                   </div>
                   <div className="text-[11px] text-gray-500 mt-1">
-                    Across <strong>{activeStats.reqs.length}</strong>{" "}
-                    Requisition(s)
-                  </div>
-                  <div className="text-[10px] text-gray-400 mt-0.5">
+                    <strong>{activeStats.reqs.length}</strong> Requisition(s) •
                     Billable: {formatBDT(activeStats.billableSpend)} • IMS:{" "}
                     {formatBDT(activeStats.imsSpend)}
                   </div>
@@ -5228,38 +5211,27 @@ export default function FinanceClient({
 
                 <div className="bg-blue-50/50 border border-blue-200 rounded-xl p-4 shadow-sm">
                   <div className="text-[11px] font-bold text-blue-800 uppercase">
-                    2. Client Bill (With 15% VAT)
+                    2. Client Bill & Expected Inflow
                   </div>
                   <div className="text-base font-bold text-blue-950 mt-1">
                     Tk {formatBDT(activeStats.billedWithVat)}
                   </div>
                   <div className="text-[11px] text-blue-700 mt-1">
-                    Ex-VAT Bill: Tk {formatBDT(activeStats.billedExVat)}
-                  </div>
-                </div>
-
-                <div className="bg-indigo-50/50 border border-indigo-200 rounded-xl p-4 shadow-sm">
-                  <div className="text-[11px] font-bold text-indigo-800 uppercase">
-                    3. Expected Inflow (-AIT)
-                  </div>
-                  <div className="text-base font-bold text-indigo-950 mt-1">
-                    Tk {formatBDT(activeStats.expectedInflow)}
-                  </div>
-                  <div className="text-[11px] text-indigo-700 mt-1">
-                    AIT Deducted: Tk {formatBDT(activeStats.calc.aitDeducted)}
+                    Ex-VAT: {formatBDT(activeStats.billedExVat)} • Net Inflow (-AIT):{" "}
+                    <strong>Tk {formatBDT(activeStats.expectedInflow)}</strong>
                   </div>
                 </div>
 
                 <div className="bg-emerald-50/50 border border-emerald-200 rounded-xl p-4 shadow-sm">
                   <div className="text-[11px] font-bold text-emerald-800 uppercase">
-                    4. Payment Received
+                    3. Payment Received & Due
                   </div>
                   <div className="text-base font-bold text-emerald-900 mt-1">
                     Tk {formatBDT(activeStats.receivedAmount)}
                   </div>
                   <div className="text-[11px] text-amber-800 font-semibold mt-1">
                     Remaining Due: Tk {formatBDT(activeStats.remainingDue)} (
-                    {activeStats.bills.length} Pay)
+                    {activeStats.bills.length} Bill/Pay)
                   </div>
                 </div>
 
@@ -5277,7 +5249,7 @@ export default function FinanceClient({
                         : "text-red-800"
                     }`}
                   >
-                    5. Accrued Profit / Loss
+                    4. Net Profit ({activeStats.calc.netMarginPct.toFixed(1)}% Margin)
                   </div>
                   <div
                     className={`text-base font-bold mt-1 ${
@@ -5290,33 +5262,11 @@ export default function FinanceClient({
                     {formatBDT(activeStats.accruedProfit)}
                   </div>
                   <div className="text-[11px] text-gray-600 mt-1">
-                    Expected Inflow − Total Cost (
-                    {activeStats.calc.netMarginPct.toFixed(1)}%)
-                  </div>
-                </div>
-
-                <div
-                  className={`border rounded-xl p-4 shadow-sm ${
-                    activeStats.realizedProfit >= 0
-                      ? "bg-teal-50/80 border-teal-300"
-                      : "bg-amber-50/70 border-amber-300"
-                  }`}
-                >
-                  <div className="text-[11px] font-bold text-gray-700 uppercase">
-                    6. Realized Cash P&L
-                  </div>
-                  <div
-                    className={`text-base font-bold mt-1 ${
-                      activeStats.realizedProfit >= 0
-                        ? "text-teal-900"
-                        : "text-amber-900"
-                    }`}
-                  >
-                    {activeStats.realizedProfit >= 0 ? "+" : ""}Tk{" "}
-                    {formatBDT(activeStats.realizedProfit)}
-                  </div>
-                  <div className="text-[11px] text-gray-600 mt-1">
-                    Cash Received − Total Cost
+                    Realized Cash P&L:{" "}
+                    <strong>
+                      {activeStats.realizedProfit >= 0 ? "+" : ""}Tk{" "}
+                      {formatBDT(activeStats.realizedProfit)}
+                    </strong>
                   </div>
                 </div>
               </div>
@@ -5794,15 +5744,32 @@ export default function FinanceClient({
             </>
           )}
 
-          {/* STEP 5 (SHARED): COMPACT VISUAL DATA ANALYSIS CHARTS BELOW THE PAGE */}
+          {/* STEP 5 (SHARED): COLLAPSIBLE VISUAL DATA ANALYSIS CHARTS */}
           {selectedProject && activeStats && (
-            <div className="pt-2">
-              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">
-                📊 Visual Data Analysis — {selectedProject.name}
-              </h3>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                {/* Compact Chart 1 */}
-                <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm">
+            <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowSingleCharts(!showSingleCharts)}
+                className="w-full px-5 py-3.5 flex items-center justify-between text-left hover:bg-gray-50 transition-colors cursor-pointer"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-gray-800 uppercase tracking-wider">
+                    📊 Visual Charts & Cost Head Breakdown —{" "}
+                    {selectedProject.name}
+                  </span>
+                  <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-semibold">
+                    3 Charts ({costHeadPieData.length} Cost Heads)
+                  </span>
+                </div>
+                <span className="text-xs font-bold text-blue-700">
+                  {showSingleCharts ? "▲ Hide Charts" : "▼ Show Visual Charts"}
+                </span>
+              </button>
+
+              {showSingleCharts && (
+                <div className="p-4 border-t border-gray-200 bg-gray-50/40 grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {/* Compact Chart 1 */}
+                  <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm">
                   <div className="mb-2">
                     <h4 className="text-xs font-bold text-gray-900">
                       {selectedProject.kind === "COMPANY"
@@ -6038,7 +6005,8 @@ export default function FinanceClient({
                     </div>
                   )}
                 </div>
-              </div>
+                </div>
+              )}
             </div>
           )}
         </>

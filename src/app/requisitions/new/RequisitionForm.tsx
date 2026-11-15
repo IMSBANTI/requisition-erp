@@ -994,80 +994,60 @@ export default function RequisitionForm({
             </div>
           </div>
 
-          <div className="min-w-0">
-            <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
-              Approval Category
-            </label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white focus:ring-[#E42528] focus:border-[#E42528]"
-            >
-              {CATEGORIES.map((c) => (
-                <option key={c.key} value={c.key}>
-                  {c.label}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Project / Event Calculation Bar (Service Month, Pre-fill & Billing Profile Info) */}
-        {requisitionMode !== "COMPANY" && selectedProject && (
-          <div className="pt-3 border-t border-gray-100 flex flex-wrap items-center justify-between gap-3">
-            <div className="flex flex-wrap items-center gap-3">
-              {requisitionMode === "PROJECT" && (
-                <div className="flex items-center space-x-2">
-                  <label className="text-xs font-bold text-gray-700">Service Month:</label>
-                  <input
-                    type="month"
-                    value={forMonth}
-                    onChange={(e) => setForMonth(e.target.value)}
-                    className="h-8 px-2.5 py-1 border border-gray-300 rounded-md text-xs font-bold bg-white"
-                  />
-                </div>
-              )}
-
-              <div className="flex items-center space-x-2">
-                <label className="text-xs font-bold text-gray-700">Payment Type:</label>
-                <div className="inline-flex rounded-md border border-gray-300 p-0.5 bg-white">
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMode("CASH")}
-                    className={`px-2.5 py-1 text-xs font-bold rounded transition-colors ${
-                      paymentMode === "CASH"
-                        ? "bg-emerald-600 text-white shadow-xs"
-                        : "text-gray-600 hover:text-gray-900"
-                    }`}
-                  >
-                    💵 CASH
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPaymentMode("CHEQUE")}
-                    className={`px-2.5 py-1 text-xs font-bold rounded transition-colors ${
-                      paymentMode === "CHEQUE"
-                        ? "bg-blue-600 text-white shadow-xs"
-                        : "text-gray-600 hover:text-gray-900"
-                    }`}
-                  >
-                    📝 CHEQUE
-                  </button>
-                </div>
+          {requisitionMode === "COMPANY" ? (
+            <div className="min-w-0">
+              <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
+                Approval Category
+              </label>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-medium bg-white focus:ring-[#E42528] focus:border-[#E42528]"
+              >
+                {CATEGORIES.map((c) => (
+                  <option key={c.key} value={c.key}>
+                    {c.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : requisitionMode === "PROJECT" ? (
+            <div className="min-w-0">
+              <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
+                Service Month
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="month"
+                  value={forMonth}
+                  onChange={(e) => setForMonth(e.target.value)}
+                  className="h-9 flex-1 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold bg-white"
+                />
+                <button
+                  type="button"
+                  onClick={handlePrefillCostHeads}
+                  title="Pre-fill standard cost head lines for this project"
+                  className="h-9 px-2.5 text-xs font-bold text-gray-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-md whitespace-nowrap cursor-pointer"
+                >
+                  ↺ Load Lines
+                </button>
               </div>
-
+            </div>
+          ) : (
+            <div className="min-w-0">
+              <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
+                Cost Head Template
+              </label>
               <button
                 type="button"
                 onClick={handlePrefillCostHeads}
-                className="px-3 py-1.5 text-xs font-bold text-gray-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-md shadow-2xs cursor-pointer transition-colors"
+                className="h-9 w-full px-3 text-xs font-bold text-gray-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-md shadow-2xs cursor-pointer transition-colors"
               >
-                {requisitionMode === "PROJECT"
-                  ? "↺ Load Project Cost Head Lines"
-                  : "↺ Load Event Cost Head Lines"}
+                ↺ Load Event Cost Head Lines
               </button>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Actual Paper-Style Requisition Form Frame */}
