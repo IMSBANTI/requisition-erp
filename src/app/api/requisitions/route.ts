@@ -6,7 +6,7 @@ import { resolveChain, stateAfter } from "@/lib/workflow";
 import { extractProjectMeta } from "@/lib/profitEngine";
 import { generateRequisitionNumber } from "@/lib/reqNumber";
 import { amountInWords } from "@/lib/numberToWords";
-import { grandTotal, formatTaka } from "@/lib/money";
+import { grandTotal, formatMoney, resolveCurrency, getCurrencyMeta } from "@/lib/money";
 import { createNotification, notifyUsers, findUsersWithPermission } from "@/lib/notifications";
 import { isR2Configured, uploadToR2 } from "@/lib/r2";
 
@@ -24,6 +24,8 @@ export async function POST(request: Request) {
     const priority = (formData.get("priority") as string) || "NORMAL";
     const disburseOn = formData.get("disburseOn") as string;
     const paymentMode = formData.get("paymentMode") as string;
+    const currency = resolveCurrency(formData.get("currency") as string);
+    const currencyMeta = getCurrencyMeta(currency);
     const poNumber = ((formData.get("poNumber") as string) || "").trim() || null;
     const comments = formData.get("comments") as string;
     const action = formData.get("action") as string;
@@ -183,7 +185,7 @@ export async function POST(request: Request) {
 
     // Calculations
     const total = grandTotal(items.map((it: any) => ({ qty: it.qty, unitPrice: it.unitPrice })));
-    const inWords = amountInWords(total);
+    const inWords = amountInWords(total, currency);
     const ip = await clientIp();
 
     const projectMeta = extractProjectMeta((project as any).costHeads);
@@ -247,6 +249,7 @@ export async function POST(request: Request) {
         changeReason: changeReason || null,
         projectedBillExVat: rawProjectedBillExVat ? Number(rawProjectedBillExVat) : null,
         projectedNetProfit: rawProjectedNetProfit ? Number(rawProjectedNetProfit) : null,
+        currency,
         amountInWords: inWords,
         comments,
         paymentMode,
@@ -293,7 +296,7 @@ export async function POST(request: Request) {
           create: {
             userId: user.id,
             action: isDraft ? "SAVED_DRAFT" : "SUBMITTED_AND_SIGNED",
-            details: `Requisition ${number || "Draft"} for Tk ${total.toString()} submitted.`,
+            details: `Requisition ${number || "Draft"} for ${currencyMeta.listPrefix} ${formatMoney(total, currency)} submitted.`,
             ip,
           },
         },
@@ -394,7 +397,7 @@ export async function POST(request: Request) {
         notifiedUserIds.add(initialWorkflow.assigneeId);
         await createNotification({
           userId: initialWorkflow.assigneeId,
-          message: `New requisition ${number} (${project.name}, Tk ${formatTaka(total)})${poTag} submitted by ${user.name} requires your signature.`,
+          message: `New requisition ${number} (${project.name}, ${currencyMeta.listPrefix} ${formatMoney(total, currency)})${poTag} submitted by ${user.name} requires your signature.`,
           link: `/requisitions/${requisition.id}`,
         });
       } else if (initialWorkflow.status === "PENDING_ACCOUNTS") {
@@ -402,7 +405,7 @@ export async function POST(request: Request) {
         accountsUserIds.forEach((uid) => notifiedUserIds.add(uid));
         await notifyUsers({
           userIds: accountsUserIds,
-          message: `Requisition ${number} (${project.name}, Tk ${formatTaka(total)})${poTag} requires Accounts vetting.`,
+          message: `Requisition ${number} (${project.name}, ${currencyMeta.listPrefix} ${formatMoney(total, currency)})${poTag} requires Accounts vetting.`,
           link: `/requisitions/${requisition.id}`,
         });
       }
@@ -425,7 +428,7 @@ export async function POST(request: Request) {
         if (poAlertTargets.length > 0) {
           await notifyUsers({
             userIds: poAlertTargets,
-            message: `📄 PO Attached${poNumber ? ` (${poNumber})` : ""} on Requisition ${number} (${project.name}, Tk ${formatTaka(total)}) by ${user.name}. Click to view or download PO.`,
+            message: `📄 PO Attached${poNumber ? ` (${poNumber})` : ""} on Requisition ${number} (${project.name}, ${currencyMeta.listPrefix} ${formatMoney(total, currency)}) by ${user.name}. Click to view or download PO.`,
             link: `/requisitions/${requisition.id}`,
           });
         }

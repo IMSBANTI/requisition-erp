@@ -4,7 +4,7 @@ import { requireUser, verifySecret, clientIp } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { stateAfter, STATUS_STEP, ChainStep } from "@/lib/workflow";
 import { amountInWords } from "@/lib/numberToWords";
-import { grandTotal } from "@/lib/money";
+import { grandTotal, resolveCurrency, getCurrencyMeta } from "@/lib/money";
 import { createNotification, notifyUsers, findUsersWithPermission } from "@/lib/notifications";
 
 function resolveSignerBoxStep(user: { permissions: string[] }, currentStep?: string) {
@@ -138,14 +138,16 @@ export async function POST(
 
       const newTotal = grandTotal(updatedForTotal);
       if (newTotal.toNumber() < Number(req.total)) {
-        reductionSummary = ` [Approved Lower Amount: Tk ${newTotal.toFixed(2)} reduced from Tk ${Number(req.total).toFixed(2)}]`;
+        const reqCurrency = resolveCurrency((req as any).currency, req.amountInWords);
+        const cMeta = getCurrencyMeta(reqCurrency);
+        reductionSummary = ` [Approved Lower Amount: ${cMeta.listPrefix} ${newTotal.toFixed(2)} reduced from ${cMeta.listPrefix} ${Number(req.total).toFixed(2)}]`;
         await prisma.requisition.update({
           where: { id: req.id },
           data: {
             total: newTotal.toNumber(),
             billableTotal: newBillable,
             imsInvestmentTotal: newImsInv,
-            amountInWords: amountInWords(newTotal),
+            amountInWords: amountInWords(newTotal, reqCurrency),
           },
         });
       }

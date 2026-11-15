@@ -36,6 +36,7 @@ export default async function RequisitionPrintPage({ params }: Props) {
         makerDesignation: req.makerDesignation,
         disburseOn: req.disburseOn ? req.disburseOn.toISOString() : null,
         total: req.total.toString(),
+        currency: (req as any).currency || "BDT",
         amountInWords: req.amountInWords,
         comments: req.comments,
         type: req.type,

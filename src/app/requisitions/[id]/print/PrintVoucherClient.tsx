@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { formatTaka } from "@/lib/money";
+import { formatMoney, getCurrencyMeta } from "@/lib/money";
 
 interface Props {
   req: {
@@ -13,6 +13,7 @@ interface Props {
     makerDesignation: string;
     disburseOn: string | null;
     total: string;
+    currency?: string | null;
     amountInWords: string;
     comments: string | null;
     type: string;
@@ -52,6 +53,7 @@ interface Props {
 
 export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
   const [twoPerPage, setTwoPerPage] = useState(true);
+  const currencyMeta = getCurrencyMeta(req.currency, req.amountInWords);
 
   const makerApproval = req.approvals.find((a) => a.step === "MAKER");
   const headApproval = req.approvals.find((a) => a.step === "HEAD");
@@ -133,7 +135,9 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
           </div>
           <div className="flex">
             <span className="w-24 font-bold">Payment Mode</span>
-            <span className="font-extrabold">: {req.paymentMode === "CHEQUE" ? "CHEQUE" : "CASH"}</span>
+            <span className="font-extrabold">
+              : {req.paymentMode === "CHEQUE" ? "CHEQUE" : "CASH"} ({currencyMeta.code})
+            </span>
           </div>
           <div className="flex justify-end">
             <span className="font-bold mr-1.5">Disburse on :</span>
@@ -150,9 +154,9 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
         {/* Amount & Purpose Header */}
         <div className="mt-1 text-[10px] text-black border-t border-black pt-1 leading-snug">
           <div className="flex items-baseline flex-wrap">
-            <span className="font-bold whitespace-nowrap">An amount Tk. </span>
+            <span className="font-bold whitespace-nowrap">An amount {currencyMeta.voucherPrefix} </span>
             <span className="font-extrabold border-b border-black px-2 mx-1">
-              {formatTaka(req.total)}
+              {formatMoney(req.total, currencyMeta.code)}
             </span>
             <span className="font-bold whitespace-nowrap ml-1">(In word) : </span>
             <span className="font-bold italic border-b border-black px-1.5 ml-1 truncate">
@@ -176,8 +180,12 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
                 <th className="py-0.5 px-2 border-r border-black">Particulars</th>
                 <th className="py-0.5 px-2 border-r border-black w-1/4">Purpose</th>
                 <th className="py-0.5 px-1.5 border-r border-black w-12 text-right">Qty.</th>
-                <th className="py-0.5 px-2 border-r border-black w-20 text-right">Unit Price</th>
-                <th className="py-0.5 px-2 w-24 text-right">Amount</th>
+                <th className="py-0.5 px-2 border-r border-black w-20 text-right">
+                  Unit Price ({currencyMeta.symbol})
+                </th>
+                <th className="py-0.5 px-2 w-24 text-right">
+                  Amount ({currencyMeta.symbol})
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-black">
@@ -187,8 +195,12 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
                   <td className="py-0.5 px-2 font-medium border-r border-black">{it.particulars}</td>
                   <td className="py-0.5 px-2 border-r border-black">{it.purpose || "—"}</td>
                   <td className="py-0.5 px-1.5 text-right font-medium border-r border-black">{it.qty}</td>
-                  <td className="py-0.5 px-2 text-right border-r border-black">{formatTaka(it.unitPrice)}</td>
-                  <td className="py-0.5 px-2 text-right font-bold">{formatTaka(it.amount)}</td>
+                  <td className="py-0.5 px-2 text-right border-r border-black">
+                    {formatMoney(it.unitPrice, currencyMeta.code)}
+                  </td>
+                  <td className="py-0.5 px-2 text-right font-bold">
+                    {formatMoney(it.amount, currencyMeta.code)}
+                  </td>
                 </tr>
               ))}
 
@@ -207,10 +219,10 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
               {/* Total row */}
               <tr className="border-t border-black font-extrabold text-[10px] h-6">
                 <td colSpan={5} className="py-0.5 px-3 text-right uppercase border-r border-black">
-                  Total
+                  Total ({currencyMeta.voucherPrefix})
                 </td>
                 <td className="py-0.5 px-2 text-right font-black text-black">
-                  {formatTaka(req.total)}
+                  {formatMoney(req.total, currencyMeta.code)}
                 </td>
               </tr>
             </tbody>

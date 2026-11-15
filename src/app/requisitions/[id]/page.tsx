@@ -4,7 +4,7 @@ import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { requisitionScope } from "@/lib/rbac";
 import { allowedActions } from "@/lib/workflow";
-import { formatTaka } from "@/lib/money";
+import { formatTaka, formatMoney, getCurrencyMeta } from "@/lib/money";
 import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
 import AppShell from "@/components/AppShell";
 import RequisitionActionPanel from "./RequisitionActionPanel";
@@ -97,6 +97,7 @@ export default async function RequisitionDetailPage({ params }: Props) {
   const showPurposeCol = isCompanyDivision || hasDistinctPurpose;
 
   const reqAny = req as any;
+  const currencyMeta = getCurrencyMeta(reqAny.currency, req.amountInWords);
   const poAttachments = (req.attachments || []).filter(
     (a: any) => a.isPo || a.fileName.startsWith("[PO]")
   );
@@ -132,6 +133,9 @@ export default async function RequisitionDetailPage({ params }: Props) {
                   : "bg-emerald-50 text-emerald-800 border border-emerald-200"
               }`}>
                 {req.paymentMode === "CHEQUE" ? "📝 CHEQUE" : "💵 CASH"}
+              </span>
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-100 text-gray-800 border border-gray-300">
+                {currencyMeta.symbol} {currencyMeta.code}
               </span>
               {hasPo && (
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-blue-600 text-white shadow-2xs flex items-center gap-1">
@@ -285,7 +289,7 @@ export default async function RequisitionDetailPage({ params }: Props) {
                 {req.disburseOn ? new Date(req.disburseOn).toLocaleDateString("en-GB") : "Immediate"}
               </span>
             </div>
-            <div className="flex items-center">
+            <div className="flex items-center gap-2">
               <span className="font-semibold text-gray-700 w-24 shrink-0">Payment Type :</span>
               <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
                 req.paymentMode === "CHEQUE"
@@ -293,6 +297,9 @@ export default async function RequisitionDetailPage({ params }: Props) {
                   : "bg-emerald-50 text-emerald-800 border border-emerald-200"
               }`}>
                 {req.paymentMode === "CHEQUE" ? "📝 CHEQUE" : "💵 CASH"}
+              </span>
+              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-gray-100 text-gray-800 border border-gray-300">
+                {currencyMeta.symbol} {currencyMeta.label}
               </span>
             </div>
             {(req as any).poNumber && (
@@ -307,9 +314,9 @@ export default async function RequisitionDetailPage({ params }: Props) {
 
           {/* Amount In Words */}
           <div className="mt-3 pt-3 border-t border-gray-200 text-xs text-gray-800">
-            <span className="font-semibold text-gray-700">An amount Tk. </span>
+            <span className="font-semibold text-gray-700">An amount {currencyMeta.voucherPrefix} </span>
             <span className="font-extrabold text-sm text-[#E42528] px-2 py-0.5 bg-red-50 border border-red-200 rounded">
-              {formatTaka(req.total)}
+              {formatMoney(req.total, currencyMeta.code)}
             </span>
             <span className="font-semibold text-gray-700 ml-1.5">(In word) : </span>
             <span className="italic font-bold text-gray-900 underline underline-offset-2">
@@ -328,8 +335,12 @@ export default async function RequisitionDetailPage({ params }: Props) {
                     <th className="py-1.5 px-3 border-r border-gray-300 w-1/4">Purpose</th>
                   )}
                   <th className="py-1.5 px-2 border-r border-gray-300 w-16 text-right">Qty.</th>
-                  <th className="py-1.5 px-2 border-r border-gray-300 w-24 text-right">Unit Price</th>
-                  <th className="py-1.5 px-3 w-28 text-right">Amount</th>
+                  <th className="py-1.5 px-2 border-r border-gray-300 w-24 text-right">
+                    Unit Price ({currencyMeta.symbol})
+                  </th>
+                  <th className="py-1.5 px-3 w-28 text-right">
+                    Amount ({currencyMeta.symbol})
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-300">
@@ -363,10 +374,10 @@ export default async function RequisitionDetailPage({ params }: Props) {
                       {it.qty.toString()}
                     </td>
                     <td className="py-1 px-2 text-right text-gray-800 border-r border-gray-300">
-                      {formatTaka(it.unitPrice)}
+                      {formatMoney(it.unitPrice, currencyMeta.code)}
                     </td>
                     <td className="py-1 px-3 text-right font-bold text-gray-900">
-                      {formatTaka(it.amount)}
+                      {formatMoney(it.amount, currencyMeta.code)}
                     </td>
                   </tr>
                 ))}
@@ -375,10 +386,10 @@ export default async function RequisitionDetailPage({ params }: Props) {
                     colSpan={showPurposeCol ? 5 : 4}
                     className="py-2 px-4 text-right uppercase tracking-wider border-r border-gray-300"
                   >
-                    Total
+                    Total ({currencyMeta.voucherPrefix})
                   </td>
                   <td className="py-2 px-3 text-right text-sm text-[#E42528] font-extrabold">
-                    {formatTaka(req.total)}
+                    {formatMoney(req.total, currencyMeta.code)}
                   </td>
                 </tr>
               </tbody>

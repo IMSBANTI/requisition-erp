@@ -180,6 +180,7 @@ model Requisition {
   changeReason    String?           // Mandatory reason when variance > threshold (e.g. >10%)
   projectedBillExVat Decimal?       @db.Decimal(14, 2)
   projectedNetProfit Decimal?       @db.Decimal(14, 2)
+  currency        String            @default("BDT") // BDT | USD | EUR
   amountInWords   String            @default("")
   comments        String?
   paymentMode     String?           // CASH | CHEQUE | BANK | ADVANCE | BILL_ADJUSTMENT

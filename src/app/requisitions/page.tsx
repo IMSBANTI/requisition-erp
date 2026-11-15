@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { requisitionScope } from "@/lib/rbac";
-import { formatTaka } from "@/lib/money";
+import { formatMoney, getCurrencyMeta } from "@/lib/money";
 import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
 import { ensureUploadedKitProjectsSynced } from "@/lib/projectSync";
 import AppShell from "@/components/AppShell";
@@ -207,7 +207,8 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
                         </div>
                         <div className="text-right shrink-0">
                           <span className="text-xs font-extrabold text-gray-900">
-                            Tk {formatTaka(req.total)}
+                            {getCurrencyMeta((req as any).currency, req.amountInWords).listPrefix}{" "}
+                            {formatMoney(req.total, getCurrencyMeta((req as any).currency, req.amountInWords).code)}
                           </span>
                         </div>
                       </div>
@@ -291,7 +292,7 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
                       <th className="py-2.5 px-4">Type</th>
                       <th className="py-2.5 px-4">Requested By</th>
                       <th className="py-2.5 px-4">Current Assignee</th>
-                      <th className="py-2.5 px-4 text-right">Amount (Tk)</th>
+                      <th className="py-2.5 px-4 text-right">Amount</th>
                       <th className="py-2.5 px-4 text-center">Status</th>
                       <th className="py-2.5 px-4 text-right">Actions</th>
                     </tr>
@@ -370,8 +371,11 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
                             <span className="text-gray-400">—</span>
                           )}
                         </td>
-                        <td className="py-3 px-4 text-right font-bold text-gray-900">
-                          {formatTaka(req.total)}
+                        <td className="py-3 px-4 text-right font-bold text-gray-900 whitespace-nowrap">
+                          <span className="text-[10px] font-semibold text-gray-500 mr-1">
+                            {getCurrencyMeta((req as any).currency, req.amountInWords).listPrefix}
+                          </span>
+                          {formatMoney(req.total, getCurrencyMeta((req as any).currency, req.amountInWords).code)}
                         </td>
                         <td className="py-3 px-4 text-center">
                           <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_COLORS[req.status] || "bg-gray-100"}`}>

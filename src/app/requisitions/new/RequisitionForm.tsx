@@ -3,7 +3,15 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { amountInWords } from "@/lib/numberToWords";
-import { lineAmount, grandTotal, formatTaka } from "@/lib/money";
+import {
+  lineAmount,
+  grandTotal,
+  formatTaka,
+  formatMoney,
+  CURRENCY_OPTIONS,
+  getCurrencyMeta,
+  type CurrencyCode,
+} from "@/lib/money";
 import { CATEGORIES } from "@/lib/constants";
 import {
   CostHeadConfig,
@@ -382,6 +390,8 @@ export default function RequisitionForm({
   const [priority, setPriority] = useState("NORMAL");
   const [disburseOn, setDisburseOn] = useState("");
   const [paymentMode, setPaymentMode] = useState("CASH");
+  const [currency, setCurrency] = useState<CurrencyCode>("BDT");
+  const currencyMeta = useMemo(() => getCurrencyMeta(currency), [currency]);
   const [comments, setComments] = useState("");
 
   const [items, setItems] = useState<ItemRow[]>([
@@ -623,11 +633,11 @@ export default function RequisitionForm({
 
   const words = useMemo(() => {
     try {
-      return amountInWords(calculatedTotal);
+      return amountInWords(calculatedTotal, currency);
     } catch {
       return "";
     }
-  }, [calculatedTotal]);
+  }, [calculatedTotal, currency]);
 
   function handleRowChange(index: number, field: keyof ItemRow, val: string | number) {
     const updated = [...items];
@@ -699,6 +709,7 @@ export default function RequisitionForm({
       formData.append("priority", priority);
       formData.append("disburseOn", disburseOn);
       formData.append("paymentMode", paymentMode);
+      formData.append("currency", currency);
       formData.append("comments", comments);
       formData.append("action", submitAction);
       formData.append("pinOrPassword", pinOrPassword);
@@ -1118,7 +1129,7 @@ export default function RequisitionForm({
             <span className="font-semibold text-gray-700 w-24">Designation :</span>
             <span className="text-gray-800">{user.designation}</span>
           </div>
-          <div className="flex items-center sm:justify-end gap-3">
+          <div className="flex flex-wrap items-center sm:justify-end gap-3">
             <div className="flex items-center">
               <span className="font-semibold text-gray-700 mr-1.5">Priority :</span>
               <select
@@ -1129,6 +1140,26 @@ export default function RequisitionForm({
                 <option value="NORMAL">Normal</option>
                 <option value="URGENT">Urgent</option>
               </select>
+            </div>
+
+            <div className="flex items-center">
+              <span className="font-semibold text-gray-700 mr-1.5">Currency :</span>
+              <div className="inline-flex rounded-md border border-gray-300 p-0.5 bg-gray-50">
+                {CURRENCY_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.code}
+                    type="button"
+                    onClick={() => setCurrency(opt.code)}
+                    className={`px-2 py-0.5 text-xs font-bold rounded transition-colors cursor-pointer ${
+                      currency === opt.code
+                        ? "bg-[#E42528] text-white shadow-xs"
+                        : "text-gray-600 hover:text-gray-900"
+                    }`}
+                  >
+                    {opt.symbol} {opt.shortLabel}
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="flex items-center">
@@ -1184,13 +1215,13 @@ export default function RequisitionForm({
         {/* Amount & Purpose Header Line */}
         <div className="mt-3 pt-3 border-t border-gray-200 text-xs text-gray-800 space-y-1">
           <div className="flex flex-wrap items-baseline gap-1">
-            <span className="font-semibold text-gray-700">An amount Tk.</span>
+            <span className="font-semibold text-gray-700">An amount {currencyMeta.voucherPrefix}</span>
             <span className="font-bold text-sm text-[#E42528] px-2 py-0.5 bg-red-50 border border-red-200 rounded">
-              {formatTaka(calculatedTotal)}
+              {formatMoney(calculatedTotal, currency)}
             </span>
             <span className="font-semibold text-gray-700 ml-1">(In word) :</span>
             <span className="italic font-medium text-gray-900 underline underline-offset-2">
-              {words || "Zero Taka Only"}
+              {words || `Zero ${currencyMeta.wordUnit} Only`}
             </span>
           </div>
           <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -1234,8 +1265,12 @@ export default function RequisitionForm({
                   <th className="py-1.5 px-3 border-r border-gray-300 w-40">Purpose</th>
                 )}
                 <th className="py-1.5 px-2 border-r border-gray-300 w-16 text-right">Qty.</th>
-                <th className="py-1.5 px-2 border-r border-gray-300 w-24 text-right">Unit Price</th>
-                <th className="py-1.5 px-3 border-r border-gray-300 w-28 text-right">Amount</th>
+                <th className="py-1.5 px-2 border-r border-gray-300 w-24 text-right">
+                  Unit Price ({currencyMeta.symbol})
+                </th>
+                <th className="py-1.5 px-3 border-r border-gray-300 w-28 text-right">
+                  Amount ({currencyMeta.symbol})
+                </th>
                 <th className="py-1.5 px-2 w-8 text-center no-print"></th>
               </tr>
             </thead>
@@ -1344,7 +1379,7 @@ export default function RequisitionForm({
                       />
                     </td>
                     <td className="py-1 px-3 text-right font-bold text-gray-900 border-r border-gray-300">
-                      {formatTaka(rowAmt)}
+                      {formatMoney(rowAmt, currency)}
                     </td>
                     <td className="py-1 px-1 text-center no-print">
                       {items.length > 1 && (
@@ -1367,10 +1402,10 @@ export default function RequisitionForm({
                   colSpan={requisitionMode !== "COMPANY" ? 6 : 5}
                   className="py-2 px-4 text-right uppercase tracking-wider border-r border-gray-300"
                 >
-                  Total
+                  Total ({currencyMeta.voucherPrefix})
                 </td>
                 <td className="py-2 px-3 text-right text-sm text-[#E42528] font-extrabold border-r border-gray-300">
-                  {formatTaka(calculatedTotal)}
+                  {formatMoney(calculatedTotal, currency)}
                 </td>
                 <td className="no-print"></td>
               </tr>

@@ -46,12 +46,44 @@ export function integerToWords(n: number): string {
   return parts.join(" ");
 }
 
-export function amountInWords(amount: Decimal.Value): string {
+/** Integer to words using international Billion/Million/Thousand/Hundred scale (for USD & EUR). */
+export function integerToWordsInternational(n: number): string {
+  if (!Number.isFinite(n) || n < 0 || !Number.isInteger(n)) throw new Error("Invalid integer");
+  if (n === 0) return "Zero";
+  const parts: string[] = [];
+  const billion = Math.floor(n / 1_000_000_000);
+  let rest = n % 1_000_000_000;
+  if (billion) parts.push(integerToWordsInternational(billion) + " Billion");
+  const million = Math.floor(rest / 1_000_000);
+  rest %= 1_000_000;
+  if (million) parts.push(belowThousand(million) + " Million");
+  const thousand = Math.floor(rest / 1000);
+  rest %= 1000;
+  if (thousand) parts.push(belowThousand(thousand) + " Thousand");
+  if (rest) parts.push(belowThousand(rest));
+  return parts.join(" ");
+}
+
+export function amountInWords(amount: Decimal.Value, currency: "BDT" | "USD" | "EUR" | string = "BDT"): string {
   const d = new Decimal(amount || 0).toDecimalPlaces(2, Decimal.ROUND_HALF_UP);
   if (d.isNegative()) throw new Error("Amount cannot be negative");
-  const taka = d.floor().toNumber();
-  const paisa = d.minus(d.floor()).times(100).round().toNumber();
-  let words = integerToWords(taka) + " Taka";
-  if (paisa > 0) words += " and " + belowHundred(paisa) + " Paisa";
+  const whole = d.floor().toNumber();
+  const fraction = d.minus(d.floor()).times(100).round().toNumber();
+  const code = (currency || "BDT").toUpperCase();
+
+  if (code === "USD") {
+    let words = integerToWordsInternational(whole) + (whole === 1 ? " US Dollar" : " US Dollars");
+    if (fraction > 0) words += " and " + belowHundred(fraction) + (fraction === 1 ? " Cent" : " Cents");
+    return words + " Only";
+  }
+
+  if (code === "EUR") {
+    let words = integerToWordsInternational(whole) + (whole === 1 ? " Euro" : " Euros");
+    if (fraction > 0) words += " and " + belowHundred(fraction) + (fraction === 1 ? " Cent" : " Cents");
+    return words + " Only";
+  }
+
+  let words = integerToWords(whole) + " Taka";
+  if (fraction > 0) words += " and " + belowHundred(fraction) + " Paisa";
   return words + " Only";
 }
