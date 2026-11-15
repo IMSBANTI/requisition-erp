@@ -113,7 +113,7 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
   const sidebarContent = (
     <>
       {/* Brand Header */}
-      <div className="p-4 border-b border-gray-200 flex items-center justify-between">
+      <div className="h-16 px-4 border-b border-gray-200 flex items-center justify-between shrink-0">
         <div className="flex items-center space-x-3">
           <img src="/logos/ims.png" alt="IMS Group" className="h-10 w-auto object-contain" />
           <div>
