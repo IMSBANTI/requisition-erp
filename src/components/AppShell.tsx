@@ -76,6 +76,18 @@ export default async function AppShell({ children }: { children: React.ReactNode
                 {user.name}
               </span>
             </Link>
+
+            {/* Top Header Logout Button */}
+            <form action="/api/auth/logout" method="POST">
+              <button
+                type="submit"
+                title="Logout"
+                className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-red-50 hover:bg-red-100 text-[#E42528] border border-red-200 text-xs font-bold transition-colors cursor-pointer"
+              >
+                <span>🚪</span>
+                <span>Logout</span>
+              </button>
+            </form>
           </div>
         </header>
 
