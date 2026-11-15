@@ -1011,40 +1011,17 @@ export default function RequisitionForm({
                 ))}
               </select>
             </div>
-          ) : requisitionMode === "PROJECT" ? (
-            <div className="min-w-0">
-              <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
-                Service Month
-              </label>
-              <div className="flex items-center gap-2">
-                <input
-                  type="month"
-                  value={forMonth}
-                  onChange={(e) => setForMonth(e.target.value)}
-                  className="h-9 flex-1 px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold bg-white"
-                />
-                <button
-                  type="button"
-                  onClick={handlePrefillCostHeads}
-                  title="Pre-fill standard cost head lines for this project"
-                  className="h-9 px-2.5 text-xs font-bold text-gray-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-md whitespace-nowrap cursor-pointer"
-                >
-                  ↺ Load Lines
-                </button>
-              </div>
-            </div>
           ) : (
             <div className="min-w-0">
               <label className="block h-5 leading-5 text-xs font-semibold text-gray-700 whitespace-nowrap overflow-hidden text-ellipsis mb-1">
-                Cost Head Template
+                {requisitionMode === "EVENT" ? "Event Month" : "Service Month"}
               </label>
-              <button
-                type="button"
-                onClick={handlePrefillCostHeads}
-                className="h-9 w-full px-3 text-xs font-bold text-gray-900 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-md shadow-2xs cursor-pointer transition-colors"
-              >
-                ↺ Load Event Cost Head Lines
-              </button>
+              <input
+                type="month"
+                value={forMonth}
+                onChange={(e) => setForMonth(e.target.value)}
+                className="h-9 block w-full px-2.5 py-1.5 border border-gray-300 rounded-md text-xs font-bold bg-white focus:ring-[#E42528] focus:border-[#E42528]"
+              />
             </div>
           )}
         </div>
