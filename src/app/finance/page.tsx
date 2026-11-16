@@ -56,7 +56,7 @@ export default async function FinancePnlPage() {
       director: true,
       requisitions: {
         where: {
-          status: { notIn: ["DRAFT", "REJECTED", "CANCELLED"] },
+          status: { notIn: ["DRAFT", "REJECTED", "CANCELLED", "RETURNED"] },
         },
         include: {
           items: true,
@@ -142,20 +142,20 @@ export default async function FinancePnlPage() {
         reqIms = Number(r.imsInvestmentTotal || 0);
       }
 
-      totalBillableReq += reqBillable;
-      totalImsInvReq += reqIms;
-      byMonth[mKey].billableCost += reqBillable;
-      byMonth[mKey].imsInvestment += reqIms;
-
-      if (
+      const isApprovedOrExecuted =
         r.status === "EXECUTED" ||
         r.status === "SETTLED" ||
         r.status === "PARTIAL_PAID" ||
         r.status === "APPROVED" ||
-        r.status === "FORWARDED"
-      ) {
+        r.status === "FORWARDED";
+
+      if (isApprovedOrExecuted) {
+        totalBillableReq += reqBillable;
+        totalImsInvReq += reqIms;
         executedBillable += reqBillable;
         executedImsInv += reqIms;
+        byMonth[mKey].billableCost += reqBillable;
+        byMonth[mKey].imsInvestment += reqIms;
         byMonth[mKey].executedBillable += reqBillable;
         byMonth[mKey].executedImsInv += reqIms;
       }

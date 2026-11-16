@@ -132,8 +132,10 @@ export async function GET(request: Request) {
     const amt = Number(r.total);
     totalRequested += amt;
 
-    const isExecuted = r.status === "EXECUTED";
-    const isApproved = ["APPROVED", "FORWARDED", "EXECUTED"].includes(r.status);
+    const isExecuted = ["EXECUTED", "PARTIAL_PAID", "SETTLED"].includes(r.status);
+    const isApproved = ["APPROVED", "FORWARDED", "EXECUTED", "PARTIAL_PAID", "SETTLED"].includes(
+      r.status
+    );
     const isPending = [
       "SUBMITTED",
       "PENDING_HEAD",

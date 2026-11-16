@@ -47,7 +47,7 @@ export default async function ProjectFinanceDetailPage({ params }: Props) {
       director: true,
       requisitions: {
         where: {
-          status: { notIn: ["DRAFT", "REJECTED", "CANCELLED"] },
+          status: { notIn: ["DRAFT", "REJECTED", "CANCELLED", "RETURNED"] },
         },
         include: {
           items: { orderBy: { sl: "asc" } },

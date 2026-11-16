@@ -695,6 +695,7 @@ export default function FinanceClient({
   );
   const [disbursePaidBy, setDisbursePaidBy] = useState<string>("BANK");
   const [disburseBankRef, setDisburseBankRef] = useState<string>("");
+  const [disbursePinOrPassword, setDisbursePinOrPassword] = useState<string>("");
 
   // All-Projects Month Close Checklist state
   const [allCloseMonthTarget, setAllCloseMonthTarget] = useState<string>(() =>
@@ -950,26 +951,31 @@ export default function FinanceClient({
       .filter((de) => de.costTag === "IMS_INVESTMENT")
       .reduce((sum, de) => sum + de.amount, 0);
 
+    const approvedReqs = reqs.filter(
+      (r) =>
+        r.status === "EXECUTED" ||
+        r.status === "SETTLED" ||
+        r.status === "PARTIAL_PAID" ||
+        r.status === "APPROVED" ||
+        r.status === "FORWARDED"
+    );
+    const pendingReqs = reqs.filter(
+      (r) =>
+        r.status !== "EXECUTED" &&
+        r.status !== "SETTLED" &&
+        r.status !== "PARTIAL_PAID" &&
+        r.status !== "APPROVED" &&
+        r.status !== "FORWARDED"
+    );
+
     const billableSpend =
-      reqs.reduce((sum, r) => sum + r.billableCost, 0) + directBillable;
+      approvedReqs.reduce((sum, r) => sum + r.billableCost, 0) + directBillable;
     const imsSpend =
-      reqs.reduce((sum, r) => sum + r.imsInvestment, 0) + directIms;
+      approvedReqs.reduce((sum, r) => sum + r.imsInvestment, 0) + directIms;
     const totalSpend = billableSpend + imsSpend;
 
-    const executedSpend =
-      reqs
-        .filter(
-          (r) =>
-            r.status === "EXECUTED" ||
-            r.status === "SETTLED" ||
-            r.status === "PARTIAL_PAID" ||
-            r.status === "APPROVED" ||
-            r.status === "FORWARDED"
-        )
-        .reduce((sum, r) => sum + r.total, 0) +
-      directBillable +
-      directIms;
-    const pendingSpend = Math.max(0, totalSpend - executedSpend);
+    const executedSpend = totalSpend;
+    const pendingSpend = pendingReqs.reduce((sum, r) => sum + r.total, 0);
 
     const calc = calculateProfitSummary({
       terms: selectedProject.terms,
@@ -2095,16 +2101,23 @@ export default function FinanceClient({
 
   // Disburse approved funds with line-by-line payout
   async function handleDisburseRequisition(req: RequisitionSummaryItem) {
+    if (!disbursePinOrPassword.trim()) {
+      alert("Please enter your 4-digit PIN or login password to authorize disbursement.");
+      return;
+    }
     setSaving(true);
     try {
-      const numLines: Record<string, number> = {};
+      const disbursementLines: Array<{ id: string; disbursedAmount: number }> = [];
       if (req.items && req.items.length > 0) {
         for (const item of req.items) {
           const val =
             disburseLineAmounts[item.id] !== undefined
               ? Number(disburseLineAmounts[item.id])
               : item.amount;
-          numLines[item.id] = val;
+          disbursementLines.push({
+            id: item.id,
+            disbursedAmount: val,
+          });
         }
       }
 
@@ -2113,11 +2126,14 @@ export default function FinanceClient({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "EXECUTE",
-          comment: `Disbursed on ${disbursePaymentDate} via ${disbursePaidBy} (Ref: ${
-            disburseBankRef || "N/A"
-          })`,
-          lineDisbursements:
-            Object.keys(numLines).length > 0 ? numLines : undefined,
+          pinOrPassword: disbursePinOrPassword.trim(),
+          paymentMethod: disbursePaidBy,
+          paymentRef: disburseBankRef,
+          comment: `Disbursed on ${disbursePaymentDate} via ${disbursePaidBy}${
+            disburseBankRef ? ` (Ref: ${disburseBankRef})` : ""
+          }`,
+          disbursementLines:
+            disbursementLines.length > 0 ? disbursementLines : undefined,
         }),
       });
 
@@ -2128,6 +2144,7 @@ export default function FinanceClient({
       }
       alert("Requisition marked as disbursed & funds executed!");
       setSelectedDisburseReqId("");
+      setDisbursePinOrPassword("");
       router.refresh();
     } finally {
       setSaving(false);
@@ -3522,126 +3539,6 @@ export default function FinanceClient({
             </button>
           </div>
 
-          {/* Expenses to confirm (entered directly by KAMs) with Batch Confirm */}
-          <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900">
-                  Expenses to confirm ({allPendingExpenses.length}, entered directly by KAMs)
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Direct expenses waiting for Finance review before they count in P&amp;L.
-                </p>
-              </div>
-              {allPendingExpenses.length > 0 && (
-                <button
-                  type="button"
-                  onClick={handleBatchConfirmExpenses}
-                  disabled={saving || selectedPendingKeys.length === 0}
-                  className="px-4 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800 disabled:opacity-50"
-                >
-                  Confirm all selected ({selectedPendingKeys.length})
-                </button>
-              )}
-            </div>
-
-            <div className="border border-gray-200 rounded-lg overflow-hidden">
-              <table className="w-full text-xs text-left">
-                <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
-                  <tr>
-                    <th className="py-2.5 px-3 w-8">
-                      <input
-                        type="checkbox"
-                        checked={
-                          selectedPendingKeys.length > 0 &&
-                          selectedPendingKeys.length === allPendingExpenses.length
-                        }
-                        onChange={(e) => {
-                          if (e.target.checked) {
-                            setSelectedPendingKeys(
-                              allPendingExpenses.map(
-                                (x) => `${x.project.id}::${x.expense.id}`
-                              )
-                            );
-                          } else {
-                            setSelectedPendingKeys([]);
-                          }
-                        }}
-                      />
-                    </th>
-                    <th className="py-2.5 px-3">Date</th>
-                    <th className="py-2.5 px-3">Project</th>
-                    <th className="py-2.5 px-3">Cost head</th>
-                    <th className="py-2.5 px-3">Type</th>
-                    <th className="py-2.5 px-3">Entered by</th>
-                    <th className="py-2.5 px-3 text-right">Amount</th>
-                    <th className="py-2.5 px-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-100">
-                  {allPendingExpenses.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="py-6 text-center text-gray-400">
-                        ✓ No pending direct expenses waiting for confirmation.
-                      </td>
-                    </tr>
-                  ) : (
-                    allPendingExpenses.map(({ project, expense }) => {
-                      const key = `${project.id}::${expense.id}`;
-                      const isChecked = selectedPendingKeys.includes(key);
-                      return (
-                        <tr key={expense.id} className="hover:bg-gray-50">
-                          <td className="py-2.5 px-3">
-                            <input
-                              type="checkbox"
-                              checked={isChecked}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedPendingKeys([...selectedPendingKeys, key]);
-                                } else {
-                                  setSelectedPendingKeys(
-                                    selectedPendingKeys.filter((k) => k !== key)
-                                  );
-                                }
-                              }}
-                            />
-                          </td>
-                          <td className="py-2.5 px-3 text-gray-600">{expense.paidOn}</td>
-                          <td className="py-2.5 px-3 font-semibold text-gray-900">{project.name}</td>
-                          <td className="py-2.5 px-3 text-gray-700">{expense.costHead}</td>
-                          <td className="py-2.5 px-3">
-                            <span
-                              className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                expense.costTag === "IMS_INVESTMENT"
-                                  ? "bg-amber-100 text-amber-900"
-                                  : "bg-blue-100 text-blue-900"
-                              }`}
-                            >
-                              {expense.costTag === "IMS_INVESTMENT" ? "IMS investment" : "Billable"}
-                            </span>
-                          </td>
-                          <td className="py-2.5 px-3 text-gray-500">{expense.createdByName || "KAM"}</td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold">
-                            Tk {formatBDT(expense.amount)}
-                          </td>
-                          <td className="py-2.5 px-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleReviewDirectExpense(expense.id, "CONFIRMED")}
-                              className="px-2.5 py-1 rounded bg-blue-700 text-white font-bold text-[10px] hover:bg-blue-800"
-                            >
-                              Confirm
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
           {/* 2-Column Split: Bills Awaiting Payment (Left 2/3) + Record Payment Received (Right 1/3) */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
             {/* Left 2/3: Bills awaiting payment */}
@@ -3950,15 +3847,35 @@ export default function FinanceClient({
                         className="w-full h-9 px-3 rounded-lg border border-gray-300 text-xs"
                       />
                     </div>
+                    <div>
+                      <label className="block text-xs font-bold text-gray-700 mb-1">
+                        Your 4-Digit PIN or Login Password *
+                      </label>
+                      <input
+                        type="password"
+                        placeholder="Enter PIN or password to sign execution"
+                        value={disbursePinOrPassword}
+                        onChange={(e) => setDisbursePinOrPassword(e.target.value)}
+                        className="w-full h-9 px-3 rounded-lg border border-gray-300 text-xs font-mono"
+                        required
+                      />
+                    </div>
 
                     <button
                       type="button"
                       disabled={saving}
                       onClick={() => handleDisburseRequisition(req)}
-                      className="w-full py-2.5 rounded-lg bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800 disabled:opacity-50 shadow-sm mt-2"
+                      className="w-full py-2.5 rounded-lg bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800 disabled:opacity-50 shadow-sm mt-2 cursor-pointer"
                     >
                       {saving ? "Executing..." : "Record Payment & Disburse"}
                     </button>
+
+                    <a
+                      href={`/requisitions/${req.id}`}
+                      className="block w-full text-center py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-800 text-xs font-semibold transition-colors"
+                    >
+                      Open Full Voucher &amp; Sign ↗
+                    </a>
                   </div>
                 </div>
               </div>
