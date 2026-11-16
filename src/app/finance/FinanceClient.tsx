@@ -654,7 +654,7 @@ export default function FinanceClient({
     | "SINGLE"
   >("SUMMARY_MATRIX");
 
-  // New Entry 4-Card Switcher state ("What do you want to record?")
+  // Client Bill Entry state
   const [newEntryCard, setNewEntryCard] = useState<
     "REQUISITION" | "DIRECT_EXPENSE" | "BILL_TO_CLIENT" | "UPLOAD_EXCEL"
   >("BILL_TO_CLIENT");
@@ -668,6 +668,9 @@ export default function FinanceClient({
   );
   const [inlineIsOpeningBalance, setInlineIsOpeningBalance] = useState(false);
   const [inlineOpeningBillExVat, setInlineOpeningBillExVat] = useState("");
+  const [inlineBillableCostStr, setInlineBillableCostStr] = useState<string>("");
+  const [inlineBillExVatOverrideStr, setInlineBillExVatOverrideStr] =
+    useState<string>("");
 
   // Confirmations & Receivables ("Finance Today" + Selected Bill Timeline) state
   const [selectedPendingKeys, setSelectedPendingKeys] = useState<string[]>([]);
@@ -1845,29 +1848,91 @@ export default function FinanceClient({
     return max > 0 ? max : 1;
   }, [rankedProjectsByProfit]);
 
+  // Auto-populate editable Billable Cost when selectedProject or inlineServiceMonth changes
+  const monthRequisitionBillable = useMemo(() => {
+    if (!selectedProject) return 0;
+    const monthRow = selectedProject.monthlyBreakdown.find(
+      (m) => m.forMonth === inlineServiceMonth
+    );
+    if (monthRow) return monthRow.billableCost;
+    return selectedProject.totalBillableReq || 0;
+  }, [selectedProject, inlineServiceMonth]);
+
+  const monthRequisitionIms = useMemo(() => {
+    if (!selectedProject) return 0;
+    const monthRow = selectedProject.monthlyBreakdown.find(
+      (m) => m.forMonth === inlineServiceMonth
+    );
+    if (monthRow) return monthRow.imsInvestment;
+    return selectedProject.totalImsInvReq || 0;
+  }, [selectedProject, inlineServiceMonth]);
+
+  useEffect(() => {
+    setInlineBillableCostStr(String(monthRequisitionBillable || 0));
+    setInlineBillExVatOverrideStr("");
+  }, [selectedProject?.id, inlineServiceMonth, monthRequisitionBillable]);
+
+  const inlineComputedBill = useMemo(() => {
+    if (!selectedProject) {
+      return {
+        billableCost: 0,
+        imsInvestment: 0,
+        billExVat: 0,
+        vatAmount: 0,
+        billWithVat: 0,
+        aitDeducted: 0,
+        expectedInflow: 0,
+      };
+    }
+    const bCost =
+      inlineBillableCostStr.trim() !== ""
+        ? Number(inlineBillableCostStr) || 0
+        : monthRequisitionBillable;
+    const baseCalc = calculateProfitSummary({
+      terms: selectedProject.terms,
+      billableCost: bCost,
+      imsInvestment: monthRequisitionIms,
+    });
+    const customExVat =
+      inlineBillExVatOverrideStr.trim() !== ""
+        ? Number(inlineBillExVatOverrideStr)
+        : null;
+    if (customExVat !== null && !Number.isNaN(customExVat) && customExVat >= 0) {
+      const vatAmt = customExVat * (selectedProject.terms.vatRate ?? 0.15);
+      const aitAmt = customExVat * (selectedProject.terms.aitRate ?? 0);
+      return {
+        billableCost: bCost,
+        imsInvestment: monthRequisitionIms,
+        billExVat: customExVat,
+        vatAmount: vatAmt,
+        billWithVat: customExVat + vatAmt,
+        aitDeducted: aitAmt,
+        expectedInflow: customExVat - aitAmt,
+      };
+    }
+    return {
+      billableCost: bCost,
+      imsInvestment: monthRequisitionIms,
+      billExVat: baseCalc.billExVat,
+      vatAmount: baseCalc.vatAmount,
+      billWithVat: baseCalc.billWithVat,
+      aitDeducted: baseCalc.aitDeducted,
+      expectedInflow: baseCalc.expectedInflow,
+    };
+  }, [
+    selectedProject,
+    inlineBillableCostStr,
+    inlineBillExVatOverrideStr,
+    monthRequisitionBillable,
+    monthRequisitionIms,
+  ]);
+
   // Save client bill directly from the "Bill to client" card
   async function handleInlineSaveBill(e: React.FormEvent) {
     e.preventDefault();
     if (!selectedProject || selectedProject.id === "ALL_COMPANY") return;
     setSaving(true);
     try {
-      const bSpend = inlineIsOpeningBalance
-        ? Number(inlineOpeningBillExVat || 0)
-        : activeStats
-        ? activeStats.billableSpend
-        : selectedProject.totalBillableReq;
-      const iSpend = inlineIsOpeningBalance
-        ? 0
-        : activeStats
-        ? activeStats.imsSpend
-        : selectedProject.totalImsInvReq;
-
-      const c = calculateProfitSummary({
-        terms: selectedProject.terms,
-        billableCost: bSpend,
-        imsInvestment: iSpend,
-      });
-
       const res = await fetch("/api/finance/bills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1877,11 +1942,12 @@ export default function FinanceClient({
           billNumber: inlineBillNo,
           poNumber: inlinePoNo,
           status: "NOT_YET_DUE",
-          billableCost: bSpend,
-          imsInvestment: iSpend,
-          billExVat: Number(c.billExVat.toFixed(2)),
-          vatAmount: Number(c.vatAmount.toFixed(2)),
-          aitAmount: Number(c.aitDeducted.toFixed(2)),
+          billableCost: Number(inlineComputedBill.billableCost.toFixed(2)),
+          imsInvestment: Number(inlineComputedBill.imsInvestment.toFixed(2)),
+          customBillExVat: Number(inlineComputedBill.billExVat.toFixed(2)),
+          billExVat: Number(inlineComputedBill.billExVat.toFixed(2)),
+          vatAmount: Number(inlineComputedBill.vatAmount.toFixed(2)),
+          aitAmount: Number(inlineComputedBill.aitDeducted.toFixed(2)),
           receivedAmount: 0,
           submittedAt: inlineSubmittedOn || null,
           dueDate: computeDueDateStr(
@@ -2178,7 +2244,7 @@ export default function FinanceClient({
                   : "bg-red-50 text-red-700 hover:bg-red-100"
               }`}
             >
-              ➕ New Entry
+              🧾 Bill to Client
             </button>
             <button
               type="button"
@@ -2333,25 +2399,13 @@ export default function FinanceClient({
                   </button>
                 )}
 
-                {selectedProject.id !== "ALL_COMPANY" && canEditFinance && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDeMonth(
-                        selectedMonth !== "ALL"
-                          ? selectedMonth
-                          : new Date().toISOString().slice(0, 7)
-                      );
-                      setDeCostHead(
-                        selectedProject.costHeads?.[0]?.name || "General Expense"
-                      );
-                      setDeCostTag("BILLABLE");
-                      setDirectExpModalOpen(true);
-                    }}
-                    className="h-10 px-3 rounded-lg text-xs font-bold bg-indigo-600 text-white hover:bg-indigo-700 shadow-sm cursor-pointer whitespace-nowrap flex items-center gap-1.5"
+                {selectedProject.id !== "ALL_COMPANY" && (
+                  <a
+                    href={`/requisitions/new?projectId=${selectedProject.id}`}
+                    className="h-10 px-3 rounded-lg text-xs font-bold bg-[#E42528] text-white hover:bg-red-700 shadow-sm cursor-pointer whitespace-nowrap flex items-center gap-1.5"
                   >
-                    <span>📤 Direct Expense / Excel</span>
-                  </button>
+                    <span>➕ New Requisition</span>
+                  </a>
                 )}
               </div>
             )}
@@ -3115,758 +3169,274 @@ export default function FinanceClient({
       )}
 
       {/* ========================================================================
-          VIEW 2: NEW ENTRY — "WHAT DO YOU WANT TO RECORD?" (4 TABS + ROUTE)
+          VIEW 2: BILL TO CLIENT — CLEAN EDITABLE CLIENT INVOICE FORM
          ======================================================================== */}
       {viewMode === "NEW_ENTRY" && (
         <div className="space-y-6">
-          {/* Header & 4 Big Switcher Cards */}
-          <div>
-            <div className="text-xs font-bold text-[#E42528] uppercase tracking-wider">
-              NEW ENTRY
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <div className="text-xs font-bold text-[#E42528] uppercase tracking-wider">
+                CLIENT BILLING &amp; INVOICES
+              </div>
+              <h2 className="text-xl font-black text-gray-900 mt-0.5">
+                Bill to Client — Record Monthly Invoice
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">
+                All project &amp; event expenses come from approved Requisitions. Use this form to record the Client Invoice &amp; PO details.
+              </p>
             </div>
-            <h2 className="text-2xl font-black text-gray-900 mt-0.5">
-              What do you want to record?
-            </h2>
+            <a
+              href={`/requisitions/new?projectId=${selectedProject?.id || ""}&forMonth=${inlineServiceMonth}`}
+              className="px-3.5 py-2 rounded-lg bg-gray-900 text-white text-xs font-bold hover:bg-gray-800 shadow-xs transition-colors"
+            >
+              ➕ Create Expense Requisition (With CSV Import) ↗
+            </a>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <button
-              type="button"
-              onClick={() => setNewEntryCard("REQUISITION")}
-              className={`text-left p-4 rounded-xl border transition-all ${
-                newEntryCard === "REQUISITION"
-                  ? "bg-[#E42528] text-white border-[#E42528] shadow-md"
-                  : "bg-white text-gray-900 border-gray-200 hover:border-gray-300 shadow-sm"
-              }`}
-            >
-              <div className="font-bold text-sm">Fund requisition</div>
-              <div className={`text-xs mt-1 ${newEntryCard === "REQUISITION" ? "text-red-100" : "text-gray-500"}`}>
-                Ask for money before spending
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setNewEntryCard("DIRECT_EXPENSE")}
-              className={`text-left p-4 rounded-xl border transition-all ${
-                newEntryCard === "DIRECT_EXPENSE"
-                  ? "bg-[#E42528] text-white border-[#E42528] shadow-md"
-                  : "bg-white text-gray-900 border-gray-200 hover:border-gray-300 shadow-sm"
-              }`}
-            >
-              <div className="font-bold text-sm">Direct expense</div>
-              <div className={`text-xs mt-1 ${newEntryCard === "DIRECT_EXPENSE" ? "text-red-100" : "text-gray-500"}`}>
-                Petty cash or reimbursement
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setNewEntryCard("BILL_TO_CLIENT")}
-              className={`text-left p-4 rounded-xl border transition-all ${
-                newEntryCard === "BILL_TO_CLIENT"
-                  ? "bg-[#E42528] text-white border-[#E42528] shadow-md"
-                  : "bg-white text-gray-900 border-gray-200 hover:border-gray-300 shadow-sm"
-              }`}
-            >
-              <div className="font-bold text-sm">Bill to client</div>
-              <div className={`text-xs mt-1 ${newEntryCard === "BILL_TO_CLIENT" ? "text-red-100" : "text-gray-500"}`}>
-                Monthly bill details
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setNewEntryCard("UPLOAD_EXCEL")}
-              className={`text-left p-4 rounded-xl border transition-all ${
-                newEntryCard === "UPLOAD_EXCEL"
-                  ? "bg-[#E42528] text-white border-[#E42528] shadow-md"
-                  : "bg-white text-gray-900 border-gray-200 hover:border-gray-300 shadow-sm"
-              }`}
-            >
-              <div className="font-bold text-sm">Upload Excel</div>
-              <div className={`text-xs mt-1 ${newEntryCard === "UPLOAD_EXCEL" ? "text-red-100" : "text-gray-500"}`}>
-                Many lines at once
-              </div>
-            </button>
-          </div>
-
-          {/* 2-Column Main Section: Left Form (2/3) + Right Approval Route (1/3) */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-            {/* Left 2/3 Content */}
-            <div className="lg:col-span-2 space-y-6">
-              {/* TAB 1: FUND REQUISITION */}
-              {newEntryCard === "REQUISITION" && (
-                <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm space-y-5">
-                  <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-                    <div>
-                      <h3 className="text-base font-bold text-gray-900">
-                        Fund requisition — {selectedProject?.name}
-                      </h3>
-                      <p className="text-xs text-gray-500">
-                        Cost lines come directly from project setup.
-                      </p>
-                    </div>
-                    <a
-                      href={`/requisitions/new?projectId=${selectedProject?.id || ""}&forMonth=${inlineServiceMonth}`}
-                      className="text-xs font-bold text-[#E42528] bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-lg border border-red-200 transition-colors"
-                    >
-                      Open in Full Voucher Form ↗
-                    </a>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">
-                        Project
-                      </label>
-                      <select
-                        value={selectedProject?.id || ""}
-                        onChange={(e) => setSelectedId(e.target.value)}
-                        className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
-                      >
-                        {currentList
-                          .filter((p) => p.id !== "ALL_COMPANY")
-                          .map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.name}
-                            </option>
-                          ))}
-                      </select>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">
-                        For month
-                      </label>
-                      <input
-                        type="month"
-                        value={inlineServiceMonth}
-                        onChange={(e) => setInlineServiceMonth(e.target.value)}
-                        className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">
-                        Needed by
-                      </label>
-                      <input
-                        type="date"
-                        value={inlineSubmittedOn}
-                        onChange={(e) => setInlineSubmittedOn(e.target.value)}
-                        className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Pre-populated Cost Head lines */}
-                  <div>
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-xs font-bold text-gray-700">
-                        Cost lines · heads come from project setup
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          alert("Last month amounts copied as starting point!");
-                        }}
-                        className="text-xs font-bold text-gray-600 bg-gray-100 px-2.5 py-1 rounded hover:bg-gray-200"
-                      >
-                        Copy last month
-                      </button>
-                    </div>
-
-                    <div className="border border-gray-200 rounded-lg overflow-hidden">
-                      <table className="w-full text-xs text-left">
-                        <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
-                          <tr>
-                            <th className="py-2.5 px-3">Cost head</th>
-                            <th className="py-2.5 px-3">Charged to</th>
-                            <th className="py-2.5 px-3 text-right">Amount (BDT)</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {(selectedProject?.costHeads || []).map((ch, idx) => (
-                            <tr key={idx}>
-                              <td className="py-2.5 px-3 font-semibold text-gray-800">
-                                {ch.name}
-                              </td>
-                              <td className="py-2.5 px-3">
-                                <span
-                                  className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                    ch.tag === "IMS_INVESTMENT"
-                                      ? "bg-amber-100 text-amber-900"
-                                      : "bg-blue-100 text-blue-900"
-                                  }`}
-                                >
-                                  {ch.tag === "IMS_INVESTMENT"
-                                    ? "IMS investment"
-                                    : "Client"}
-                                </span>
-                              </td>
-                              <td className="py-2.5 px-3 text-right font-mono">
-                                {ch.fixedMonthlyAmount
-                                  ? formatBDT(ch.fixedMonthlyAmount)
-                                  : "—"}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-
-                  {/* 3 Summary Boxes */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div className="p-3 rounded-lg bg-blue-50 border border-blue-200">
-                      <div className="text-[10px] font-bold text-blue-800 uppercase">
-                        Billable to client
-                      </div>
-                      <div className="text-base font-bold text-blue-950 font-mono mt-0.5">
-                        Tk {formatBDT(activeStats?.billableSpend || 0)}
-                      </div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
-                      <div className="text-[10px] font-bold text-amber-800 uppercase">
-                        IMS investment
-                      </div>
-                      <div className="text-base font-bold text-amber-950 font-mono mt-0.5">
-                        Tk {formatBDT(activeStats?.imsSpend || 0)}
-                      </div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-gray-900 text-white">
-                      <div className="text-[10px] font-bold text-gray-400 uppercase">
-                        Total requested
-                      </div>
-                      <div className="text-base font-bold text-white font-mono mt-0.5">
-                        Tk {formatBDT(activeStats?.totalSpend || 0)}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center gap-3 pt-2">
-                    <a
-                      href={`/requisitions/new?projectId=${selectedProject?.id || ""}&forMonth=${inlineServiceMonth}`}
-                      className="px-5 py-2.5 rounded-lg bg-[#E42528] text-white text-xs font-bold hover:bg-red-700 shadow-sm"
-                    >
-                      Submit for approval →
-                    </a>
-                    <button
-                      type="button"
-                      onClick={() => alert("Draft saved")}
-                      className="px-4 py-2.5 rounded-lg bg-gray-100 text-gray-700 text-xs font-bold hover:bg-gray-200"
-                    >
-                      Save draft
-                    </button>
-                  </div>
+            {/* Left 2/3: Editable Bill to Client Form */}
+            <div className="lg:col-span-2 bg-white rounded-xl p-6 border border-gray-200 shadow-sm space-y-5">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-gray-100">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">
+                    🧾 Bill to Client — {selectedProject?.name || "Select Project"}
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    Pre-filled from this month&apos;s approved requisitions, or type custom amounts below.
+                  </p>
                 </div>
-              )}
+                {(inlineBillableCostStr !== String(monthRequisitionBillable || 0) ||
+                  inlineBillExVatOverrideStr !== "") && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setInlineBillableCostStr(String(monthRequisitionBillable || 0));
+                      setInlineBillExVatOverrideStr("");
+                    }}
+                    className="text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 px-2.5 py-1 rounded border border-blue-200 cursor-pointer"
+                  >
+                    ↺ Reset to Requisition Cost (Tk {formatBDT(monthRequisitionBillable)})
+                  </button>
+                )}
+              </div>
 
-              {/* TAB 2: DIRECT EXPENSE */}
-              {newEntryCard === "DIRECT_EXPENSE" && (
-                <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm space-y-5">
+              <form onSubmit={handleInlineSaveBill} className="space-y-4">
+                {/* Row 1: Project + Service Month + Submitted On */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
-                    <h3 className="text-base font-bold text-gray-900">
-                      Direct expense
-                    </h3>
-                    <p className="text-xs text-gray-500">
-                      For petty cash or reimbursements paid outside a requisition. Finance confirms it before it counts.
-                    </p>
-                  </div>
-
-                  <form onSubmit={handleSaveDirectExpenses} className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 mb-1">
-                          Project
-                        </label>
-                        <select
-                          value={selectedProject?.id || ""}
-                          onChange={(e) => setSelectedId(e.target.value)}
-                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
-                        >
-                          {currentList
-                            .filter((p) => p.id !== "ALL_COMPANY")
-                            .map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.name}
-                              </option>
-                            ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 mb-1">
-                          Cost head
-                        </label>
-                        <select
-                          value={deCostHead}
-                          onChange={(e) => setDeCostHead(e.target.value)}
-                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
-                        >
-                          {(selectedProject?.costHeads || []).map((ch, idx) => (
-                            <option key={idx} value={ch.name}>
-                              {ch.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 mb-1">
-                          Service month
-                        </label>
-                        <input
-                          type="month"
-                          value={deMonth}
-                          onChange={(e) => setDeMonth(e.target.value)}
-                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 mb-1">
-                          Paid on
-                        </label>
-                        <input
-                          type="date"
-                          value={dePaidOn}
-                          onChange={(e) => setDePaidOn(e.target.value)}
-                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 mb-1">
-                          Amount (BDT)
-                        </label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          placeholder="0.00"
-                          value={deAmount}
-                          onChange={(e) => setDeAmount(e.target.value)}
-                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold font-mono"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 mb-1">
-                          Charged to
-                        </label>
-                        <div className="inline-flex w-full h-10 p-1 bg-gray-100 rounded-lg border border-gray-200">
-                          <button
-                            type="button"
-                            onClick={() => setDeCostTag("BILLABLE")}
-                            className={`flex-1 rounded text-xs font-bold ${
-                              deCostTag === "BILLABLE"
-                                ? "bg-white text-gray-900 shadow-sm"
-                                : "text-gray-600"
-                            }`}
-                          >
-                            Client
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setDeCostTag("IMS_INVESTMENT")}
-                            className={`flex-1 rounded text-xs font-bold ${
-                              deCostTag === "IMS_INVESTMENT"
-                                ? "bg-amber-500 text-white shadow-sm"
-                                : "text-gray-600"
-                            }`}
-                          >
-                            IMS investment
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="block text-xs font-bold text-gray-700 mb-1">
-                        Note / Description
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="e.g. Courier charges for regional documentation"
-                        value={deNote}
-                        onChange={(e) => setDeNote(e.target.value)}
-                        className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-medium"
-                      />
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={saving}
-                      className="px-5 py-2.5 rounded-lg bg-[#E42528] text-white text-xs font-bold hover:bg-red-700 shadow-sm disabled:opacity-50"
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Project / Event
+                    </label>
+                    <select
+                      value={selectedProject?.id || ""}
+                      onChange={(e) => setSelectedId(e.target.value)}
+                      className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold bg-white"
                     >
-                      {saving ? "Saving..." : "Save expense"}
-                    </button>
-                  </form>
-
-                  {/* Entries this month table */}
-                  <div className="pt-4 border-t border-gray-100">
-                    <h4 className="text-xs font-bold text-gray-900 mb-2">
-                      Recent direct expenses recorded for {selectedProject?.name}
-                    </h4>
-                    <div className="border border-gray-200 rounded-lg overflow-hidden">
-                      <table className="w-full text-xs text-left">
-                        <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
-                          <tr>
-                            <th className="py-2 px-3">Date</th>
-                            <th className="py-2 px-3">Cost head</th>
-                            <th className="py-2 px-3">Type</th>
-                            <th className="py-2 px-3 text-right">Amount</th>
-                            <th className="py-2 px-3 text-right">Status</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {(selectedProject?.directExpenses || []).length === 0 ? (
-                            <tr>
-                              <td colSpan={5} className="py-4 text-center text-gray-400">
-                                No direct expenses recorded yet for this project.
-                              </td>
-                            </tr>
-                          ) : (
-                            (selectedProject?.directExpenses || []).slice(0, 5).map((de) => (
-                              <tr key={de.id}>
-                                <td className="py-2 px-3 text-gray-600">{de.paidOn}</td>
-                                <td className="py-2 px-3 font-semibold text-gray-800">{de.costHead}</td>
-                                <td className="py-2 px-3">
-                                  <span
-                                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                      de.costTag === "IMS_INVESTMENT"
-                                        ? "bg-amber-100 text-amber-900"
-                                        : "bg-blue-100 text-blue-900"
-                                    }`}
-                                  >
-                                    {de.costTag === "IMS_INVESTMENT" ? "IMS" : "Billable"}
-                                  </span>
-                                </td>
-                                <td className="py-2 px-3 text-right font-mono font-bold">
-                                  Tk {formatBDT(de.amount)}
-                                </td>
-                                <td className="py-2 px-3 text-right">
-                                  <span
-                                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                      de.status === "CONFIRMED"
-                                        ? "bg-emerald-100 text-emerald-900"
-                                        : de.status === "REJECTED"
-                                        ? "bg-red-100 text-red-900"
-                                        : "bg-amber-100 text-amber-900"
-                                    }`}
-                                  >
-                                    {de.status}
-                                  </span>
-                                </td>
-                              </tr>
-                            ))
-                          )}
-                        </tbody>
-                      </table>
-                    </div>
+                      {currentList
+                        .filter((p) => p.id !== "ALL_COMPANY")
+                        .map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} ({p.code})
+                          </option>
+                        ))}
+                    </select>
                   </div>
-                </div>
-              )}
 
-              {/* TAB 3: BILL TO CLIENT */}
-              {newEntryCard === "BILL_TO_CLIENT" && (
-                <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm space-y-5">
                   <div>
-                    <h3 className="text-base font-bold text-gray-900">
-                      Bill to client
-                    </h3>
-                    <p className="text-xs text-gray-500">
-                      The amounts are calculated from this month's billable cost and the project's billing terms. You only add the bill details.
-                    </p>
-                  </div>
-
-                  <form onSubmit={handleInlineSaveBill} className="space-y-4">
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 mb-1">
-                          Bill number
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="e.g. 2026/08/491/SME"
-                          value={inlineBillNo}
-                          onChange={(e) => setInlineBillNo(e.target.value)}
-                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
-                          required
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 mb-1">
-                          PO number
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="e.g. 4600000585"
-                          value={inlinePoNo}
-                          onChange={(e) => setInlinePoNo(e.target.value)}
-                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
-                        />
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-bold text-gray-700 mb-1">
-                          Submitted on
-                        </label>
-                        <input
-                          type="date"
-                          value={inlineSubmittedOn}
-                          onChange={(e) => setInlineSubmittedOn(e.target.value)}
-                          className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
-                          required
-                        />
-                      </div>
-                    </div>
-
-                    {/* Calculated Breakdown Card */}
-                    <div className="border border-gray-200 rounded-lg p-4 bg-gray-50/70 space-y-2 text-xs">
-                      <div className="flex justify-between py-1 border-b border-gray-200">
-                        <span className="text-gray-600">Billable cost</span>
-                        <span className="font-mono font-bold text-gray-900">
-                          Tk {formatBDT(activeStats?.billableSpend || selectedProject?.totalBillableReq || 0)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-gray-200">
-                        <span className="text-gray-600">Bill without VAT</span>
-                        <span className="font-mono font-bold text-gray-900">
-                          Tk {formatBDT(activeStats?.calc?.billExVat || 0)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-gray-200">
-                        <span className="text-gray-600">
-                          Bill with VAT {selectedProject?.terms.vatRate || 15}%
-                        </span>
-                        <span className="font-mono font-bold text-gray-900">
-                          Tk {formatBDT(activeStats?.calc?.billWithVat || 0)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1 border-b border-gray-200 bg-emerald-50 px-2 rounded">
-                        <span className="font-bold text-emerald-900">
-                          Expected payment (after AIT {selectedProject?.terms.aitRate || 0}%)
-                        </span>
-                        <span className="font-mono font-bold text-emerald-950">
-                          Tk {formatBDT(activeStats?.calc?.expectedInflow || 0)}
-                        </span>
-                      </div>
-                      <div className="flex justify-between py-1 text-gray-500 pt-1">
-                        <span>Payment due</span>
-                        <span className="font-semibold text-gray-700">
-                          {computeDueDateStr(
-                            inlineSubmittedOn,
-                            selectedProject?.terms.billCycleDays || 30
-                          )}{" "}
-                          · {selectedProject?.terms.billCycleDays || 30} days cycle
-                        </span>
-                      </div>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={saving}
-                      className="px-5 py-2.5 rounded-lg bg-[#E42528] text-white text-xs font-bold hover:bg-red-700 shadow-sm disabled:opacity-50"
-                    >
-                      {saving ? "Saving bill..." : "Save bill"}
-                    </button>
-                  </form>
-                </div>
-              )}
-
-              {/* TAB 4: UPLOAD EXCEL */}
-              {newEntryCard === "UPLOAD_EXCEL" && (
-                <div className="bg-white rounded-xl p-6 border border-gray-200 shadow-sm space-y-5">
-                  <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-                    <div>
-                      <h3 className="text-base font-bold text-gray-900">
-                        Upload Excel or CSV
-                      </h3>
-                      <p className="text-xs text-gray-500">
-                        Import multiple expense lines at once with instant cost-head matching.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleDownloadExcelTemplate}
-                      className="px-3 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800"
-                    >
-                      Download Template (.csv)
-                    </button>
-                  </div>
-
-                  {/* Drag and Drop Zone */}
-                  <label className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center flex flex-col items-center justify-center cursor-pointer hover:border-[#E42528] hover:bg-red-50/20 transition-all">
-                    <span className="text-3xl mb-2">📁</span>
-                    <span className="text-xs font-bold text-gray-800">
-                      Drop your Excel or CSV file here, or click to browse
-                    </span>
-                    <span className="text-[11px] text-gray-400 mt-1">
-                      Supports: Service Month, Cost Head, Amount, Tag, Paid Via, Note
-                    </span>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Service Month
+                    </label>
                     <input
-                      type="file"
-                      accept=".csv,.txt"
-                      onChange={(e) => {
-                        const file = e.target.files?.[0];
-                        if (file) handleCsvFileParse(file);
-                      }}
-                      className="hidden"
+                      type="month"
+                      value={inlineServiceMonth}
+                      onChange={(e) => setInlineServiceMonth(e.target.value)}
+                      className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold bg-white"
+                      required
                     />
-                  </label>
+                  </div>
 
-                  {/* CSV Preview Rows */}
-                  {csvPreviewRows.length > 0 && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-gray-900">
-                          Preview ({csvPreviewRows.length} lines parsed)
-                        </span>
-                        <button
-                          type="button"
-                          onClick={handleSaveDirectExpenses}
-                          disabled={saving}
-                          className="px-4 py-1.5 rounded-lg bg-emerald-700 text-white text-xs font-bold hover:bg-emerald-800 disabled:opacity-50"
-                        >
-                          {saving ? "Importing..." : "Confirm & Import All"}
-                        </button>
-                      </div>
-
-                      <div className="border border-gray-200 rounded-lg overflow-hidden max-h-60 overflow-y-auto">
-                        <table className="w-full text-xs text-left">
-                          <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
-                            <tr>
-                              <th className="py-2 px-3">Month</th>
-                              <th className="py-2 px-3">Cost head</th>
-                              <th className="py-2 px-3">Tag</th>
-                              <th className="py-2 px-3 text-right">Amount</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-gray-100">
-                            {csvPreviewRows.map((r, i) => (
-                              <tr key={i}>
-                                <td className="py-2 px-3 text-gray-600">{r.forMonth}</td>
-                                <td className="py-2 px-3 font-semibold text-gray-800">{r.costHead}</td>
-                                <td className="py-2 px-3">
-                                  <span
-                                    className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                      r.costTag === "IMS_INVESTMENT"
-                                        ? "bg-amber-100 text-amber-900"
-                                        : "bg-blue-100 text-blue-900"
-                                    }`}
-                                  >
-                                    {r.costTag === "IMS_INVESTMENT" ? "IMS" : "Client"}
-                                  </span>
-                                </td>
-                                <td className="py-2 px-3 text-right font-mono font-bold">
-                                  Tk {formatBDT(r.amount)}
-                                </td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  )}
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Submitted On
+                    </label>
+                    <input
+                      type="date"
+                      value={inlineSubmittedOn}
+                      onChange={(e) => setInlineSubmittedOn(e.target.value)}
+                      className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold bg-white"
+                      required
+                    />
+                  </div>
                 </div>
-              )}
+
+                {/* Row 2: Bill Number + PO Number */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Bill / Invoice Number *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 2026/08/491/SME"
+                      value={inlineBillNo}
+                      onChange={(e) => setInlineBillNo(e.target.value)}
+                      className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold bg-white"
+                      required
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-700 mb-1">
+                      Client PO / Work Order Number
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="e.g. 4600000585"
+                      value={inlinePoNo}
+                      onChange={(e) => setInlinePoNo(e.target.value)}
+                      className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold bg-white"
+                    />
+                  </div>
+                </div>
+
+                {/* Row 3: Editable Cost & Invoice Breakdown Card */}
+                <div className="border border-gray-200 rounded-xl p-4 bg-gray-50/70 space-y-2.5 text-xs">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-1.5 border-b border-gray-200">
+                    <div>
+                      <span className="font-bold text-gray-800 block">
+                        Billable Cost (BDT)
+                      </span>
+                      <span className="text-[11px] text-gray-500">
+                        Requisitions for {inlineServiceMonth}: Tk{" "}
+                        {formatBDT(monthRequisitionBillable)} (Editable)
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-gray-500 font-bold">Tk</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={inlineBillableCostStr}
+                        onChange={(e) => setInlineBillableCostStr(e.target.value)}
+                        className="w-44 h-9 px-2.5 rounded-lg border border-gray-300 bg-white text-right font-mono font-bold text-gray-900 focus:border-[#E42528] focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-1.5 border-b border-gray-200">
+                    <div>
+                      <span className="font-bold text-gray-800 block">
+                        Bill Without VAT (Ex-VAT Invoice Amount)
+                      </span>
+                      <span className="text-[11px] text-gray-500">
+                        Auto-calculated from{" "}
+                        {BILLING_MODEL_LABELS[
+                          selectedProject?.terms.billingProfile || ""
+                        ] || "Billing Terms"}{" "}
+                        ({((selectedProject?.terms.feeRate || 0) * 100).toFixed(1)}%
+                        fee), or type custom invoice amount
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-gray-500 font-bold">Tk</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        placeholder={inlineComputedBill.billExVat.toFixed(2)}
+                        value={
+                          inlineBillExVatOverrideStr !== ""
+                            ? inlineBillExVatOverrideStr
+                            : inlineComputedBill.billExVat.toFixed(2)
+                        }
+                        onChange={(e) =>
+                          setInlineBillExVatOverrideStr(e.target.value)
+                        }
+                        className="w-44 h-9 px-2.5 rounded-lg border border-gray-300 bg-white text-right font-mono font-bold text-blue-950 focus:border-[#E42528] focus:outline-none"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex justify-between py-1.5 border-b border-gray-200">
+                    <span className="text-gray-600">
+                      Bill With VAT (
+                      {((selectedProject?.terms.vatRate ?? 0.15) * 100).toFixed(1)}
+                      %)
+                    </span>
+                    <span className="font-mono font-bold text-gray-900">
+                      Tk {formatBDT(inlineComputedBill.billWithVat)}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between py-1.5 border-b border-gray-200 bg-emerald-50 px-2.5 rounded-lg">
+                    <span className="font-bold text-emerald-900">
+                      Expected Payment (After AIT{" "}
+                      {((selectedProject?.terms.aitRate ?? 0) * 100).toFixed(1)}%)
+                    </span>
+                    <span className="font-mono font-bold text-emerald-950">
+                      Tk {formatBDT(inlineComputedBill.expectedInflow)}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between py-1 text-gray-500 pt-1">
+                    <span>Payment Due Date</span>
+                    <span className="font-semibold text-gray-700">
+                      {computeDueDateStr(
+                        inlineSubmittedOn,
+                        selectedProject?.terms.billCycleDays || 30
+                      )}{" "}
+                      · {selectedProject?.terms.billCycleDays || 30} days cycle
+                    </span>
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={saving}
+                  className="px-5 py-2.5 rounded-lg bg-[#E42528] text-white text-xs font-bold hover:bg-red-700 shadow-sm disabled:opacity-50 cursor-pointer"
+                >
+                  {saving ? "Saving bill..." : "Save Client Bill"}
+                </button>
+              </form>
             </div>
 
-            {/* Right 1/3: 7-Step Approval Route Card */}
+            {/* Right 1/3: Recent Client Bills for Selected Project */}
             <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-4">
               <div>
-                <h3 className="text-sm font-bold text-gray-900">Approval route</h3>
+                <h3 className="text-sm font-bold text-gray-900">
+                  Recent Bills — {selectedProject?.name}
+                </h3>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Every requisition goes through these steps in order. Any approver can return it with a comment.
+                  Invoices recorded for this project/event.
                 </p>
               </div>
 
-              <div className="space-y-3 pt-2">
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                    1
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-gray-900">KAM</div>
-                    <div className="text-[11px] text-gray-500">Creates and submits</div>
-                  </div>
+              {(selectedProject?.bills || []).length === 0 ? (
+                <div className="p-6 text-center text-xs text-gray-400 bg-gray-50 rounded-lg border border-gray-100">
+                  No client bills recorded yet for this project.
                 </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                    2
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-gray-900">Group Head</div>
-                    <div className="text-[11px] text-gray-500">
-                      Approves, edits or returns ({selectedProject?.headName || "Assigned"})
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-[#E42528] text-white flex items-center justify-center text-xs font-bold shrink-0">
-                    3
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-gray-900 flex items-center gap-1.5">
-                      <span>Department Head</span>
-                      <span className="px-1.5 py-0.2 rounded bg-red-100 text-[#E42528] text-[9px] font-extrabold">
-                        NEW
+              ) : (
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {(selectedProject?.bills || []).slice(0, 8).map((b) => (
+                    <div
+                      key={b.id}
+                      className="p-3 rounded-lg border border-gray-200 bg-gray-50/60 flex items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <div className="font-bold text-gray-900 truncate">
+                          {b.billNumber || "Draft Bill"} • {b.forMonth}
+                        </div>
+                        <div className="text-[11px] text-gray-500">
+                          Ex-VAT: Tk {formatBDT(b.billExVat)} • Due:{" "}
+                          {b.dueDate || "—"}
+                        </div>
+                      </div>
+                      <span className="font-mono font-bold text-emerald-800 shrink-0">
+                        Tk {formatBDT(b.expectedInflow)}
                       </span>
                     </div>
-                    <div className="text-[11px] text-gray-500">
-                      Approves, edits or returns ({selectedProject?.checkerName || "Checker"})
-                    </div>
-                  </div>
+                  ))}
                 </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                    4
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-gray-900">Finance</div>
-                    <div className="text-[11px] text-gray-500">Checks amounts and budget</div>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-slate-900 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                    5
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-gray-900">MD</div>
-                    <div className="text-[11px] text-gray-500">Final approval ({selectedProject?.directorName || "Director / MD"})</div>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-emerald-600 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                    6
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-gray-900">Finance</div>
-                    <div className="text-[11px] text-gray-500">Disburses: expenses are created</div>
-                  </div>
-                </div>
-
-                <div className="flex items-start gap-3">
-                  <div className="w-6 h-6 rounded-full bg-emerald-700 text-white flex items-center justify-center text-xs font-bold shrink-0">
-                    7
-                  </div>
-                  <div>
-                    <div className="text-xs font-bold text-gray-900">KAM</div>
-                    <div className="text-[11px] text-gray-500">Submits the bill to the client</div>
-                  </div>
-                </div>
-              </div>
+              )}
             </div>
           </div>
         </div>

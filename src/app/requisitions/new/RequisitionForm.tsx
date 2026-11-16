@@ -476,6 +476,163 @@ export default function RequisitionForm({
     }
   }
 
+  function handleDownloadCsvTemplate() {
+    if (requisitionMode === "COMPANY") {
+      const csv =
+        "Particulars,Purpose,Qty,Unit Price\n" +
+        '"Office Stationery","Monthly office supplies",1,0\n' +
+        '"Internet & Utilities","Monthly bill",1,0\n';
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `IMS_Requisition_Template_${selectedCompany?.code || "COMPANY"}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    const heads =
+      activeCostHeads.length > 0
+        ? activeCostHeads
+        : [{ id: "1", name: "General Expense", tag: "BILLABLE" as const }];
+    let csv = "Cost Head,Cost Type (BILLABLE/IMS_INVESTMENT),Particulars,Qty,Unit Price\n";
+    for (const h of heads) {
+      csv += `"${h.name.replace(/"/g, '""')}",${h.tag},"${h.name.replace(/"/g, '""')}",1,${h.defaultAmount || 0}\n`;
+    }
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `IMS_Requisition_Template_${selectedProject?.code || "PROJECT"}_${forMonth}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function handleImportCsvFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = String(ev.target?.result || "");
+      const lines = text
+        .split(/\r?\n/)
+        .map((l) => l.trim())
+        .filter(Boolean);
+      if (lines.length <= 1) {
+        alert("CSV file appears empty or has no data rows.");
+        return;
+      }
+
+      const splitCsvLine = (line: string): string[] => {
+        const result: string[] = [];
+        let cur = "";
+        let inQuotes = false;
+        for (let i = 0; i < line.length; i++) {
+          const ch = line[i];
+          if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+              cur += '"';
+              i++;
+            } else {
+              inQuotes = !inQuotes;
+            }
+          } else if (ch === "," && !inQuotes) {
+            result.push(cur.trim());
+            cur = "";
+          } else {
+            cur += ch;
+          }
+        }
+        result.push(cur.trim());
+        return result;
+      };
+
+      const parsedRows: ItemRow[] = [];
+      const lag = selectedProject?.salaryMonthLag ?? (requisitionMode === "EVENT" ? 0 : 1);
+      const prevMonth = getPreviousYearMonth(forMonth);
+
+      for (let idx = 1; idx < lines.length; idx++) {
+        const cols = splitCsvLine(lines[idx]);
+        if (cols.length < 2) continue;
+
+        if (requisitionMode === "COMPANY") {
+          const particulars = cols[0] || "";
+          const purpose = cols[1] || "";
+          const qty = String(parseFloat(cols[2] || "1") || 1);
+          const unitPrice = String(parseFloat((cols[3] || "0").replace(/,/g, "")) || 0);
+          if (!particulars && parseFloat(unitPrice) <= 0) continue;
+          parsedRows.push({
+            sl: parsedRows.length + 1,
+            costHead: "",
+            costTag: "BILLABLE",
+            forMonth,
+            lastMonthAmount: 0,
+            particulars: particulars || "Expense Item",
+            purpose,
+            qty,
+            unitPrice,
+          });
+        } else {
+          // Supports both 5-column (Cost Head, Cost Type, Particulars, Qty, Unit Price)
+          // and 6-column legacy template (Service Month, Cost Head, Amount, Charged To, Paid Via, Note)
+          let costHeadName = cols[0] || "";
+          let rawTag = (cols[1] || "").toUpperCase();
+          let particulars = cols[2] || costHeadName;
+          let qty = String(parseFloat(cols[3] || "1") || 1);
+          let unitPrice = String(parseFloat((cols[4] || "0").replace(/,/g, "")) || 0);
+
+          if (/^\d{4}-\d{2}$/.test(cols[0] || "") && cols.length >= 3) {
+            costHeadName = cols[1] || "";
+            unitPrice = String(parseFloat((cols[2] || "0").replace(/,/g, "")) || 0);
+            rawTag = (cols[3] || "").toUpperCase();
+            particulars = cols[5] ? `${costHeadName} — ${cols[5]}` : costHeadName;
+            qty = "1";
+          }
+
+          const matchedHead = activeCostHeads.find(
+            (ch) => ch.name.toLowerCase() === costHeadName.toLowerCase()
+          );
+          const costTag: "BILLABLE" | "IMS_INVESTMENT" =
+            rawTag.includes("IMS")
+              ? "IMS_INVESTMENT"
+              : matchedHead?.tag || "BILLABLE";
+          const isSal = matchedHead?.isSalary ?? false;
+          const rowMonth =
+            requisitionMode === "PROJECT" && isSal && lag === 1 ? prevMonth : forMonth;
+
+          if (!costHeadName && !particulars && parseFloat(unitPrice) <= 0) continue;
+
+          parsedRows.push({
+            sl: parsedRows.length + 1,
+            costHead: matchedHead?.name || costHeadName || activeCostHeads[0]?.name || "General",
+            costTag,
+            forMonth: rowMonth,
+            lastMonthAmount: matchedHead?.defaultAmount || 0,
+            particulars: particulars || matchedHead?.name || costHeadName || "Expense Item",
+            purpose: "",
+            qty,
+            unitPrice,
+          });
+        }
+      }
+
+      if (parsedRows.length === 0) {
+        alert("No valid rows found in the CSV file.");
+        return;
+      }
+
+      setItems(parsedRows);
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  }
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     setAttachmentError("");
     if (!e.target.files) return;
@@ -1370,14 +1527,38 @@ export default function RequisitionForm({
           </table>
         </div>
 
-        <div className="mt-2 flex justify-between items-center no-print">
-          <button
-            type="button"
-            onClick={addRow}
-            className="text-xs font-semibold text-[#E42528] hover:text-[#B81D20] bg-red-50 hover:bg-red-100 px-3 py-1 rounded border border-red-200 cursor-pointer"
-          >
-            + Add Another Item
-          </button>
+        <div className="mt-2 flex flex-wrap justify-between items-center gap-2 no-print">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={addRow}
+              className="text-xs font-semibold text-[#E42528] hover:text-[#B81D20] bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded border border-red-200 cursor-pointer"
+            >
+              + Add Another Item
+            </button>
+
+            <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded border border-emerald-300 cursor-pointer">
+              <span>📥 Import CSV</span>
+              <input
+                type="file"
+                accept=".csv,.txt"
+                onChange={handleImportCsvFile}
+                className="hidden"
+              />
+            </label>
+
+            <button
+              type="button"
+              onClick={handleDownloadCsvTemplate}
+              className="text-xs font-semibold text-gray-700 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 px-2.5 py-1.5 rounded border border-gray-300 cursor-pointer"
+              title="Download CSV Template for Line Items"
+            >
+              📄 CSV Template
+            </button>
+          </div>
+          <span className="text-[11px] text-gray-500">
+            Tip: Import a CSV to fill multiple rows at once — submits through the normal approval workflow.
+          </span>
         </div>
 
         {/* Comments Box */}

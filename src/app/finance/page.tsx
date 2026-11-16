@@ -86,7 +86,7 @@ export default async function FinancePnlPage() {
     const fallbackTerms = getDefaultProjectTermsByCode(p.code, p.kind);
     const meta = extractProjectMeta(p.costHeads);
     const configuredCostHeads = resolveCostHeadsForKind(p.costHeads, isEvent);
-    const directExpenses = meta.directExpenses || [];
+    const directExpenses: any[] = [];
     const closedMonths = meta.closedMonths || {};
     const manualForecasts = meta.manualForecasts || {};
 
