@@ -2630,10 +2630,8 @@ export default function FinanceClient({
             </div>
           </div>
 
-          {/* 2-Column Middle Row: Bar Chart (Left 2/3) + Approval Pipeline (Right 1/3) */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            {/* Left 2/3: Net profit by month / quarter bar chart */}
-            <div className="lg:col-span-2 bg-white rounded-xl p-5 border border-gray-200 shadow-sm flex flex-col justify-between">
+          {/* Full-Width Bar Chart Row: Net profit by month / quarter */}
+          <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm flex flex-col justify-between">
               <div className="flex items-center justify-between pb-3 border-b border-gray-100">
                 <div>
                   <h3 className="text-sm font-bold text-gray-900">
@@ -2724,69 +2722,6 @@ export default function FinanceClient({
                   </div>
                 )}
               </div>
-            </div>
-
-            {/* Right 1/3: Fund Requisitions in Approval Pipeline Card */}
-            <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-                  <h3 className="text-sm font-bold text-gray-900">
-                    Fund requisitions in approval
-                  </h3>
-                  <span className="px-2 py-0.5 rounded-full bg-red-100 text-[#E42528] text-[11px] font-extrabold">
-                    {approvalPipelineCounts.totalPending} pending
-                  </span>
-                </div>
-                <div className="mt-3 space-y-2.5">
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-100 text-xs">
-                    <span className="font-semibold text-gray-700">1. Group Head</span>
-                    <span className="font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200">
-                      {approvalPipelineCounts.groupHeadCount}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-100 text-xs">
-                    <span className="font-semibold text-gray-700">2. Checker / Dept Head</span>
-                    <span className="font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200">
-                      {approvalPipelineCounts.deptHeadCount}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-100 text-xs">
-                    <span className="font-semibold text-gray-700">3. Finance</span>
-                    <span className="font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200">
-                      {approvalPipelineCounts.financeCount}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-gray-50 border border-gray-100 text-xs">
-                    <span className="font-semibold text-gray-700">4. Director / MD</span>
-                    <span className="font-bold text-gray-900 bg-white px-2 py-0.5 rounded border border-gray-200">
-                      {approvalPipelineCounts.mdCount}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-emerald-50 border border-emerald-200 text-xs text-emerald-950 font-bold">
-                    <span>✓ Ready to disburse</span>
-                    <span className="bg-emerald-600 text-white px-2 py-0.5 rounded">
-                      {approvalPipelineCounts.readyDisburseCount}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-3 border-t border-gray-100 flex items-center justify-between">
-                <button
-                  type="button"
-                  onClick={() => setViewMode("DISBURSE")}
-                  className="text-xs font-bold text-emerald-700 hover:underline"
-                >
-                  Open Disburse View →
-                </button>
-                <a
-                  href="/requisitions?filter=pending"
-                  className="text-xs font-bold text-[#E42528] hover:underline"
-                >
-                  Open Approvals →
-                </a>
-              </div>
-            </div>
           </div>
 
           {/* Projects, highest profit first with red Share-of-Total progress bars */}
