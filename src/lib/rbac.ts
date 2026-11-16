@@ -16,27 +16,28 @@ export interface ScopeUser {
 
 /**
  * Prisma `where` filter restricting which requisitions a user can see:
- * - IMS GROUP Central Officers — Managing Director (MD), Accounts (Harun, Israt Jahan, Sumon),
- *   IT Super Admin (Abir Abedin), and HR (Moushumi Tamanna) — see ALL requisitions across IMS, CLAN, SCL, TradePULSE & all projects.
- * - Directors (IMS GROUP: Iftekhar, Nazmus, Shible) see requisitions across IMS, CLAN, SCL, TradePULSE & projects
- *   for their own assigned projects, departments, or employees/managers reporting to them (isolated from other Directors' exclusive projects).
- * - Managers ONLY see requisitions for their own department, their own assigned projects, or subordinates reporting to them.
- * - Executives ONLY see their own requisitions (or any requisition explicitly assigned to them).
+ * - ONLY Central Accounts (Harun, Israt Jahan, Sumon) and Super Admin (IT) — or a user explicitly
+ *   granted `req.view.all` / `report.view.all` without `report.strict.scope` — see ALL requisitions.
+ * - Everyone else (including Polok, Group Heads, Managers, Directors, and Managing Directors) ONLY sees:
+ *   1. Their own created requisitions (`makerId: user.id`)
+ *   2. Requisitions currently waiting for their signature (`currentAssigneeId: user.id`) or already signed by them
+ *   3. Requisitions belonging strictly to their assigned Projects, Events, or IMS Group Divisions (`financialReportProjectScope(user)`).
  */
 export function requisitionScope(user: ScopeUser): Prisma.RequisitionWhereInput {
   const p = user.permissions;
 
-  // MD, Accounts, Super Admin (IT), and HR (IMS GROUP) can see all requisitions across IMS, CLAN, SCL, TradePULSE & projects
-  const canSeeAll =
-    p.includes(PERMISSIONS.REQ_MD) ||
-    p.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK) ||
-    p.includes(PERMISSIONS.REQ_FORWARD) ||
-    p.includes(PERMISSIONS.REQ_EXECUTE) ||
-    p.includes(PERMISSIONS.ADMIN_USERS) ||
-    p.includes(PERMISSIONS.ADMIN_READONLY) ||
-    p.includes(PERMISSIONS.REQ_VIEW_ALL);
+  // Only Super Admin and Central Accounts see all requisitions across the entire ERP
+  const isSuperAdmin = (user.priorityLevel ?? 2) >= 5 || p.includes(PERMISSIONS.ADMIN_USERS);
+  const isAccounts =
+    (p.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK) ||
+      p.includes(PERMISSIONS.REQ_FORWARD) ||
+      p.includes(PERMISSIONS.REQ_EXECUTE)) &&
+    !p.includes("report.strict.scope");
 
-  if (canSeeAll) {
+  const hasExplicitViewAll =
+    p.includes(PERMISSIONS.REPORT_VIEW_ALL) && !p.includes("report.strict.scope");
+
+  if (isSuperAdmin || isAccounts || hasExplicitViewAll) {
     return {};
   }
 
@@ -48,39 +49,20 @@ export function requisitionScope(user: ScopeUser): Prisma.RequisitionWhereInput 
     { approvals: { some: { userId: user.id } } },
   ];
 
-  const isApproverOrDirector =
-    p.includes(PERMISSIONS.REQ_APPROVE) || p.includes(PERMISSIONS.REQ_DIRECTOR);
+  const isApproverOrDirectorOrMd =
+    p.includes(PERMISSIONS.REQ_APPROVE) ||
+    p.includes(PERMISSIONS.REQ_DIRECTOR) ||
+    p.includes(PERMISSIONS.REQ_MD);
 
-  if (isApproverOrDirector) {
-    // 1. Requisitions where this user is the Project Head, Project Checker, or Project Director
-    or.push(
-      { project: { headId: user.id } },
-      { project: { checkerId: user.id } },
-      { project: { directorId: user.id } }
-    );
-
-    // 2. Requisitions where this user is the Department Head
-    or.push({ department: { headId: user.id } });
-
-    // 3. Requisitions raised by direct subordinates or 2nd-level subordinates (Executive -> Manager -> Director)
-    or.push(
-      { maker: { supervisorId: user.id } },
-      { maker: { supervisor: { supervisorId: user.id } } }
-    );
-
-    // 4. Own primary department requisitions (for Department Managers / Directors)
-    if (p.includes(PERMISSIONS.REQ_VIEW_DEPARTMENT) && user.departmentId) {
-      or.push({ departmentId: user.departmentId });
-    }
-
-    // 5. Explicitly assigned projects for this Checker / Manager / Director
-    if (user.projectScopes.length > 0) {
-      or.push({ projectId: { in: user.projectScopes.map((x) => x.id) } });
-    }
+  if (isApproverOrDirectorOrMd || user.projectScopes.length > 0) {
+    // Strictly restrict project/event/division requisitions to the user's permitted scope
+    or.push({
+      project: financialReportProjectScope(user),
+    });
   }
 
-  // IT Checker sees AI/IT category requisitions
-  if (p.includes(PERMISSIONS.REQ_APPROVE_IT)) {
+  // IT Checker sees AI/IT category requisitions unless restricted by strict scope
+  if (p.includes(PERMISSIONS.REQ_APPROVE_IT) && !p.includes("report.strict.scope")) {
     or.push({ category: "AI_IT" });
   }
 
@@ -90,57 +72,22 @@ export function requisitionScope(user: ScopeUser): Prisma.RequisitionWhereInput 
 /** Which projects may this user raise requisitions for / manage? */
 export function projectScope(user: ScopeUser): Prisma.ProjectWhereInput {
   const p = user.permissions;
-  // IMS GROUP officers & P4/P5 / Project Managers or users granted Both Company & All Projects mode
-  if (
-    (user.priorityLevel ?? 2) >= 4 ||
-    p.includes("req.mode.both") ||
-    p.includes(PERMISSIONS.PROJECT_MANAGE) ||
-    p.includes(PERMISSIONS.PROJECT_VIEW) ||
-    p.includes(PERMISSIONS.REQ_VIEW_ALL) ||
-    p.includes(PERMISSIONS.ADMIN_USERS) ||
-    p.includes(PERMISSIONS.ADMIN_READONLY) ||
-    p.includes(PERMISSIONS.REQ_MD) ||
-    p.includes(PERMISSIONS.REQ_DIRECTOR) ||
-    p.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK) ||
-    p.includes(PERMISSIONS.REQ_FORWARD) ||
-    p.includes(PERMISSIONS.REQ_EXECUTE) ||
-    !user.companyId
-  ) {
+  const isSuperAdmin = (user.priorityLevel ?? 2) >= 5 || p.includes(PERMISSIONS.ADMIN_USERS);
+  const isAccounts =
+    (p.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK) ||
+      p.includes(PERMISSIONS.REQ_FORWARD) ||
+      p.includes(PERMISSIONS.REQ_EXECUTE)) &&
+    !p.includes("report.strict.scope");
+
+  if (isSuperAdmin || isAccounts || p.includes(PERMISSIONS.REPORT_VIEW_ALL)) {
     return { active: true };
   }
 
+  // Allow user's assigned Projects/Events/Divisions PLUS internal Company Divisions so they can raise Company requisitions if permitted
   const or: Prisma.ProjectWhereInput[] = [
-    { headId: user.id },
-    { checkerId: user.id },
-    { directorId: user.id },
-    { createdById: user.id },
+    financialReportProjectScope(user),
+    { code: { in: COMPANY_DIVISION_CODES_LIST } },
   ];
-
-  // Check if user is in Operation / Events or explicitly granted Operations & Events mode
-  const deptText = [user.department?.name || "", ...(user.secondaryDepartments || [])]
-    .join(" ")
-    .toLowerCase();
-  const isOpsOrEventsUser =
-    p.includes("req.type.event") ||
-    p.includes("req.mode.ops_events") ||
-    deptText.includes("operation") ||
-    deptText.includes("event");
-
-  if (isOpsOrEventsUser) {
-    or.push(
-      { category: "OPERATIONS_EVENT" },
-      { kind: "EVENT" },
-      { code: { startsWith: "EVT-" } }
-    );
-  }
-
-  if (user.projectScopes.length > 0) {
-    or.push({ id: { in: user.projectScopes.map((x) => x.id) } });
-  } else if (user.companyScopes.length > 0) {
-    or.push({ companyId: { in: user.companyScopes.map((c) => c.id) } });
-  } else if (user.companyId) {
-    or.push({ companyId: user.companyId });
-  }
 
   return { active: true, OR: or };
 }

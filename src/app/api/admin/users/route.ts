@@ -222,6 +222,23 @@ export async function PATCH(request: Request) {
       data: updateData,
     });
 
+    if (Array.isArray(projectScopeIds)) {
+      await Promise.all([
+        prisma.project.updateMany({
+          where: { headId: id, id: { notIn: projectScopeIds } },
+          data: { headId: null },
+        }),
+        prisma.project.updateMany({
+          where: { checkerId: id, id: { notIn: projectScopeIds } },
+          data: { checkerId: null },
+        }),
+        prisma.project.updateMany({
+          where: { directorId: id, id: { notIn: projectScopeIds } },
+          data: { directorId: null },
+        }),
+      ]);
+    }
+
     const ip = await clientIp();
     await prisma.auditLog.create({
       data: {
