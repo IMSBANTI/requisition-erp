@@ -2193,137 +2193,145 @@ export default function FinanceClient({
     <div className="mt-5 space-y-6">
       {/* STEP 1: CLEAN SELECTOR BAR (PROJECTS vs EVENTS vs IMS GROUP EXPENSES + 7 VIEW MODES) */}
       <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm space-y-3">
-        {/* Top Row: Projects / Events / IMS Group Toggle + 7 View Mode Pills */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-gray-100">
-          {/* 1A. Toggle between Projects, Events, and IMS Group Expenses (only shows categories assigned to this user) */}
-          <div className="inline-flex flex-wrap bg-gray-100 p-1 rounded-xl border border-gray-200 shrink-0 gap-1">
-            {(permanentProjects.length > 0 ||
-              (eventProjects.length === 0 && companyDivisions.length === 0)) && (
-              <button
-                type="button"
-                onClick={() => setActiveType("PERMANENT")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeType === "PERMANENT"
-                    ? "bg-gray-900 text-white shadow-sm"
-                    : "text-gray-600 hover:text-gray-900"
-                }`}
-              >
-                📁 Projects ({permanentProjects.length})
-              </button>
-            )}
-            {eventProjects.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setActiveType("EVENT")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeType === "EVENT"
-                    ? "bg-purple-700 text-white shadow-sm"
-                    : "text-gray-600 hover:text-gray-900"
-                }`}
-              >
-                🎪 Events ({eventProjects.length})
-              </button>
-            )}
-            {companyDivisions.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setActiveType("COMPANY")}
-                className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                  activeType === "COMPANY"
-                    ? "bg-rose-700 text-white shadow-sm"
-                    : "text-gray-600 hover:text-gray-900"
-                }`}
-              >
-                🏢 IMS Group ({companyDivisions.length})
-              </button>
-            )}
-          </div>
-
-          {/* 1B. Quick View Mode Pills */}
-          <div className="flex flex-wrap items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setViewMode("SUMMARY_MATRIX")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                viewMode === "SUMMARY_MATRIX"
-                  ? "bg-slate-900 text-white shadow-sm"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              📊 Profit Summary
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("NEW_ENTRY")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                viewMode === "NEW_ENTRY"
-                  ? "bg-[#E42528] text-white shadow-sm"
-                  : "bg-red-50 text-red-700 hover:bg-red-100"
-              }`}
-            >
-              🧾 Bill to Client
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("AGEING")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                viewMode === "AGEING"
-                  ? "bg-blue-600 text-white shadow-sm"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              ✅ Receivables &amp; Bills
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("DISBURSE")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                viewMode === "DISBURSE"
-                  ? "bg-emerald-700 text-white shadow-sm"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              💸 Disburse
-              {approvalPipelineCounts.readyDisburseCount > 0 && (
-                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-emerald-200 text-emerald-950 text-[10px] font-extrabold">
-                  {approvalPipelineCounts.readyDisburseCount}
-                </span>
+        {/* 1A. Category Switcher (Only shown when user has access to 2 or more categories) */}
+        {[
+          permanentProjects.length > 0,
+          eventProjects.length > 0,
+          companyDivisions.length > 0,
+        ].filter(Boolean).length > 1 && (
+          <div className="flex items-center justify-between pb-2.5 border-b border-gray-100">
+            <div className="inline-flex flex-wrap bg-gray-100 p-1 rounded-xl border border-gray-200 shrink-0 gap-1">
+              {permanentProjects.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveType("PERMANENT")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    activeType === "PERMANENT"
+                      ? "bg-gray-900 text-white shadow-sm"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  📁 Projects ({permanentProjects.length})
+                </button>
               )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("MONTH_CLOSE")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                viewMode === "MONTH_CLOSE"
-                  ? "bg-indigo-600 text-white shadow-sm"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              🔒 Month Close
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("GROUP_OVERVIEW")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                viewMode === "GROUP_OVERVIEW"
-                  ? "bg-cyan-700 text-white shadow-sm"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              👥 Group Overview
-            </button>
-            <button
-              type="button"
-              onClick={() => setViewMode("SINGLE")}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-                viewMode === "SINGLE"
-                  ? "bg-slate-700 text-white shadow-sm"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              🔍 Single Item
-            </button>
+              {eventProjects.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveType("EVENT")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    activeType === "EVENT"
+                      ? "bg-purple-700 text-white shadow-sm"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  🎪 Events ({eventProjects.length})
+                </button>
+              )}
+              {companyDivisions.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setActiveType("COMPANY")}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                    activeType === "COMPANY"
+                      ? "bg-rose-700 text-white shadow-sm"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  🏢 IMS Group ({companyDivisions.length})
+                </button>
+              )}
+            </div>
           </div>
+        )}
+
+        {/* 1B. Fixed-Position Quick View Mode Pills (Never shifts when switching tabs) */}
+        <div
+          className={`flex flex-wrap items-center gap-1.5 ${
+            viewMode !== "NEW_ENTRY" ? "pb-3 border-b border-gray-100" : ""
+          }`}
+        >
+          <button
+            type="button"
+            onClick={() => setViewMode("SUMMARY_MATRIX")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              viewMode === "SUMMARY_MATRIX"
+                ? "bg-slate-900 text-white shadow-sm"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            📊 Profit Summary
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("NEW_ENTRY")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              viewMode === "NEW_ENTRY"
+                ? "bg-[#E42528] text-white shadow-sm"
+                : "bg-red-50 text-red-700 hover:bg-red-100"
+            }`}
+          >
+            🧾 Bill to Client
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("AGEING")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              viewMode === "AGEING"
+                ? "bg-blue-600 text-white shadow-sm"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            ✅ Receivables &amp; Bills
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("DISBURSE")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              viewMode === "DISBURSE"
+                ? "bg-emerald-700 text-white shadow-sm"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            💸 Disburse
+            {approvalPipelineCounts.readyDisburseCount > 0 && (
+              <span className="ml-1 px-1.5 py-0.2 rounded-full bg-emerald-200 text-emerald-950 text-[10px] font-extrabold">
+                {approvalPipelineCounts.readyDisburseCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("MONTH_CLOSE")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              viewMode === "MONTH_CLOSE"
+                ? "bg-indigo-600 text-white shadow-sm"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            🔒 Month Close
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("GROUP_OVERVIEW")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              viewMode === "GROUP_OVERVIEW"
+                ? "bg-cyan-700 text-white shadow-sm"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            👥 Group Overview
+          </button>
+          <button
+            type="button"
+            onClick={() => setViewMode("SINGLE")}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              viewMode === "SINGLE"
+                ? "bg-slate-700 text-white shadow-sm"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            🔍 Single Item
+          </button>
         </div>
 
         {/* Bottom Row of Selector Bar: Context Controls for Current View Mode */}
@@ -2480,30 +2488,6 @@ export default function FinanceClient({
             >
               📥 Export Summary (.xls)
             </button>
-          </div>
-        )}
-
-        {viewMode === "NEW_ENTRY" && (
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
-              <label className="text-xs font-bold text-gray-700">Project / Event:</label>
-              <select
-                value={selectedProject?.id || ""}
-                onChange={(e) => setSelectedId(e.target.value)}
-                className="h-9 rounded-lg border-2 border-gray-300 bg-white px-3 text-xs font-bold text-gray-900"
-              >
-                {currentList
-                  .filter((p) => p.id !== "ALL_COMPANY")
-                  .map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.code})
-                    </option>
-                  ))}
-              </select>
-            </div>
-            <div className="text-xs text-gray-500">
-              Quickly record a fund requisition, KAM direct expense, client bill, or import an entire Excel file.
-            </div>
           </div>
         )}
 
