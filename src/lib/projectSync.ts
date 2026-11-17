@@ -140,7 +140,7 @@ let syncedInProcess = false;
 export async function ensureUploadedKitProjectsSynced(): Promise<void> {
   if (syncedInProcess) return;
   try {
-    const [existingDbh, legacyCount, existingRobi, existingSalesOfficer] = await Promise.all([
+    const [existingDbh, legacyCount, existingRobiList, existingSalesOfficer] = await Promise.all([
       prisma.project.findUnique({
         where: { code: "PROJ-DBH" },
         select: { id: true, costHeads: true },
@@ -148,9 +148,17 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
       prisma.project.count({
         where: { code: { in: LEGACY_PROJECTS_TO_REMOVE } },
       }),
-      prisma.project.findUnique({
-        where: { code: "PROJ-ROBI" },
-        select: { id: true, billingProfile: true, costHeads: true },
+      prisma.project.findMany({
+        where: { code: { in: ["PROJ-ROBI", "PROJ-ROBI-SME"] } },
+        select: {
+          id: true,
+          code: true,
+          name: true,
+          billingProfile: true,
+          feeRate: true,
+          aitRate: true,
+          costHeads: true,
+        },
       }),
       prisma.project.findUnique({
         where: { code: "PROJ-SALES-OFFICER" },
@@ -158,10 +166,15 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
       }),
     ]);
 
-    const robiNeedsUpgrade =
-      existingRobi &&
-      existingRobi.billingProfile === "COST_PLUS_GROSSUP" &&
-      extractProjectMeta(existingRobi.costHeads).aitGrossupRate === undefined;
+    const robiNeedsUpgrade = existingRobiList.some((rp) => {
+      const meta = extractProjectMeta(rp.costHeads);
+      return (
+        meta.robiSyncedV2 !== true ||
+        rp.name === "Project Robi" ||
+        (rp.billingProfile === "COST_PLUS_GROSSUP" &&
+          meta.aitGrossupRate === undefined)
+      );
+    });
     const dbhNeedsUpgrade =
       existingDbh && extractProjectMeta(existingDbh.costHeads).dbhSyncedV2 !== true;
     const soNeedsUpgrade =
@@ -222,8 +235,17 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
     for (const p of UPLOADED_KIT_PROJECTS) {
       if (deletedCodes.has(p.code.toUpperCase())) continue;
 
-      const existing = await prisma.project.findUnique({ where: { code: p.code } });
-      if (!existing) {
+      const existing = await prisma.project.findFirst({
+        where:
+          p.code === "PROJ-ROBI"
+            ? { code: { in: ["PROJ-ROBI", "PROJ-ROBI-SME"] } }
+            : { code: p.code },
+      });
+
+      if (
+        !existing &&
+        !(p.code === "PROJ-ROBI" && deletedCodes.has("PROJ-ROBI-SME"))
+      ) {
         const defaultTerms = getDefaultProjectTermsByCode(p.code, "PERMANENT");
         const memberIds = p.memberEmpIds
           .map((eid) => userByEmpId[eid])
@@ -261,6 +283,7 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
               p.code === "PROJ-ROBI"
                 ? (packCostHeadsWithMeta(ROBI_SME_COST_HEADS, {
                     aitGrossupRate: Number(defaultTerms.aitGrossupRate ?? 0.02),
+                    robiSyncedV2: true,
                   }) as any)
                 : p.code === "PROJ-DBH"
                 ? (packCostHeadsWithMeta(DBH_OFFICE_COST_HEADS, {
@@ -281,33 +304,47 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
           },
         });
       } else if (p.code === "PROJ-ROBI") {
-        const robiMeta = extractProjectMeta(existing.costHeads);
-        const needsNameFix = existing.name === "Project Robi";
-        const needsSplitAitUpgrade =
-          existing.billingProfile === "COST_PLUS_GROSSUP" &&
-          robiMeta.aitGrossupRate === undefined;
+        const robiRows =
+          existingRobiList.length > 0
+            ? existingRobiList
+            : existing
+            ? [existing]
+            : [];
+        for (const rp of robiRows) {
+          const robiMeta = extractProjectMeta(rp.costHeads);
+          const needsNameFix = rp.name === "Project Robi";
+          const isLegacyCostPlus =
+            rp.billingProfile === "COST_PLUS" &&
+            (Number(rp.feeRate) === 0.08 || rp.code === "PROJ-ROBI-SME");
+          const needsRobiV2 = robiMeta.robiSyncedV2 !== true;
 
-        if (needsNameFix || needsSplitAitUpgrade) {
-          await prisma.project.update({
-            where: { code: "PROJ-ROBI" },
-            data: {
-              ...(needsNameFix ? { name: "Project Robi SME" } : {}),
-              ...(needsSplitAitUpgrade
-                ? {
-                    aitRate:
-                      Number(existing.aitRate) === 0.02
-                        ? 0.01
-                        : Number(existing.aitRate),
-                    costHeads: packCostHeadsWithMeta(
-                      resolveCostHeadsForKind(existing.costHeads, false, "PROJ-ROBI"),
-                      { ...robiMeta, aitGrossupRate: 0.02 }
-                    ) as any,
+          if (needsNameFix || isLegacyCostPlus || needsRobiV2) {
+            await prisma.project.update({
+              where: { id: rp.id },
+              data: {
+                ...(needsNameFix ? { name: "Project Robi SME" } : {}),
+                ...(isLegacyCostPlus
+                  ? {
+                      billingProfile: "COST_PLUS_GROSSUP",
+                      feeRate: 0.045,
+                      aitRate: 0.01,
+                    }
+                  : Number(rp.aitRate) === 0.02
+                  ? { aitRate: 0.01 }
+                  : {}),
+                costHeads: packCostHeadsWithMeta(
+                  resolveCostHeadsForKind(rp.costHeads, false, rp.code),
+                  {
+                    ...robiMeta,
+                    aitGrossupRate: robiMeta.aitGrossupRate ?? 0.02,
+                    robiSyncedV2: true,
                   }
-                : {}),
-            },
-          });
+                ) as any,
+              },
+            });
+          }
         }
-      } else if (p.code === "PROJ-DBH") {
+      } else if (p.code === "PROJ-DBH" && existing) {
         const dbhMeta = extractProjectMeta(existing.costHeads);
         if (dbhMeta.dbhSyncedV2 !== true) {
           const ruhanId = userByEmpId["1074"];
@@ -330,7 +367,7 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
             },
           });
         }
-      } else if (p.code === "PROJ-SALES-OFFICER") {
+      } else if (p.code === "PROJ-SALES-OFFICER" && existing) {
         const soMeta = extractProjectMeta(existing.costHeads);
         if (soMeta.dbhSyncedV2 !== true) {
           const ruhanId = userByEmpId["1074"];
@@ -376,7 +413,10 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
 
     if (legacyProjects.length > 0) {
       const [robiProj, ublPsProj] = await Promise.all([
-        prisma.project.findUnique({ where: { code: "PROJ-ROBI" }, select: { id: true } }),
+        prisma.project.findFirst({
+          where: { code: { in: ["PROJ-ROBI", "PROJ-ROBI-SME"] } },
+          select: { id: true },
+        }),
         prisma.project.findUnique({ where: { code: "PROJ-UBL-PS" }, select: { id: true } }),
       ]);
 

@@ -78,6 +78,8 @@ export interface ProjectExtendedMeta {
   fixedKamRecovery?: number;
   /** Internal one-time sync marker so DBH v2 defaults upgrade cleanly once without clobbering admin edits. */
   dbhSyncedV2?: boolean;
+  /** Internal one-time sync marker so Robi SME (`PROJ-ROBI` / `PROJ-ROBI-SME`) upgrades cleanly once. */
+  robiSyncedV2?: boolean;
 }
 
 export interface BillingTermsInput {

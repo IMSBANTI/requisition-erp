@@ -21,6 +21,7 @@ import {
   calculateProfitSummary,
   calculateVariance,
 } from "@/lib/profitEngine";
+import { parseSpreadsheetToRequisitionItems } from "@/lib/spreadsheetImport";
 
 interface FormProps {
   user: {
@@ -241,6 +242,27 @@ export default function RequisitionForm({
   // Service Month for Project Requisitions
   const [forMonth, setForMonth] = useState<string>(getCurrentYearMonth());
   const [changeReason, setChangeReason] = useState<string>("");
+  const [importStatus, setImportStatus] = useState<{
+    kind: "success" | "warn";
+    text: string;
+  } | null>(null);
+
+  const canSeeFinancialPreview = useMemo(() => {
+    const p = user.permissions || [];
+    if ((user.priorityLevel ?? 2) >= 5 || p.includes("admin.users")) return true;
+    if (p.includes("report.none")) return false;
+    return (
+      (user.priorityLevel ?? 2) >= 3 ||
+      Boolean(user.isManager) ||
+      p.includes("report.view") ||
+      p.includes("report.view.all") ||
+      p.includes("admin.readonly") ||
+      p.includes("req.director") ||
+      p.includes("req.md") ||
+      p.includes("req.accounts.check") ||
+      p.includes("req.execute")
+    );
+  }, [user.permissions, user.priorityLevel, user.isManager]);
 
   // Active Cost Heads for the selected Project or Event (strictly separated)
   const activeCostHeads = useMemo<CostHeadConfig[]>(() => {
@@ -513,123 +535,59 @@ export default function RequisitionForm({
     URL.revokeObjectURL(url);
   }
 
-  function handleImportCsvFile(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleImportSpreadsheetFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    setImportStatus(null);
 
+    const isExcelBinary = /\.(xlsx|xls|xlsm|xlsb)$/i.test(file.name);
+    const lag = selectedProject?.salaryMonthLag ?? (requisitionMode === "EVENT" ? 0 : 1);
     const reader = new FileReader();
+
     reader.onload = (ev) => {
-      const text = String(ev.target?.result || "");
-      const lines = text
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter(Boolean);
-      if (lines.length <= 1) {
-        alert("CSV file appears empty or has no data rows.");
-        return;
-      }
-
-      const splitCsvLine = (line: string): string[] => {
-        const result: string[] = [];
-        let cur = "";
-        let inQuotes = false;
-        for (let i = 0; i < line.length; i++) {
-          const ch = line[i];
-          if (ch === '"') {
-            if (inQuotes && line[i + 1] === '"') {
-              cur += '"';
-              i++;
-            } else {
-              inQuotes = !inQuotes;
-            }
-          } else if (ch === "," && !inQuotes) {
-            result.push(cur.trim());
-            cur = "";
-          } else {
-            cur += ch;
-          }
+      try {
+        const rawData = ev.target?.result;
+        if (!rawData) {
+          setImportStatus({ kind: "warn", text: "Uploaded file could not be read." });
+          return;
         }
-        result.push(cur.trim());
-        return result;
-      };
+        const parsed = parseSpreadsheetToRequisitionItems({
+          data: rawData as ArrayBuffer | string,
+          fileName: file.name,
+          requisitionMode,
+          forMonth,
+          salaryMonthLag: lag,
+          activeCostHeads,
+        });
 
-      const parsedRows: ItemRow[] = [];
-      const lag = selectedProject?.salaryMonthLag ?? (requisitionMode === "EVENT" ? 0 : 1);
-      const prevMonth = getPreviousYearMonth(forMonth);
-
-      for (let idx = 1; idx < lines.length; idx++) {
-        const cols = splitCsvLine(lines[idx]);
-        if (cols.length < 2) continue;
-
-        if (requisitionMode === "COMPANY") {
-          const particulars = cols[0] || "";
-          const purpose = cols[1] || "";
-          const qty = String(parseFloat(cols[2] || "1") || 1);
-          const unitPrice = String(parseFloat((cols[3] || "0").replace(/,/g, "")) || 0);
-          if (!particulars && parseFloat(unitPrice) <= 0) continue;
-          parsedRows.push({
-            sl: parsedRows.length + 1,
-            costHead: "",
-            costTag: "BILLABLE",
-            forMonth,
-            lastMonthAmount: 0,
-            particulars: particulars || "Expense Item",
-            purpose,
-            qty,
-            unitPrice,
-          });
-        } else {
-          // Supports both 5-column (Cost Head, Cost Type, Particulars, Qty, Unit Price)
-          // and 6-column legacy template (Service Month, Cost Head, Amount, Charged To, Paid Via, Note)
-          let costHeadName = cols[0] || "";
-          let rawTag = (cols[1] || "").toUpperCase();
-          let particulars = cols[2] || costHeadName;
-          let qty = String(parseFloat(cols[3] || "1") || 1);
-          let unitPrice = String(parseFloat((cols[4] || "0").replace(/,/g, "")) || 0);
-
-          if (/^\d{4}-\d{2}$/.test(cols[0] || "") && cols.length >= 3) {
-            costHeadName = cols[1] || "";
-            unitPrice = String(parseFloat((cols[2] || "0").replace(/,/g, "")) || 0);
-            rawTag = (cols[3] || "").toUpperCase();
-            particulars = cols[5] ? `${costHeadName} — ${cols[5]}` : costHeadName;
-            qty = "1";
-          }
-
-          const matchedHead = activeCostHeads.find(
-            (ch) => ch.name.toLowerCase() === costHeadName.toLowerCase()
-          );
-          const costTag: "BILLABLE" | "IMS_INVESTMENT" =
-            rawTag.includes("IMS")
-              ? "IMS_INVESTMENT"
-              : matchedHead?.tag || "BILLABLE";
-          const isSal = matchedHead?.isSalary ?? false;
-          const rowMonth =
-            requisitionMode === "PROJECT" && isSal && lag === 1 ? prevMonth : forMonth;
-
-          if (!costHeadName && !particulars && parseFloat(unitPrice) <= 0) continue;
-
-          parsedRows.push({
-            sl: parsedRows.length + 1,
-            costHead: matchedHead?.name || costHeadName || activeCostHeads[0]?.name || "General",
-            costTag,
-            forMonth: rowMonth,
-            lastMonthAmount: matchedHead?.defaultAmount || 0,
-            particulars: particulars || matchedHead?.name || costHeadName || "Expense Item",
-            purpose: "",
-            qty,
-            unitPrice,
-          });
+        if (parsed.items.length === 0) {
+          const warnMsg =
+            parsed.warnings[0] ||
+            `No non-zero expense rows found for ${forMonth} in "${file.name}". Check the selected Month or file format.`;
+          setImportStatus({ kind: "warn", text: warnMsg });
+          return;
         }
-      }
 
-      if (parsedRows.length === 0) {
-        alert("No valid rows found in the CSV file.");
-        return;
+        setItems(parsed.items);
+        const monthTag = parsed.matchedMonthLabel ? ` (${parsed.matchedMonthLabel})` : "";
+        setImportStatus({
+          kind: "success",
+          text: `Loaded ${parsed.items.length} line item(s) from "${parsed.sourceLabel}"${monthTag}. Review amounts & live P&L calculation below.`,
+        });
+      } catch (err) {
+        console.error("Spreadsheet import error:", err);
+        setImportStatus({
+          kind: "warn",
+          text: `Failed to parse "${file.name}". Please ensure it is a valid Excel (.xls/.xlsx) or CSV file.`,
+        });
       }
-
-      setItems(parsedRows);
     };
-    reader.readAsText(file);
+
+    if (isExcelBinary) {
+      reader.readAsArrayBuffer(file);
+    } else {
+      reader.readAsText(file);
+    }
     e.target.value = "";
   }
 
@@ -1521,11 +1479,11 @@ export default function RequisitionForm({
             </button>
 
             <label className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 px-3 py-1.5 rounded border border-emerald-300 cursor-pointer">
-              <span>📥 Import CSV</span>
+              <span>📥 Import Excel / CSV</span>
               <input
                 type="file"
-                accept=".csv,.txt"
-                onChange={handleImportCsvFile}
+                accept=".xlsx,.xls,.csv,.txt"
+                onChange={handleImportSpreadsheetFile}
                 className="hidden"
               />
             </label>
@@ -1540,9 +1498,122 @@ export default function RequisitionForm({
             </button>
           </div>
           <span className="text-[11px] text-gray-500">
-            Tip: Import a CSV to fill multiple rows at once — submits through the normal approval workflow.
+            Supports Excel (.xls / .xlsx Daily &amp; Profit Calculation sheets for the selected month) or CSV template.
           </span>
         </div>
+
+        {importStatus && (
+          <div
+            className={`mt-2 px-3 py-2 rounded-md text-xs font-medium border no-print flex items-center justify-between gap-2 ${
+              importStatus.kind === "success"
+                ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+                : "bg-amber-50 border-amber-200 text-amber-900"
+            }`}
+          >
+            <span>{importStatus.text}</span>
+            <button
+              type="button"
+              onClick={() => setImportStatus(null)}
+              className="text-gray-500 hover:text-gray-800 font-bold cursor-pointer"
+              aria-label="Dismiss import status"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {requisitionMode !== "COMPANY" &&
+          canSeeFinancialPreview &&
+          profitSummary &&
+          (billableTotal > 0 || imsInvestmentTotal > 0) && (
+            <div className="mt-4 bg-slate-50 border border-slate-200 rounded-xl p-3.5 sm:p-4 no-print">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200">
+                <div>
+                  <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wide">
+                    Live Billing &amp; Net Profit Preview ({selectedProject?.name} · {forMonth})
+                  </div>
+                  <div className="text-[11px] text-slate-500 mt-0.5">
+                    Model:{" "}
+                    <span className="font-mono font-bold text-slate-800">
+                      {profitSummary.billingProfile}
+                    </span>
+                    {" · "}Fee {profitSummary.feeRatePct}% · AIT Deducted {profitSummary.aitRatePct}%
+                    {selectedProject?.aitGrossupRate !== undefined
+                      ? ` · AIT Gross-Up ${(Number(selectedProject.aitGrossupRate) * 100).toFixed(1)}%`
+                      : ""}
+                    {" · "}VAT {profitSummary.vatRatePct}%
+                  </div>
+                </div>
+                <span
+                  className={`px-2.5 py-1 rounded-full text-xs font-extrabold font-mono border ${
+                    profitSummary.netProfit >= 0
+                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                      : "bg-red-50 text-red-800 border-red-200"
+                  }`}
+                >
+                  Net Profit: {profitSummary.netProfit >= 0 ? "+" : ""}Tk{" "}
+                  {profitSummary.netProfit.toLocaleString("en-IN", {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2,
+                  })}{" "}
+                  ({profitSummary.netMarginPct}%)
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-3 text-xs">
+                <div className="bg-white rounded-lg p-2.5 border border-slate-200">
+                  <div className="text-[10px] font-bold text-gray-500 uppercase">Billable Cost</div>
+                  <div className="font-mono font-bold text-gray-900 mt-0.5">
+                    Tk {profitSummary.billableCost.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg p-2.5 border border-amber-200">
+                  <div className="text-[10px] font-bold text-amber-800 uppercase">IMS Investment</div>
+                  <div className="font-mono font-bold text-amber-950 mt-0.5">
+                    Tk {profitSummary.imsInvestment.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg p-2.5 border border-slate-200">
+                  <div className="text-[10px] font-bold text-gray-500 uppercase">
+                    Fee {profitSummary.aitGrossupAmount > 0 ? "+ Gross-Up AIT" : ""}
+                  </div>
+                  <div className="font-mono font-bold text-blue-900 mt-0.5">
+                    Tk {(profitSummary.feeAmount + profitSummary.aitGrossupAmount).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg p-2.5 border border-slate-200">
+                  <div className="text-[10px] font-bold text-gray-500 uppercase">Client Bill (Ex-VAT)</div>
+                  <div className="font-mono font-bold text-gray-900 mt-0.5">
+                    Tk {profitSummary.billExVat.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg p-2.5 border border-slate-200">
+                  <div className="text-[10px] font-bold text-gray-500 uppercase">VAT ({profitSummary.vatRatePct}%)</div>
+                  <div className="font-mono font-bold text-gray-900 mt-0.5">
+                    Tk {profitSummary.vatAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg p-2.5 border border-slate-200">
+                  <div className="text-[10px] font-bold text-gray-500 uppercase">Bill With VAT</div>
+                  <div className="font-mono font-bold text-gray-900 mt-0.5">
+                    Tk {profitSummary.billWithVat.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="bg-white rounded-lg p-2.5 border border-slate-200">
+                  <div className="text-[10px] font-bold text-gray-500 uppercase">AIT Deducted ({profitSummary.aitRatePct}%)</div>
+                  <div className="font-mono font-bold text-rose-700 mt-0.5">
+                    −Tk {profitSummary.aitDeducted.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+                <div className="bg-emerald-50 rounded-lg p-2.5 border border-emerald-200">
+                  <div className="text-[10px] font-bold text-emerald-800 uppercase">Expected Received</div>
+                  <div className="font-mono font-bold text-emerald-950 mt-0.5">
+                    Tk {profitSummary.expectedInflow.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
         {/* Comments Box */}
         <div className="mt-4">
