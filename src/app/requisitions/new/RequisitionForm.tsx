@@ -1304,26 +1304,6 @@ export default function RequisitionForm({
               </div>
             </div>
           </div>
-
-          {requisitionMode !== "COMPANY" && (
-            <div className="flex flex-wrap items-center col-span-1 sm:col-span-2 pt-2 border-t border-gray-200 gap-2">
-              <span className="font-semibold text-gray-700 w-24">PO / WO Ref :</span>
-              <input
-                type="text"
-                value={poNumber}
-                onChange={(e) => setPoNumber(e.target.value)}
-                placeholder="Client Purchase Order # or Work Order Ref (Optional / Recommended)"
-                className="max-w-md w-full px-2 py-0.5 border border-gray-300 rounded text-xs font-semibold text-gray-900 bg-white focus:border-[#E42528]"
-              />
-              {poFiles.length > 0 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-800 border border-blue-200 rounded text-[11px] font-bold">
-                  <span>📄 {poFiles.length} PO File{poFiles.length > 1 ? "s" : ""}:</span>
-                  <span className="truncate max-w-[140px]">{poFiles[0].name}</span>
-                  {poFiles.length > 1 && <span>+{poFiles.length - 1}</span>}
-                </span>
-              )}
-            </div>
-          )}
         </div>
 
         {/* Amount & Purpose Header Line */}
