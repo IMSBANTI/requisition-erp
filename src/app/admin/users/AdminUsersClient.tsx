@@ -214,6 +214,7 @@ export default function AdminUsersClient({
       rolePerms.includes("req.director") ||
       rolePerms.includes("req.md") ||
       rolePerms.includes("req.accounts.check") ||
+      u.levelLabel === "KAM" ||
       u.levelLabel === "Manager" ||
       u.levelLabel === "Director" ||
       u.levelLabel === "MD";
@@ -350,24 +351,30 @@ export default function AdminUsersClient({
   }
 
   function handlePriorityOrLevelChange(newPriority: number, newLevel: string) {
-    setPriorityLevel(newPriority);
+    const effectivePriority =
+      newLevel === "KAM" && newPriority < 3 ? 3 : newPriority;
+    setPriorityLevel(effectivePriority);
     setLevelLabel(newLevel);
     // Auto-select matching role if creating user
     let targetKey = "executive";
-    if (newPriority === 5) targetKey = "super_admin";
+    if (effectivePriority === 5) targetKey = "super_admin";
     else if (newLevel === "MD") targetKey = "md";
     else if (newLevel === "Director") targetKey = "director";
-    else if (newLevel === "Manager" || newPriority >= 3) targetKey = "manager";
+    else if (newLevel === "Manager" || newLevel === "KAM" || effectivePriority >= 3)
+      targetKey = "manager";
     const foundRole = roles.find((r) => r.key === targetKey);
     if (foundRole) setRoleId(foundRole.id);
-    if (newPriority === 5) {
+    if (effectivePriority === 5) {
       setReportAccessMode("ALL_REPORTS");
-    } else if (newLevel === "Executive" && newPriority < 3) {
+    } else if (newLevel === "Executive" && effectivePriority < 3) {
       setReportAccessMode("NONE");
     } else {
       setReportAccessMode("ASSIGNED_ONLY");
     }
-    if (!designation || ["Executive", "Manager", "Director", "MD"].includes(designation)) {
+    if (
+      !designation ||
+      ["Executive", "KAM", "Manager", "Director", "MD"].includes(designation)
+    ) {
       setDesignation(newLevel);
     }
   }
@@ -1051,6 +1058,7 @@ export default function AdminUsersClient({
                     className="mt-1 w-full px-2.5 py-1.5 border border-gray-300 rounded bg-white font-semibold"
                   >
                     <option value="Executive">Executive</option>
+                    <option value="KAM">KAM (Key Account Manager — Above Executive)</option>
                     <option value="Manager">Manager</option>
                     <option value="Director">Director</option>
                     <option value="MD">MD (Managing Director)</option>
