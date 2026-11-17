@@ -644,59 +644,64 @@ export default function AdminUsersClient({
       </div>
 
       {/* Search & Filter Bar */}
-      <div className="mt-4 bg-white p-3.5 rounded-xl border border-gray-200 shadow-xs flex flex-col md:flex-row gap-3 items-center justify-between">
-        <div className="w-full md:w-80 relative">
+      <div className="mt-4 bg-white p-3 rounded-xl border border-gray-200 shadow-xs grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-12 gap-2.5 items-center">
+        <div className="lg:col-span-5 relative">
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search ID (1001), name, email, dept, project..."
-            className="w-full pl-3 pr-8 py-1.5 text-xs border border-gray-300 rounded-lg focus:outline-none focus:ring-1 focus:ring-[#E42528]"
+            placeholder="Search ID, name, email, dept, project..."
+            className="w-full h-9 pl-3 pr-8 text-xs border border-gray-300 rounded-lg bg-white focus:outline-none focus:ring-1 focus:ring-[#E42528]"
           />
           {search && (
             <button
               type="button"
               onClick={() => setSearch("")}
-              className="absolute right-2.5 top-1.5 text-gray-400 hover:text-gray-600 text-xs"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 text-xs cursor-pointer"
+              aria-label="Clear search"
             >
               ✕
             </button>
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+        <div className="lg:col-span-2">
           <select
             value={companyFilter}
             onChange={(e) => setCompanyFilter(e.target.value)}
-            className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white text-gray-700 font-medium"
+            className="w-full h-9 px-2.5 text-xs border border-gray-300 rounded-lg bg-white text-gray-700 font-medium focus:outline-none focus:ring-1 focus:ring-[#E42528]"
           >
-            <option value="ALL">All Sister Concerns (IMS / CLAN / TP / SCL)</option>
-            <option value="IMS_GROUP">IMS GROUP (MD, Directors, IT, Accounts, HR)</option>
+            <option value="ALL">All Concerns</option>
+            <option value="IMS_GROUP">IMS GROUP</option>
             {companies.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name} ({c.code})
               </option>
             ))}
           </select>
+        </div>
 
+        <div className="lg:col-span-2">
           <select
             value={priorityFilter}
             onChange={(e) => setPriorityFilter(e.target.value)}
-            className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white text-gray-700 font-medium"
+            className="w-full h-9 px-2.5 text-xs border border-gray-300 rounded-lg bg-white text-gray-700 font-medium focus:outline-none focus:ring-1 focus:ring-[#E42528]"
           >
-            <option value="ALL">All Priority Levels</option>
-            <option value="5">Priority 5 — Super Admin</option>
-            <option value="4">Priority 4 — Director / MD / Sr. Mgr</option>
-            <option value="3">Priority 3 — Manager / Project Exec</option>
-            <option value="2">Priority 2 — Executive</option>
+            <option value="ALL">All Priorities</option>
+            <option value="5">P5 — Super Admin</option>
+            <option value="4">P4 — Director / MD / Sr.</option>
+            <option value="3">P3 — Manager / Lead / KAM</option>
+            <option value="2">P2 — Executive</option>
           </select>
+        </div>
 
+        <div className="lg:col-span-3">
           <select
             value={roleFilter}
             onChange={(e) => setRoleFilter(e.target.value)}
-            className="px-2.5 py-1.5 text-xs border border-gray-300 rounded-lg bg-white text-gray-700 font-medium"
+            className="w-full h-9 px-2.5 text-xs border border-gray-300 rounded-lg bg-white text-gray-700 font-medium focus:outline-none focus:ring-1 focus:ring-[#E42528]"
           >
-            <option value="ALL">All System Roles</option>
+            <option value="ALL">All Roles</option>
             {roles.map((r) => (
               <option key={r.id} value={r.id}>
                 {r.name}
