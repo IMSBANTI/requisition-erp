@@ -533,10 +533,12 @@ export default function FinanceClient({
   projects,
   canEditFinance,
   canCloseMonth = false,
+  isFullReportAccess = false,
 }: {
   projects: ProjectFinanceItem[];
   canEditFinance: boolean;
   canCloseMonth?: boolean;
+  isFullReportAccess?: boolean;
 }) {
   const router = useRouter();
 
@@ -2630,52 +2632,53 @@ export default function FinanceClient({
             </div>
           </div>
 
-          {/* Full-Width Bar Chart Row: Net profit by month / quarter */}
-          <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm flex flex-col justify-between">
-              <div className="flex items-center justify-between pb-3 border-b border-gray-100">
+          {/* Compact 2-Column Row: Small Bar Chart (Left) + Top 5 Projects (Right) */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Left: Compact Net Profit Bar Chart */}
+            <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm flex flex-col justify-between">
+              <div className="flex items-center justify-between pb-2 border-b border-gray-100">
                 <div>
-                  <h3 className="text-sm font-bold text-gray-900">
-                    Net profit by {matrixPeriodView === "MONTHLY" ? "month" : "quarter"}, all projects (BDT lakh)
+                  <h3 className="text-xs font-bold text-gray-900">
+                    Net profit by {matrixPeriodView === "MONTHLY" ? "month" : "quarter"} (BDT lakh)
                   </h3>
-                  <div className="text-xs text-gray-500 mt-0.5">
-                    Solid bars = Actuals • Light bars = Forecast
+                  <div className="text-[11px] text-gray-500">
+                    Solid = Actual • Light = Forecast
                   </div>
                 </div>
-                <div className="flex items-center gap-3 text-xs">
-                  <span className="flex items-center gap-1.5 text-gray-700 font-semibold">
-                    <span className="w-3 h-3 bg-[#1F4E8C] rounded-sm inline-block"></span> Actual
+                <div className="flex items-center gap-2.5 text-[11px]">
+                  <span className="flex items-center gap-1 text-gray-700 font-semibold">
+                    <span className="w-2.5 h-2.5 bg-[#1F4E8C] rounded-xs inline-block"></span> Actual
                   </span>
-                  <span className="flex items-center gap-1.5 text-gray-700 font-semibold">
-                    <span className="w-3 h-3 bg-blue-300 rounded-sm inline-block"></span> Forecast
+                  <span className="flex items-center gap-1 text-gray-700 font-semibold">
+                    <span className="w-2.5 h-2.5 bg-blue-300 rounded-xs inline-block"></span> Forecast
                   </span>
                 </div>
               </div>
 
-              {/* Bar Chart Visualization */}
-              <div className="pt-6 pb-2">
+              <div className="pt-4 pb-1">
                 {matrixPeriodView === "MONTHLY" ? (
-                  <div className="grid grid-cols-12 gap-2 items-end h-48 px-2 border-b border-gray-200">
+                  <div className="grid grid-cols-12 gap-1.5 items-end h-28 px-1 border-b border-gray-200">
                     {MONTH_NAMES.map((name, idx) => {
                       const val = managementMatrix.monthTotals[idx] || 0;
                       const lakh = (val / 100000).toFixed(1);
                       const maxVal = Math.max(...managementMatrix.monthTotals, 100000);
-                      const heightPct = Math.max(8, Math.min(100, Math.round((Math.abs(val) / maxVal) * 85)));
-                      const isForecastMonth = idx >= 6; // Jul–Dec typical forecast
+                      const heightPct = Math.max(10, Math.min(100, Math.round((Math.abs(val) / maxVal) * 82)));
+                      const isForecastMonth = idx >= 6;
                       return (
-                        <div key={name} className="flex flex-col items-center h-full justify-end group">
-                          <span className="text-[10px] font-bold text-gray-700 mb-1 font-mono">
+                        <div key={name} className="flex flex-col items-center h-full justify-end">
+                          <span className="text-[9px] font-bold text-gray-700 mb-0.5 font-mono">
                             {lakh}
                           </span>
                           <div
                             style={{ height: `${heightPct}%` }}
-                            className={`w-full rounded-t-sm transition-all ${
+                            className={`w-full rounded-t-xs transition-all ${
                               isForecastMonth
                                 ? "bg-blue-300 hover:bg-blue-400"
                                 : "bg-[#1F4E8C] hover:bg-[#163a69]"
                             }`}
                             title={`${name} ${matrixYear}: Tk ${formatBDT(val)}`}
                           ></div>
-                          <span className="text-[10px] font-bold text-gray-600 mt-2">
+                          <span className="text-[9px] font-bold text-gray-600 mt-1">
                             {name}
                           </span>
                         </div>
@@ -2683,7 +2686,7 @@ export default function FinanceClient({
                     })}
                   </div>
                 ) : (
-                  <div className="grid grid-cols-4 gap-6 items-end h-48 px-6 border-b border-gray-200">
+                  <div className="grid grid-cols-4 gap-4 items-end h-28 px-4 border-b border-gray-200">
                     {[
                       { label: "Q1", val: managementMatrix.grandQ1, isFc: false },
                       { label: "Q2", val: managementMatrix.grandQ2, isFc: false },
@@ -2698,22 +2701,22 @@ export default function FinanceClient({
                         managementMatrix.grandQ4,
                         100000
                       );
-                      const heightPct = Math.max(12, Math.min(100, Math.round((Math.abs(val) / maxVal) * 85)));
+                      const heightPct = Math.max(14, Math.min(100, Math.round((Math.abs(val) / maxVal) * 82)));
                       return (
-                        <div key={label} className="flex flex-col items-center h-full justify-end group">
-                          <span className="text-xs font-bold text-gray-800 mb-1.5 font-mono">
+                        <div key={label} className="flex flex-col items-center h-full justify-end">
+                          <span className="text-[11px] font-bold text-gray-800 mb-1 font-mono">
                             {lakh}L
                           </span>
                           <div
                             style={{ height: `${heightPct}%` }}
-                            className={`w-full max-w-[80px] rounded-t-md transition-all ${
+                            className={`w-full max-w-[52px] rounded-t-sm transition-all ${
                               isFc
                                 ? "bg-blue-300 hover:bg-blue-400"
                                 : "bg-[#1F4E8C] hover:bg-[#163a69]"
                             }`}
                             title={`${label} ${matrixYear}: Tk ${formatBDT(val)}`}
                           ></div>
-                          <span className="text-xs font-bold text-gray-700 mt-2.5">
+                          <span className="text-[11px] font-bold text-gray-700 mt-1.5">
                             {label}
                           </span>
                         </div>
@@ -2722,149 +2725,106 @@ export default function FinanceClient({
                   </div>
                 )}
               </div>
-          </div>
-
-          {/* Projects, highest profit first with red Share-of-Total progress bars */}
-          <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-100">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900">
-                  Projects, highest profit first ({rankedProjectsByProfit.length})
-                </h3>
-                <div className="text-xs text-gray-500">
-                  Full year net profit and share of overall portfolio profit.
-                </div>
-              </div>
-              <button
-                type="button"
-                onClick={handleExportManagementExcel}
-                className="text-xs font-bold text-blue-700 hover:underline"
-              >
-                Download as Excel
-              </button>
             </div>
-            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {rankedProjectsByProfit.slice(0, 9).map((row) => {
-                const sharePct =
-                  managementMatrix.grandFullYear > 0
-                    ? Math.max(
-                        0,
-                        Math.round(
-                          (row.fullYearTotal / managementMatrix.grandFullYear) *
-                            100
+
+            {/* Right: Compact Top 5 Projects Ranking */}
+            <div className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm flex flex-col justify-between">
+              <div className="flex items-center justify-between pb-2 border-b border-gray-100">
+                <div>
+                  <h3 className="text-xs font-bold text-gray-900">
+                    Top {Math.min(5, rankedProjectsByProfit.length)} {activeType === "EVENT" ? "Events" : "Projects"} by Profit
+                  </h3>
+                  <div className="text-[11px] text-gray-500">
+                    Click any item to open its detailed P&amp;L
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleExportManagementExcel}
+                  className="text-[11px] font-bold text-blue-700 hover:underline cursor-pointer"
+                >
+                  Download Excel
+                </button>
+              </div>
+              <div className="mt-2.5 space-y-2">
+                {rankedProjectsByProfit.slice(0, 5).map((row) => {
+                  const sharePct =
+                    managementMatrix.grandFullYear > 0
+                      ? Math.max(
+                          0,
+                          Math.round(
+                            (row.fullYearTotal / managementMatrix.grandFullYear) *
+                              100
+                          )
                         )
-                      )
-                    : 0;
-                const barWidth = Math.max(
-                  4,
-                  Math.min(
-                    100,
-                    Math.round((row.fullYearTotal / maxProjectProfit) * 100)
-                  )
-                );
-                return (
-                  <button
-                    key={row.project.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedId(row.project.id);
-                      setViewMode("SINGLE");
-                    }}
-                    className="text-left p-3 rounded-lg border border-gray-100 bg-gray-50/60 hover:bg-white hover:border-gray-300 hover:shadow-sm transition-all group"
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-xs text-gray-900 group-hover:text-blue-700 truncate">
-                        {row.project.name}
-                      </span>
-                      <span className="text-xs font-bold text-gray-900 font-mono shrink-0">
-                        Tk {formatCompactBDT(row.fullYearTotal)}
-                      </span>
-                    </div>
-                    <div className="mt-2 w-full bg-gray-200 h-1.5 rounded-full overflow-hidden">
-                      <div
-                        style={{ width: `${barWidth}%` }}
-                        className="bg-[#E42528] h-full rounded-full"
-                      ></div>
-                    </div>
-                    <div className="mt-1 flex items-center justify-between text-[10px] text-gray-500">
-                      <span>{row.project.code}</span>
-                      <span className="font-semibold text-gray-700">{sharePct}% share</span>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Consolidated Group Bottom-Line Banner */}
-          <div className="bg-slate-900 text-white rounded-xl p-4 shadow-sm border border-slate-800">
-            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 mb-3 border-b border-slate-700">
-              <div>
-                <h3 className="text-xs font-bold uppercase tracking-wider text-slate-300">
-                  🏦 Consolidated IMS Group Bottom-Line Summary ({matrixYear})
-                </h3>
-                <p className="text-[11px] text-slate-400">
-                  True Group Net Profit = (Projects Profit + Events Profit) − IMS Group Internal Overhead Expenses
-                </p>
-              </div>
-            </div>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="bg-slate-800/90 rounded-lg p-3 border border-slate-700">
-                <div className="text-[10px] font-bold text-blue-300 uppercase">
-                  1. 📁 Projects Net Profit ({matrixYear})
-                </div>
-                <div className="text-base font-bold text-white mt-0.5">
-                  Tk {formatBDT(consolidatedGroupStats.projMatrix.grandActualYtd)}
-                </div>
-                <div className="text-[10px] text-slate-400 mt-0.5">
-                  Full-Year w/ Forecast: Tk {formatCompactBDT(consolidatedGroupStats.projMatrix.grandFullYear)}
-                </div>
-              </div>
-
-              <div className="bg-slate-800/90 rounded-lg p-3 border border-slate-700">
-                <div className="text-[10px] font-bold text-purple-300 uppercase">
-                  2. 🎪 Events Net Profit ({matrixYear})
-                </div>
-                <div className="text-base font-bold text-white mt-0.5">
-                  Tk {formatBDT(consolidatedGroupStats.evtMatrix.grandActualYtd)}
-                </div>
-                <div className="text-[10px] text-slate-400 mt-0.5">
-                  Full-Year w/ Forecast: Tk {formatCompactBDT(consolidatedGroupStats.evtMatrix.grandFullYear)}
-                </div>
-              </div>
-
-              <div className="bg-rose-950/60 rounded-lg p-3 border border-rose-800/60">
-                <div className="text-[10px] font-bold text-rose-300 uppercase">
-                  3. ➖ 🏢 IMS Group Internal Expenses
-                </div>
-                <div className="text-base font-bold text-rose-200 mt-0.5">
-                  −Tk {formatBDT(consolidatedGroupStats.compMatrix.grandActualYtd)}
-                </div>
-                <div className="text-[10px] text-rose-300/80 mt-0.5">
-                  HO, IT, Studio, BD, CLAN, SCL Overhead
-                </div>
-              </div>
-
-              <div
-                className={`rounded-lg p-3 border ${
-                  consolidatedGroupStats.trueGroupBottomLineYtd >= 0
-                    ? "bg-emerald-950/80 border-emerald-600"
-                    : "bg-red-950/80 border-red-600"
-                }`}
-              >
-                <div className="text-[10px] font-bold text-emerald-300 uppercase">
-                  4. ＝ True IMS Group Net Profit
-                </div>
-                <div className="text-base font-bold text-white mt-0.5">
-                  {consolidatedGroupStats.trueGroupBottomLineYtd >= 0 ? "+" : ""}
-                  Tk {formatBDT(consolidatedGroupStats.trueGroupBottomLineYtd)}
-                </div>
-                <div className="text-[10px] text-slate-300 mt-0.5">
-                  Full-Year Projected: Tk {formatCompactBDT(consolidatedGroupStats.trueGroupBottomLineFullYear)}
-                </div>
+                      : 0;
+                  const barWidth = Math.max(
+                    4,
+                    Math.min(
+                      100,
+                      Math.round((row.fullYearTotal / maxProjectProfit) * 100)
+                    )
+                  );
+                  return (
+                    <button
+                      key={row.project.id}
+                      type="button"
+                      onClick={() => {
+                        setSelectedId(row.project.id);
+                        setViewMode("SINGLE");
+                      }}
+                      className="w-full text-left group cursor-pointer"
+                    >
+                      <div className="flex items-center justify-between text-[11px] gap-2">
+                        <span className="font-semibold text-gray-800 group-hover:text-blue-700 truncate">
+                          {row.project.name}
+                        </span>
+                        <span className="font-mono font-bold text-gray-900 shrink-0">
+                          Tk {formatCompactBDT(row.fullYearTotal)}{" "}
+                          <span className="text-[10px] font-normal text-gray-400">
+                            ({sharePct}%)
+                          </span>
+                        </span>
+                      </div>
+                      <div className="mt-1 w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                        <div
+                          style={{ width: `${barWidth}%` }}
+                          className="bg-[#E42528] h-full rounded-full"
+                        ></div>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           </div>
+
+          {/* Slim Consolidated Group Bottom-Line Strip (ONLY for Full Unrestricted Report Access / MD / Accounts / Super Admin) */}
+          {isFullReportAccess && (
+            <div className="bg-slate-900 text-white rounded-xl px-4 py-3 shadow-sm border border-slate-800 flex flex-wrap items-center justify-between gap-3 text-xs">
+              <div className="font-bold text-slate-300 uppercase tracking-wider text-[11px]">
+                🏦 Group Bottom-Line ({matrixYear}):
+              </div>
+              <div className="flex flex-wrap items-center gap-4 font-mono">
+                <span>
+                  <span className="text-blue-300 font-sans">Projects:</span>{" "}
+                  <strong>Tk {formatCompactBDT(consolidatedGroupStats.projMatrix.grandActualYtd)}</strong>
+                </span>
+                <span>
+                  <span className="text-purple-300 font-sans">+ Events:</span>{" "}
+                  <strong>Tk {formatCompactBDT(consolidatedGroupStats.evtMatrix.grandActualYtd)}</strong>
+                </span>
+                <span>
+                  <span className="text-rose-300 font-sans">− Group OPEX:</span>{" "}
+                  <strong className="text-rose-200">Tk {formatCompactBDT(consolidatedGroupStats.compMatrix.grandActualYtd)}</strong>
+                </span>
+                <span className="px-2.5 py-1 rounded-lg bg-emerald-950/90 border border-emerald-600 text-emerald-300 font-bold">
+                  ＝ True Net: {consolidatedGroupStats.trueGroupBottomLineYtd >= 0 ? "+" : ""}Tk{" "}
+                  {formatCompactBDT(consolidatedGroupStats.trueGroupBottomLineYtd)}
+                </span>
+              </div>
+            </div>
+          )}
 
           {/* Matrix Table (Clean Quarterly-first, switchable to Monthly) */}
           <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">

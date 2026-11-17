@@ -391,6 +391,7 @@ export default async function FinancePnlPage() {
           projects={formattedProjects}
           canEditFinance={canEditFinance}
           canCloseMonth={canCloseMonth}
+          isFullReportAccess={isFullReportAccess}
         />
       </div>
     </AppShell>
