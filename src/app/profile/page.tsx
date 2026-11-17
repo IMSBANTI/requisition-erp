@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { syncDesignationWithLevel } from "@/lib/userDisplay";
 import AppShell from "@/components/AppShell";
 import ProfileClient from "./ProfileClient";
 
@@ -40,7 +41,7 @@ export default async function ProfilePage() {
             id: fullUser.id,
             name: fullUser.name,
             email: fullUser.email,
-            designation: fullUser.designation,
+            designation: syncDesignationWithLevel(fullUser.designation, user.levelLabel),
             signature: fullUser.signature,
             hasPin: !!fullUser.pinHash,
             mustChangePassword: fullUser.mustChangePassword,

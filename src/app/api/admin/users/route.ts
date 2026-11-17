@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requirePermission, hashSecret, clientIp } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { syncDesignationWithLevel } from "@/lib/userDisplay";
 
 export async function POST(request: Request) {
   try {
@@ -65,7 +66,10 @@ export async function POST(request: Request) {
         employeeId: employeeId ? String(employeeId).trim() : null,
         name: String(name).trim(),
         email: cleanEmail,
-        designation: designation ? String(designation).trim() : levelLabel || "Executive",
+        designation: syncDesignationWithLevel(
+          designation ? String(designation).trim() : "",
+          levelLabel || "Executive"
+        ),
         priorityLevel: Number(priorityLevel) || 2,
         levelLabel: levelLabel || "Executive",
         secondaryDepartments: Array.isArray(secondaryDepartments)
@@ -172,13 +176,19 @@ export async function PATCH(request: Request) {
       resolvedDeptId = deptRow.id;
     }
 
+    const nextLevelLabel =
+      levelLabel !== undefined ? levelLabel : existing.levelLabel;
+    const rawDesignation =
+      designation !== undefined
+        ? String(designation).trim()
+        : existing.designation;
     const updateData: any = {
       employeeId: employeeId !== undefined ? (employeeId ? String(employeeId).trim() : null) : existing.employeeId,
       name: name ? String(name).trim() : existing.name,
       email: cleanEmail,
-      designation: designation !== undefined ? String(designation).trim() : existing.designation,
+      designation: syncDesignationWithLevel(rawDesignation, nextLevelLabel),
       priorityLevel: priorityLevel !== undefined ? Number(priorityLevel) : existing.priorityLevel,
-      levelLabel: levelLabel !== undefined ? levelLabel : existing.levelLabel,
+      levelLabel: nextLevelLabel,
       secondaryDepartments: Array.isArray(secondaryDepartments)
         ? secondaryDepartments.filter(Boolean)
         : existing.secondaryDepartments,

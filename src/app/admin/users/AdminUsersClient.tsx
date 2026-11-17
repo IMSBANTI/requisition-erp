@@ -3,6 +3,7 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { PERMISSION_LABELS, CATEGORIES, Permission } from "@/lib/constants";
+import { syncDesignationWithLevel } from "@/lib/userDisplay";
 
 interface Props {
   users: any[];
@@ -371,12 +372,7 @@ export default function AdminUsersClient({
     } else {
       setReportAccessMode("ASSIGNED_ONLY");
     }
-    if (
-      !designation ||
-      ["Executive", "KAM", "Manager", "Director", "MD"].includes(designation)
-    ) {
-      setDesignation(newLevel);
-    }
+    setDesignation((prev) => syncDesignationWithLevel(prev, newLevel));
   }
 
   function toggleArrayItem(arr: string[], item: string, setter: (val: string[]) => void) {

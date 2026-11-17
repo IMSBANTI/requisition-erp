@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 import { prisma } from "./db";
+import { syncDesignationWithLevel } from "./userDisplay";
 
 const COOKIE = "ims_session";
 const MAX_AGE = 60 * 60 * 12; // 12 hours
@@ -73,6 +74,9 @@ async function loadUser(id: string) {
   }
   if (user.role?.name === "Sr. Manager IT & Transformation (Super Admin)") {
     user.role.name = "Sr. Manager, Information & Transformation (Super Admin)";
+  }
+  if (user.levelLabel) {
+    user.designation = syncDesignationWithLevel(user.designation, user.levelLabel);
   }
 
   const pLevel = user.priorityLevel ?? 2;

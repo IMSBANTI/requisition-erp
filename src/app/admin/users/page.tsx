@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { syncDesignationWithLevel } from "@/lib/userDisplay";
 import AppShell from "@/components/AppShell";
 import AdminUsersClient from "./AdminUsersClient";
 
@@ -52,11 +53,13 @@ export default async function AdminUsersPage() {
             employeeId: u.employeeId || "",
             name: u.name,
             email: u.email,
-            designation:
+            designation: syncDesignationWithLevel(
               u.designation === "Sr. Manager, IT & Transformation" ||
-              u.designation === "Sr. Manager IT & Transformation"
+                u.designation === "Sr. Manager IT & Transformation"
                 ? "Sr. Manager, Information & Transformation"
                 : u.designation,
+              u.levelLabel || (u.role.isManager ? "Manager" : "Executive")
+            ),
             priorityLevel: u.priorityLevel ?? 2,
             levelLabel: u.levelLabel || (u.role.isManager ? "Manager" : "Executive"),
             secondaryDepartments: u.secondaryDepartments || [],

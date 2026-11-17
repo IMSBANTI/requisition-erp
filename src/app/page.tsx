@@ -75,7 +75,7 @@ export default async function DashboardPage() {
             </h1>
             <p className="text-xs text-gray-500 mt-0.5">
               {user.designation} &bull; {user.role.name}
-              {user.company && ` &bull; ${user.company.name}`}
+              {user.company && ` • ${user.company.name}`}
             </p>
           </div>
           <div className="flex items-center space-x-2">
