@@ -1058,7 +1058,7 @@ export default function AdminUsersClient({
                     className="mt-1 w-full px-2.5 py-1.5 border border-gray-300 rounded bg-white font-semibold"
                   >
                     <option value="Executive">Executive</option>
-                    <option value="KAM">KAM (Key Account Manager — Above Executive)</option>
+                    <option value="KAM">KAM</option>
                     <option value="Manager">Manager</option>
                     <option value="Director">Director</option>
                     <option value="MD">MD (Managing Director)</option>
