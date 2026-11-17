@@ -85,7 +85,7 @@ export default async function FinancePnlPage() {
       : "PERMANENT";
     const fallbackTerms = getDefaultProjectTermsByCode(p.code, p.kind);
     const meta = extractProjectMeta(p.costHeads);
-    const configuredCostHeads = resolveCostHeadsForKind(p.costHeads, isEvent);
+    const configuredCostHeads = resolveCostHeadsForKind(p.costHeads, isEvent, p.code);
     const directExpenses: any[] = [];
     const closedMonths = meta.closedMonths || {};
     const manualForecasts = meta.manualForecasts || {};
@@ -206,6 +206,12 @@ export default async function FinancePnlPage() {
         p.aitRate !== undefined && p.aitRate !== null
           ? Number(p.aitRate)
           : Number(fallbackTerms.aitRate),
+      aitGrossupRate:
+        meta.aitGrossupRate !== undefined && meta.aitGrossupRate !== null
+          ? Number(meta.aitGrossupRate)
+          : fallbackTerms.aitGrossupRate !== undefined
+          ? Number(fallbackTerms.aitGrossupRate)
+          : undefined,
       vatRate:
         p.vatRate !== undefined && p.vatRate !== null
           ? Number(p.vatRate)

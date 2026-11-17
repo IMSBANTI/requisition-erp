@@ -7,6 +7,7 @@ import {
 } from "@/lib/rbac";
 import {
   calculateProfitSummary,
+  extractProjectMeta,
   getDefaultProjectTermsByCode,
 } from "@/lib/profitEngine";
 import AppShell from "@/components/AppShell";
@@ -67,6 +68,7 @@ export default async function ProjectFinanceDetailPage({ params }: Props) {
 
   const isEvent = p.kind === "EVENT" || p.code?.toUpperCase().startsWith("EVT-");
   const fallbackTerms = getDefaultProjectTermsByCode(p.code, p.kind);
+  const meta = extractProjectMeta(p.costHeads);
 
   const effectiveFixedBill =
     p.fixedMonthlyBill && Number(p.fixedMonthlyBill) > 0
@@ -85,6 +87,12 @@ export default async function ProjectFinanceDetailPage({ params }: Props) {
       p.aitRate !== undefined && p.aitRate !== null
         ? Number(p.aitRate)
         : Number(fallbackTerms.aitRate),
+    aitGrossupRate:
+      meta.aitGrossupRate !== undefined && meta.aitGrossupRate !== null
+        ? Number(meta.aitGrossupRate)
+        : fallbackTerms.aitGrossupRate !== undefined
+        ? Number(fallbackTerms.aitGrossupRate)
+        : undefined,
     vatRate:
       p.vatRate !== undefined && p.vatRate !== null
         ? Number(p.vatRate)

@@ -127,6 +127,7 @@ type ProjectFinanceItem = {
     billingProfile: any;
     feeRate: number;
     aitRate: number;
+    aitGrossupRate?: number;
     vatRate: number;
     billCycleDays: number;
     funding: any;
@@ -985,16 +986,19 @@ export default function FinanceClient({
       imsInvestment: imsSpend,
     });
 
-    const latestBillWithInvoice = pnlBills.find((b) => b.billExVat > 0);
-    const billedExVat = latestBillWithInvoice
-      ? latestBillWithInvoice.billExVat
-      : calc.billExVat;
-    const billedWithVat = latestBillWithInvoice
-      ? latestBillWithInvoice.billWithVat
-      : calc.billWithVat;
-    const expectedInflow = latestBillWithInvoice
-      ? latestBillWithInvoice.expectedInflow
-      : calc.expectedInflow;
+    const invoicedBills = pnlBills.filter((b) => b.billExVat > 0);
+    const billedExVat =
+      invoicedBills.length > 0
+        ? invoicedBills.reduce((sum, b) => sum + b.billExVat, 0)
+        : calc.billExVat;
+    const billedWithVat =
+      invoicedBills.length > 0
+        ? invoicedBills.reduce((sum, b) => sum + b.billWithVat, 0)
+        : calc.billWithVat;
+    const expectedInflow =
+      invoicedBills.length > 0
+        ? invoicedBills.reduce((sum, b) => sum + b.expectedInflow, 0)
+        : calc.expectedInflow;
 
     const receivedAmount = pnlBills.reduce(
       (sum, b) => sum + b.receivedAmount,
@@ -1019,6 +1023,15 @@ export default function FinanceClient({
 
     const distinctMonths = new Set(reqs.map((r) => r.forMonth)).size || 1;
     const monthlyAvgSpend = totalSpend / distinctMonths;
+    const activeMonthCount =
+      monthlyAvgSpend > 0
+        ? Math.max(1, Math.round(totalSpend / monthlyAvgSpend))
+        : 1;
+    const reqWc2x = monthlyAvgSpend * 2;
+    const reqWc25x = monthlyAvgSpend * 2.5;
+    const annualizedNetProfit = (accruedProfit / activeMonthCount) * 12;
+    const roi2xPct = reqWc2x > 0 ? (annualizedNetProfit / reqWc2x) * 100 : 0;
+    const roi25xPct = reqWc25x > 0 ? (annualizedNetProfit / reqWc25x) * 100 : 0;
 
     return {
       reqs,
@@ -1030,6 +1043,12 @@ export default function FinanceClient({
       executedSpend,
       pendingSpend,
       monthlyAvgSpend,
+      activeMonthCount,
+      reqWc2x,
+      reqWc25x,
+      annualizedNetProfit,
+      roi2xPct,
+      roi25xPct,
       calc,
       billedExVat,
       billedWithVat,
@@ -4523,7 +4542,14 @@ export default function FinanceClient({
                       <span>·</span>
                       <span>
                         {(selectedProject.terms.vatRate * 100).toFixed(0)}% VAT /{" "}
-                        {(selectedProject.terms.aitRate * 100).toFixed(1)}% AIT
+                        {selectedProject.terms.billingProfile === "COST_PLUS_GROSSUP" &&
+                        selectedProject.terms.aitGrossupRate !== undefined &&
+                        Math.abs(
+                          selectedProject.terms.aitGrossupRate -
+                            selectedProject.terms.aitRate
+                        ) > 0.0001
+                          ? `${(selectedProject.terms.aitGrossupRate * 100).toFixed(1)}% Gross-Up · ${(selectedProject.terms.aitRate * 100).toFixed(1)}% AIT`
+                          : `${(selectedProject.terms.aitRate * 100).toFixed(1)}% AIT`}
                       </span>
                       <span>·</span>
                       <span>{selectedProject.terms.billCycleDays}d Cycle</span>
@@ -4648,6 +4674,50 @@ export default function FinanceClient({
                   </div>
                 </div>
               </div>
+
+              {/* WORKING CAPITAL (2x / 2.5x) & ANNUALIZED ROI STRIP FOR PROJECTS */}
+              {selectedProject.kind === "PERMANENT" && activeStats.totalSpend > 0 && (
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase">
+                      Avg Monthly Cost ({activeStats.activeMonthCount} mo)
+                    </div>
+                    <div className="text-sm font-bold text-slate-900 mt-0.5 font-mono">
+                      Tk {formatBDT(activeStats.monthlyAvgSpend)}
+                    </div>
+                  </div>
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                    <div className="text-[10px] font-bold text-slate-500 uppercase">
+                      Req. Working Capital @ 2.0x
+                    </div>
+                    <div className="text-sm font-bold text-slate-900 mt-0.5 font-mono">
+                      Tk {formatBDT(activeStats.reqWc2x)}
+                    </div>
+                  </div>
+                  <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl px-4 py-3">
+                    <div className="text-[10px] font-bold text-indigo-700 uppercase">
+                      Annualized ROI @ 2.0x WC
+                    </div>
+                    <div className="text-sm font-bold text-indigo-950 mt-0.5">
+                      {activeStats.roi2xPct.toFixed(1)}% / yr
+                      <span className="ml-1.5 text-[10px] font-normal text-indigo-700">
+                        (Yr Profit: Tk {formatCompactBDT(activeStats.annualizedNetProfit)})
+                      </span>
+                    </div>
+                  </div>
+                  <div className="bg-indigo-50/70 border border-indigo-200 rounded-xl px-4 py-3">
+                    <div className="text-[10px] font-bold text-indigo-700 uppercase">
+                      Req. WC @ 2.5x · Annualized ROI
+                    </div>
+                    <div className="text-sm font-bold text-indigo-950 mt-0.5">
+                      {activeStats.roi25xPct.toFixed(1)}% / yr
+                      <span className="ml-1.5 text-[10px] font-normal text-indigo-700 font-mono">
+                        (WC: Tk {formatCompactBDT(activeStats.reqWc25x)})
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* STEP 4: TWO CLEAN TABLES FOR THE SELECTED PROJECT / EVENT */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

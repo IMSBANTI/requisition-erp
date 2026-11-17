@@ -70,14 +70,18 @@ export interface ProjectExtendedMeta {
   manualForecasts?: Record<string, ManualForecastRecord>;
   directExpenses?: DirectExpenseItem[];
   requiresRequisition?: boolean;
+  /** Separate billing gross-up AIT rate (e.g. 0.02 for 2%) when different from actual AIT deducted (e.g. 0.01 for 1%). */
+  aitGrossupRate?: number;
 }
 
 export interface BillingTermsInput {
   billingProfile: BillingProfile | string;
   /** Decimal rate (e.g. 0.08 for 8%, 0.045 for 4.5%) */
   feeRate: number | string | Decimal;
-  /** Decimal rate (e.g. 0.012 for 1.2%, 0.02 for 2%) */
+  /** Decimal rate for actual AIT deducted (e.g. 0.012 for 1.2%, 0.01 for 1%) */
   aitRate: number | string | Decimal;
+  /** Optional decimal rate for COST_PLUS_GROSSUP invoice AIT gross-up (defaults to aitRate if omitted) */
+  aitGrossupRate?: number | string | Decimal;
   /** Decimal rate (default 0.15 for 15%) */
   vatRate?: number | string | Decimal;
   billCycleDays?: number;
@@ -158,6 +162,10 @@ export function calculateProfitSummary(input: ProfitCalculationInput): ProfitCal
 
   const feeRate = normalizeRate(input.terms.feeRate, 0.08);
   const aitRate = normalizeRate(input.terms.aitRate, 0.012);
+  const grossupRate = normalizeRate(
+    input.terms.aitGrossupRate ?? input.terms.aitRate,
+    0.02
+  );
   const vatRate = normalizeRate(input.terms.vatRate, 0.15);
 
   let fee = new Decimal(0);
@@ -171,7 +179,7 @@ export function calculateProfitSummary(input: ProfitCalculationInput): ProfitCal
     ait = round2(billExVat.times(aitRate));
   } else if (profile === "COST_PLUS_GROSSUP") {
     fee = round2(billable.times(feeRate));
-    aitGrossup = round2(billable.plus(fee).times(aitRate));
+    aitGrossup = round2(billable.plus(fee).times(grossupRate));
     billExVat = round2(billable.plus(fee).plus(aitGrossup));
     ait = round2(billExVat.times(aitRate));
   } else if (profile === "COMMISSION") {
@@ -339,6 +347,32 @@ export const DEFAULT_PROJECT_COST_HEADS: CostHeadConfig[] = [
 ];
 
 /**
+ * Robi SME Specific Cost Heads (aligned with IMS Robi SME monthly P&L sheet)
+ */
+export const ROBI_SME_COST_HEADS: CostHeadConfig[] = [
+  { id: "ff_fixed_salary", name: "SME Field Force Fixed Salary", tag: "BILLABLE", isSalary: true, aliases: ["Field force fixed salary", "FF Fixed Salary"] },
+  { id: "ff_var_salary", name: "SME Field Force Variable Salary", tag: "BILLABLE", isSalary: true, aliases: ["Field force variable salary", "FF Variable Salary"] },
+  { id: "bo_fixed_salary", name: "Back Office Fixed Salary (BO + EBS + SSE)", tag: "BILLABLE", isSalary: true, aliases: ["Back office fixed salary", "BO Fixed Salary"] },
+  { id: "bo_var_salary", name: "Back Office Variable Salary (BO + EBS + SSE)", tag: "BILLABLE", isSalary: true, aliases: ["Back office variable salary", "BO Variable Salary"] },
+  { id: "mobile_bill", name: "Mobile Bill (Previous Month)", tag: "BILLABLE", isSalary: false, aliases: ["Mobile bill"] },
+  { id: "tracking_cost", name: "Tracking Cost", tag: "BILLABLE", isSalary: false, aliases: ["Tracking cost"] },
+  { id: "campaign_incentive", name: "Campaign / Incentive (Previous Month)", tag: "BILLABLE", isSalary: false, aliases: ["Campaign", "Incentive"] },
+  { id: "house_rent", name: "House Rent", tag: "BILLABLE", isSalary: false, aliases: ["House rent"] },
+  { id: "utilities", name: "Utilities (Elec / Water / Gas / Net)", tag: "BILLABLE", isSalary: false, aliases: ["Utilities (elec/water/gas/net)", "Utilities"] },
+  { id: "stationary", name: "Stationary & Printing", tag: "BILLABLE", isSalary: false, aliases: ["Stationary", "Stationery"] },
+  { id: "refreshment_water", name: "Refreshment & Drinking Water", tag: "BILLABLE", isSalary: false, aliases: ["Refreshment & Water"] },
+  { id: "courier_photocopy", name: "Courier & Photocopy", tag: "BILLABLE", isSalary: false, aliases: ["Courier / stamp / stationery", "Courier & Photocopy"] },
+  { id: "office_maintenance", name: "Office Maintenance (Peon & BUA)", tag: "BILLABLE", isSalary: false, aliases: ["Office Maintenance"] },
+  { id: "visiting_card", name: "Visiting Card & ID Card", tag: "BILLABLE", isSalary: false, aliases: ["Visiting Card"] },
+  { id: "monthly_meeting", name: "Monthly Meeting & Training", tag: "BILLABLE", isSalary: false, aliases: ["Monthly Meeting"] },
+  { id: "fixed_investment", name: "Fixed Investment (Laptop / Printer / Furniture)", tag: "BILLABLE", isSalary: false, aliases: ["Fixed Investment"] },
+  { id: "festival_gratuity_adj", name: "Festival / Eid Bonus & Gratuity Adjustment", tag: "BILLABLE", isSalary: true, aliases: ["Eid Bonus", "Gratuity"] },
+  { id: "pm_cost", name: "Project Manager Cost (IMS)", tag: "IMS_INVESTMENT", isSalary: true, aliases: ["Project manager cost (IMS)"] },
+  { id: "exec_cost", name: "Project Executive Cost (IMS)", tag: "IMS_INVESTMENT", isSalary: true, aliases: ["Executive Salary", "Coordinator Cost (IMS)"] },
+  { id: "ims_support", name: "PM / Exec Conveyance, ID Card & Courier (IMS Inv.)", tag: "IMS_INVESTMENT", isSalary: false, aliases: ["IMS unbilled support / investment", "PM Conveyance"] },
+];
+
+/**
  * Default Cost Heads for Events / Activations (strictly for 🎪 Event Requisition)
  */
 export const DEFAULT_EVENT_COST_HEADS: CostHeadConfig[] = [
@@ -407,8 +441,12 @@ export function packCostHeadsWithMeta(
  */
 export function resolveCostHeadsForKind(
   rawCostHeads: unknown,
-  isEvent: boolean
+  isEvent: boolean,
+  projectCode?: string
 ): CostHeadConfig[] {
+  const isRobiProject =
+    !isEvent && (projectCode || "").toUpperCase().includes("ROBI");
+
   if (Array.isArray(rawCostHeads) && rawCostHeads.length > 0) {
     const withoutMeta = (rawCostHeads as CostHeadConfig[]).filter(
       (ch) => ch && ch.id !== PROJECT_META_ID && ch.name
@@ -424,10 +462,24 @@ export function resolveCostHeadsForKind(
         if (cleaned.length > 0) return cleaned;
         return DEFAULT_EVENT_COST_HEADS;
       }
+      // If PROJ-ROBI only has unmodified generic defaults, upgrade cleanly to ROBI_SME_COST_HEADS
+      if (
+        isRobiProject &&
+        withoutMeta.length <= DEFAULT_PROJECT_COST_HEADS.length &&
+        withoutMeta.every(
+          (ch) =>
+            PROJECT_DEFAULT_IDS.has(ch.id) ||
+            PROJECT_DEFAULT_NAMES.has(ch.name.toLowerCase())
+        )
+      ) {
+        return ROBI_SME_COST_HEADS;
+      }
       return withoutMeta;
     }
   }
-  return isEvent ? DEFAULT_EVENT_COST_HEADS : DEFAULT_PROJECT_COST_HEADS;
+  if (isEvent) return DEFAULT_EVENT_COST_HEADS;
+  if (isRobiProject) return ROBI_SME_COST_HEADS;
+  return DEFAULT_PROJECT_COST_HEADS;
 }
 
 /**
@@ -455,7 +507,8 @@ export function getDefaultProjectTermsByCode(code: string, kind?: string): Billi
     return {
       billingProfile: "COST_PLUS_GROSSUP",
       feeRate: 0.045, // 4.5% Management Fee
-      aitRate: 0.02, // 2.0% AIT grossed up into bill
+      aitRate: 0.01, // 1.0% actual AIT deducted (Apr 2026+ Robi SME rate)
+      aitGrossupRate: 0.02, // 2.0% AIT grossed up into invoice bill
       vatRate: 0.15,
       billCycleDays: 30,
       funding: "POSTPAID",

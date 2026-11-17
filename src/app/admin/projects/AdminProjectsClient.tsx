@@ -33,6 +33,7 @@ interface ProjectItem {
   billingProfile?: string;
   feeRate?: number;
   aitRate?: number;
+  aitGrossupRate?: number;
   vatRate?: number;
   billCycleDays?: number;
   funding?: string;
@@ -122,6 +123,7 @@ export default function AdminProjectsClient({
   const [billingProfile, setBillingProfile] = useState("COST_PLUS");
   const [feeRatePct, setFeeRatePct] = useState("8");
   const [aitRatePct, setAitRatePct] = useState("1.2");
+  const [aitGrossupRatePct, setAitGrossupRatePct] = useState("2");
   const [vatRatePct, setVatRatePct] = useState("15");
   const [billCycleDays, setBillCycleDays] = useState("30");
   const [funding, setFunding] = useState("POSTPAID");
@@ -152,6 +154,7 @@ export default function AdminProjectsClient({
   const [editBillingProfile, setEditBillingProfile] = useState("COST_PLUS");
   const [editFeeRatePct, setEditFeeRatePct] = useState("8");
   const [editAitRatePct, setEditAitRatePct] = useState("1.2");
+  const [editAitGrossupRatePct, setEditAitGrossupRatePct] = useState("2");
   const [editVatRatePct, setEditAitVatRatePct] = useState("15");
   const [editBillCycleDays, setEditBillCycleDays] = useState("30");
   const [editFunding, setEditFunding] = useState("POSTPAID");
@@ -220,6 +223,7 @@ export default function AdminProjectsClient({
     setBillingProfile(isEvt ? "FIXED_QUOTE" : "COST_PLUS");
     setFeeRatePct(isEvt ? "10" : "8");
     setAitRatePct(isEvt ? "2" : "1.2");
+    setAitGrossupRatePct("2");
     setVatRatePct("15");
     setBillCycleDays("30");
     setFunding("POSTPAID");
@@ -256,9 +260,16 @@ export default function AdminProjectsClient({
     setEditBillingProfile(p.billingProfile || (isEvt ? "COST_PLUS" : "COST_PLUS"));
     const fRate = p.feeRate !== undefined ? (p.feeRate <= 1 ? p.feeRate * 100 : p.feeRate) : 8;
     const aRate = p.aitRate !== undefined ? (p.aitRate <= 1 ? p.aitRate * 100 : p.aitRate) : 1.2;
+    const gRate =
+      p.aitGrossupRate !== undefined
+        ? p.aitGrossupRate <= 1
+          ? p.aitGrossupRate * 100
+          : p.aitGrossupRate
+        : aRate;
     const vRate = p.vatRate !== undefined ? (p.vatRate <= 1 ? p.vatRate * 100 : p.vatRate) : 15;
     setEditFeeRatePct(String(Number(fRate.toFixed(2))));
     setEditAitRatePct(String(Number(aRate.toFixed(2))));
+    setEditAitGrossupRatePct(String(Number(gRate.toFixed(2))));
     setEditAitVatRatePct(String(Number(vRate.toFixed(2))));
     setEditBillCycleDays(String(p.billCycleDays ?? 30));
     setEditFunding(p.funding || "POSTPAID");
@@ -305,6 +316,10 @@ export default function AdminProjectsClient({
         billingProfile: editBillingProfile,
         feeRate: (parseFloat(editFeeRatePct) || 0) / 100,
         aitRate: (parseFloat(editAitRatePct) || 0) / 100,
+        aitGrossupRate:
+          editBillingProfile === "COST_PLUS_GROSSUP"
+            ? (parseFloat(editAitGrossupRatePct) || 0) / 100
+            : undefined,
         vatRate: (parseFloat(editVatRatePct) || 0) / 100,
         fixedMonthlyBill: parseFloat(editFixedMonthlyBill) || 0,
         maintenanceBudget: parseFloat(editMaintenanceBudget) || 0,
@@ -317,6 +332,7 @@ export default function AdminProjectsClient({
     editBillingProfile,
     editFeeRatePct,
     editAitRatePct,
+    editAitGrossupRatePct,
     editVatRatePct,
     editFixedMonthlyBill,
     editMaintenanceBudget,
@@ -354,6 +370,9 @@ export default function AdminProjectsClient({
           billingProfile,
           feeRate: (parseFloat(feeRatePct) || 0) / 100,
           aitRate: (parseFloat(aitRatePct) || 0) / 100,
+          ...(billingProfile === "COST_PLUS_GROSSUP"
+            ? { aitGrossupRate: (parseFloat(aitGrossupRatePct) || 0) / 100 }
+            : {}),
           vatRate: (parseFloat(vatRatePct) || 0) / 100,
           billCycleDays: parseInt(billCycleDays, 10) || 30,
           funding,
@@ -411,6 +430,10 @@ export default function AdminProjectsClient({
           billingProfile: editBillingProfile,
           feeRate: (parseFloat(editFeeRatePct) || 0) / 100,
           aitRate: (parseFloat(editAitRatePct) || 0) / 100,
+          aitGrossupRate:
+            editBillingProfile === "COST_PLUS_GROSSUP"
+              ? (parseFloat(editAitGrossupRatePct) || 0) / 100
+              : null,
           vatRate: (parseFloat(editVatRatePct) || 0) / 100,
           billCycleDays: parseInt(editBillCycleDays, 10) || 30,
           funding: editFunding,
@@ -986,7 +1009,8 @@ export default function AdminProjectsClient({
                         onClick={() => {
                           setEditBillingProfile("COST_PLUS_GROSSUP");
                           if (!editFeeRatePct) setEditFeeRatePct("4.5");
-                          if (!editAitRatePct) setEditAitRatePct("2");
+                          if (!editAitRatePct) setEditAitRatePct("1");
+                          if (!editAitGrossupRatePct) setEditAitGrossupRatePct("2");
                         }}
                         className={`p-3 rounded-lg border text-left transition-all cursor-pointer ${
                           editBillingProfile === "COST_PLUS_GROSSUP"
@@ -1073,7 +1097,13 @@ export default function AdminProjectsClient({
                       </div>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div
+                      className={`grid grid-cols-1 gap-3 ${
+                        editBillingProfile === "COST_PLUS_GROSSUP"
+                          ? "sm:grid-cols-5"
+                          : "sm:grid-cols-4"
+                      }`}
+                    >
                       <div>
                         <label className="block text-xs font-semibold text-gray-700">
                           {editBillingProfile === "COMMISSION" ? "Commission (%)" : "Management Fee (%)"}
@@ -1086,8 +1116,25 @@ export default function AdminProjectsClient({
                           className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono font-bold bg-white"
                         />
                       </div>
+                      {editBillingProfile === "COST_PLUS_GROSSUP" && (
+                        <div>
+                          <label className="block text-xs font-semibold text-gray-700">
+                            Bill Gross-Up (%)
+                          </label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={editAitGrossupRatePct}
+                            onChange={(e) => setEditAitGrossupRatePct(e.target.value)}
+                            className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono font-bold bg-white"
+                            title="Rate used to gross up the invoice bill (e.g. 2% for Robi SME)"
+                          />
+                        </div>
+                      )}
                       <div>
-                        <label className="block text-xs font-semibold text-gray-700">AIT (%)</label>
+                        <label className="block text-xs font-semibold text-gray-700">
+                          {editBillingProfile === "COST_PLUS_GROSSUP" ? "AIT Deducted (%)" : "AIT (%)"}
+                        </label>
                         <input
                           type="number"
                           step="0.01"
@@ -1586,7 +1633,11 @@ export default function AdminProjectsClient({
                   </button>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                <div
+                  className={`grid grid-cols-1 gap-3 pt-1 ${
+                    billingProfile === "COST_PLUS_GROSSUP" ? "sm:grid-cols-4" : "sm:grid-cols-3"
+                  }`}
+                >
                   {billingProfile === "FIXED_FEE" || billingProfile === "FIXED_QUOTE" ? (
                     <div>
                       <label className="block text-xs font-semibold text-gray-700">
@@ -1614,8 +1665,24 @@ export default function AdminProjectsClient({
                       />
                     </div>
                   )}
+                  {billingProfile === "COST_PLUS_GROSSUP" && (
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700">
+                        Bill Gross-Up (%)
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={aitGrossupRatePct}
+                        onChange={(e) => setAitGrossupRatePct(e.target.value)}
+                        className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
+                      />
+                    </div>
+                  )}
                   <div>
-                    <label className="block text-xs font-semibold text-gray-700">AIT (%)</label>
+                    <label className="block text-xs font-semibold text-gray-700">
+                      {billingProfile === "COST_PLUS_GROSSUP" ? "AIT Deducted (%)" : "AIT (%)"}
+                    </label>
                     <input
                       type="number"
                       step="0.01"

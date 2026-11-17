@@ -1,7 +1,11 @@
 import { prisma } from "@/lib/db";
 import {
   DEFAULT_PROJECT_COST_HEADS,
+  ROBI_SME_COST_HEADS,
+  extractProjectMeta,
   getDefaultProjectTermsByCode,
+  packCostHeadsWithMeta,
+  resolveCostHeadsForKind,
 } from "@/lib/profitEngine";
 
 export const UPLOADED_KIT_PROJECTS = [
@@ -134,7 +138,7 @@ let syncedInProcess = false;
 export async function ensureUploadedKitProjectsSynced(): Promise<void> {
   if (syncedInProcess) return;
   try {
-    const [existingDbh, legacyCount] = await Promise.all([
+    const [existingDbh, legacyCount, existingRobi] = await Promise.all([
       prisma.project.findUnique({
         where: { code: "PROJ-DBH" },
         select: { id: true },
@@ -142,9 +146,18 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
       prisma.project.count({
         where: { code: { in: LEGACY_PROJECTS_TO_REMOVE } },
       }),
+      prisma.project.findUnique({
+        where: { code: "PROJ-ROBI" },
+        select: { id: true, billingProfile: true, costHeads: true },
+      }),
     ]);
 
-    if (existingDbh && legacyCount === 0) {
+    const robiNeedsUpgrade =
+      existingRobi &&
+      existingRobi.billingProfile === "COST_PLUS_GROSSUP" &&
+      extractProjectMeta(existingRobi.costHeads).aitGrossupRate === undefined;
+
+    if (existingDbh && legacyCount === 0 && !robiNeedsUpgrade) {
       syncedInProcess = true;
       return;
     }
@@ -227,15 +240,42 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
             monthlyAmortization: defaultTerms.monthlyAmortization
               ? Number(defaultTerms.monthlyAmortization)
               : 0,
-            costHeads: DEFAULT_PROJECT_COST_HEADS as any,
+            costHeads:
+              p.code === "PROJ-ROBI"
+                ? (packCostHeadsWithMeta(ROBI_SME_COST_HEADS, {
+                    aitGrossupRate: Number(defaultTerms.aitGrossupRate ?? 0.02),
+                  }) as any)
+                : (DEFAULT_PROJECT_COST_HEADS as any),
             members: { connect: memberIds.map((id) => ({ id })) },
           },
         });
-      } else if (p.code === "PROJ-ROBI" && existing.name === "Project Robi") {
-        await prisma.project.update({
-          where: { code: "PROJ-ROBI" },
-          data: { name: "Project Robi SME" },
-        });
+      } else if (p.code === "PROJ-ROBI") {
+        const robiMeta = extractProjectMeta(existing.costHeads);
+        const needsNameFix = existing.name === "Project Robi";
+        const needsSplitAitUpgrade =
+          existing.billingProfile === "COST_PLUS_GROSSUP" &&
+          robiMeta.aitGrossupRate === undefined;
+
+        if (needsNameFix || needsSplitAitUpgrade) {
+          await prisma.project.update({
+            where: { code: "PROJ-ROBI" },
+            data: {
+              ...(needsNameFix ? { name: "Project Robi SME" } : {}),
+              ...(needsSplitAitUpgrade
+                ? {
+                    aitRate:
+                      Number(existing.aitRate) === 0.02
+                        ? 0.01
+                        : Number(existing.aitRate),
+                    costHeads: packCostHeadsWithMeta(
+                      resolveCostHeadsForKind(existing.costHeads, false, "PROJ-ROBI"),
+                      { ...robiMeta, aitGrossupRate: 0.02 }
+                    ) as any,
+                  }
+                : {}),
+            },
+          });
+        }
       }
     }
 

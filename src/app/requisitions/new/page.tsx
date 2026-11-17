@@ -3,6 +3,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/db";
 import { projectScope } from "@/lib/rbac";
 import {
+  extractProjectMeta,
   resolveCostHeadsForKind,
   getDefaultProjectTermsByCode,
 } from "@/lib/profitEngine";
@@ -215,6 +216,7 @@ export default async function NewRequisitionPage() {
           projects={projects.map((p: any) => {
             const isEvent = p.kind === "EVENT" || p.code?.toUpperCase().startsWith("EVT-");
             const fallbackTerms = getDefaultProjectTermsByCode(p.code, p.kind);
+            const meta = extractProjectMeta(p.costHeads);
             const recentReqs = p.requisitions || [];
             const latestReq = recentReqs[0] || null;
             const cumulativeSpend = recentReqs.reduce(
@@ -243,6 +245,12 @@ export default async function NewRequisitionPage() {
                 p.aitRate !== undefined && p.aitRate !== null
                   ? Number(p.aitRate)
                   : Number(fallbackTerms.aitRate),
+              aitGrossupRate:
+                meta.aitGrossupRate !== undefined && meta.aitGrossupRate !== null
+                  ? Number(meta.aitGrossupRate)
+                  : fallbackTerms.aitGrossupRate !== undefined
+                  ? Number(fallbackTerms.aitGrossupRate)
+                  : undefined,
               vatRate:
                 p.vatRate !== undefined && p.vatRate !== null
                   ? Number(p.vatRate)
@@ -265,7 +273,7 @@ export default async function NewRequisitionPage() {
               varianceThresholdPct: p.varianceThresholdPct
                 ? Number(p.varianceThresholdPct)
                 : 10,
-              costHeads: resolveCostHeadsForKind(p.costHeads, isEvent),
+              costHeads: resolveCostHeadsForKind(p.costHeads, isEvent, p.code),
               lastRequisition: latestReq
                 ? {
                     id: latestReq.id,

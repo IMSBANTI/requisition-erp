@@ -101,6 +101,12 @@ export default async function AdminProjectsPage() {
               billingProfile: p.billingProfile || fallbackTerms.billingProfile,
               feeRate: p.feeRate !== undefined && p.feeRate !== null ? Number(p.feeRate) : Number(fallbackTerms.feeRate),
               aitRate: p.aitRate !== undefined && p.aitRate !== null ? Number(p.aitRate) : Number(fallbackTerms.aitRate),
+              aitGrossupRate:
+                meta.aitGrossupRate !== undefined && meta.aitGrossupRate !== null
+                  ? Number(meta.aitGrossupRate)
+                  : fallbackTerms.aitGrossupRate !== undefined
+                  ? Number(fallbackTerms.aitGrossupRate)
+                  : undefined,
               vatRate: p.vatRate !== undefined && p.vatRate !== null ? Number(p.vatRate) : Number(fallbackTerms.vatRate ?? 0.15),
               billCycleDays: p.billCycleDays ?? fallbackTerms.billCycleDays ?? 30,
               funding: p.funding || fallbackTerms.funding || "POSTPAID",
@@ -109,7 +115,7 @@ export default async function AdminProjectsPage() {
               maintenanceBudget: p.maintenanceBudget ? Number(p.maintenanceBudget) : Number(fallbackTerms.maintenanceBudget ?? 0),
               monthlyAmortization: p.monthlyAmortization ? Number(p.monthlyAmortization) : Number(fallbackTerms.monthlyAmortization ?? 0),
               varianceThresholdPct: p.varianceThresholdPct ? Number(p.varianceThresholdPct) : 10,
-              costHeads: resolveCostHeadsForKind(p.costHeads, isEvent),
+              costHeads: resolveCostHeadsForKind(p.costHeads, isEvent, p.code),
               stepThresholds: meta.stepThresholds || {},
             };
           })}

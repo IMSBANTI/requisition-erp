@@ -39,6 +39,7 @@ export async function POST(request: Request) {
       billingProfile,
       feeRate,
       aitRate,
+      aitGrossupRate,
       vatRate,
       billCycleDays,
       funding,
@@ -56,11 +57,19 @@ export async function POST(request: Request) {
     }
 
     const effectiveHeadId = isSuperAdmin ? headId || null : headId || user.id;
-    const packedCostHeads = costHeads
-      ? packCostHeadsWithMeta(costHeads, {
-          stepThresholds: stepThresholds || {},
-        })
-      : undefined;
+    const isCreateEvt = kind === "EVENT" || String(code || "").toUpperCase().startsWith("EVT-");
+    const packedCostHeads =
+      costHeads || aitGrossupRate !== undefined
+        ? packCostHeadsWithMeta(
+            costHeads || resolveCostHeadsForKind(undefined, isCreateEvt, code),
+            {
+              stepThresholds: stepThresholds || {},
+              ...(aitGrossupRate !== undefined && aitGrossupRate !== null
+                ? { aitGrossupRate: Number(aitGrossupRate) }
+                : {}),
+            }
+          )
+        : undefined;
 
     const autoMemberIds = Array.from(
       new Set(
@@ -143,6 +152,7 @@ export async function PATCH(request: Request) {
       billingProfile,
       feeRate,
       aitRate,
+      aitGrossupRate,
       vatRate,
       billCycleDays,
       funding,
@@ -186,11 +196,17 @@ export async function PATCH(request: Request) {
     const resolvedHeads =
       costHeads !== undefined
         ? costHeads
-        : resolveCostHeadsForKind(existingProject.costHeads, isEvt);
+        : resolveCostHeadsForKind(existingProject.costHeads, isEvt, code || existingProject.code);
 
     const updatedMeta = {
       ...existingMeta,
       ...(stepThresholds !== undefined ? { stepThresholds } : {}),
+      ...(aitGrossupRate !== undefined
+        ? {
+            aitGrossupRate:
+              aitGrossupRate === null ? undefined : Number(aitGrossupRate),
+          }
+        : {}),
     };
     const packedCostHeads = packCostHeadsWithMeta(resolvedHeads, updatedMeta);
 
