@@ -15,13 +15,14 @@ export interface ScopeUser {
 }
 
 /**
- * Prisma `where` filter restricting which requisitions a user can see:
+ * Prisma `where` filter restricting which requisitions a user can see in All Requisitions (/requisitions) & Dashboard (/):
  * - ONLY Central Accounts (Harun, Israt Jahan, Sumon) and Super Admin (IT) — or a user explicitly
- *   granted `req.view.all` / `report.view.all` without `report.strict.scope` — see ALL requisitions.
- * - Everyone else (including Polok, Group Heads, Managers, Directors, and Managing Directors) ONLY sees:
- *   1. Their own created requisitions (`makerId: user.id`)
- *   2. Requisitions currently waiting for their signature (`currentAssigneeId: user.id`) or already signed by them
- *   3. Requisitions belonging strictly to their assigned Projects, Events, or IMS Group Divisions (`financialReportProjectScope(user)`).
+ *   granted `report.view.all` without `report.strict.scope` — see ALL requisitions.
+ * - Everyone else (including Murshalin Mahmud Polok, Group Heads, Managers, Directors, MDs, and Executives)
+ *   ONLY sees requisitions they are directly involved in:
+ *   1. Requisitions they created themselves (`makerId: user.id`)
+ *   2. Requisitions currently waiting for their signature (`currentAssigneeId: user.id`)
+ *   3. Requisitions they have already signed/approved/returned/rejected (`approvals: { some: { userId: user.id } }`)
  */
 export function requisitionScope(user: ScopeUser): Prisma.RequisitionWhereInput {
   const p = user.permissions;
@@ -41,7 +42,7 @@ export function requisitionScope(user: ScopeUser): Prisma.RequisitionWhereInput 
     return {};
   }
 
-  // Base visibility for every user: own requisitions, currently assigned to them, or already signed by them
+  // Strict personal & signature involvement only for all non-Accounts / non-Super-Admin users
   const or: Prisma.RequisitionWhereInput[] = [
     { makerId: user.id },
     { currentAssigneeId: user.id },
@@ -49,21 +50,14 @@ export function requisitionScope(user: ScopeUser): Prisma.RequisitionWhereInput 
     { approvals: { some: { userId: user.id } } },
   ];
 
-  const isApproverOrDirectorOrMd =
-    p.includes(PERMISSIONS.REQ_APPROVE) ||
-    p.includes(PERMISSIONS.REQ_DIRECTOR) ||
-    p.includes(PERMISSIONS.REQ_MD);
-
-  if (isApproverOrDirectorOrMd || user.projectScopes.length > 0) {
-    // Strictly restrict project/event/division requisitions to the user's permitted scope
+  // For Managing Directors (where MD step has assigneeId: null), include PENDING_MD / PENDING_BATCH requisitions on their assigned projects
+  if (p.includes(PERMISSIONS.REQ_MD)) {
     or.push({
-      project: financialReportProjectScope(user),
+      AND: [
+        { OR: [{ status: "PENDING_MD" }, { mdStatus: "PENDING_BATCH" }] },
+        { project: financialReportProjectScope(user) },
+      ],
     });
-  }
-
-  // IT Checker sees AI/IT category requisitions unless restricted by strict scope
-  if (p.includes(PERMISSIONS.REQ_APPROVE_IT) && !p.includes("report.strict.scope")) {
-    or.push({ category: "AI_IT" });
   }
 
   return { OR: or };
