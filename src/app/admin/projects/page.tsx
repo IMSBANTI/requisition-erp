@@ -107,6 +107,20 @@ export default async function AdminProjectsPage() {
                   : fallbackTerms.aitGrossupRate !== undefined
                   ? Number(fallbackTerms.aitGrossupRate)
                   : undefined,
+              reimbursementTaxDivisor:
+                meta.reimbursementTaxDivisor !== undefined &&
+                meta.reimbursementTaxDivisor !== null
+                  ? Number(meta.reimbursementTaxDivisor)
+                  : fallbackTerms.reimbursementTaxDivisor !== undefined
+                  ? Number(fallbackTerms.reimbursementTaxDivisor)
+                  : undefined,
+              fixedKamRecovery:
+                meta.fixedKamRecovery !== undefined &&
+                meta.fixedKamRecovery !== null
+                  ? Number(meta.fixedKamRecovery)
+                  : fallbackTerms.fixedKamRecovery !== undefined
+                  ? Number(fallbackTerms.fixedKamRecovery)
+                  : undefined,
               vatRate: p.vatRate !== undefined && p.vatRate !== null ? Number(p.vatRate) : Number(fallbackTerms.vatRate ?? 0.15),
               billCycleDays: p.billCycleDays ?? fallbackTerms.billCycleDays ?? 30,
               funding: p.funding || fallbackTerms.funding || "POSTPAID",

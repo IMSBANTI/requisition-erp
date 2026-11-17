@@ -40,6 +40,8 @@ export async function POST(request: Request) {
       feeRate,
       aitRate,
       aitGrossupRate,
+      reimbursementTaxDivisor,
+      fixedKamRecovery,
       vatRate,
       billCycleDays,
       funding,
@@ -59,13 +61,23 @@ export async function POST(request: Request) {
     const effectiveHeadId = isSuperAdmin ? headId || null : headId || user.id;
     const isCreateEvt = kind === "EVENT" || String(code || "").toUpperCase().startsWith("EVT-");
     const packedCostHeads =
-      costHeads || aitGrossupRate !== undefined
+      costHeads ||
+      aitGrossupRate !== undefined ||
+      reimbursementTaxDivisor !== undefined ||
+      fixedKamRecovery !== undefined
         ? packCostHeadsWithMeta(
             costHeads || resolveCostHeadsForKind(undefined, isCreateEvt, code),
             {
               stepThresholds: stepThresholds || {},
               ...(aitGrossupRate !== undefined && aitGrossupRate !== null
                 ? { aitGrossupRate: Number(aitGrossupRate) }
+                : {}),
+              ...(reimbursementTaxDivisor !== undefined &&
+              reimbursementTaxDivisor !== null
+                ? { reimbursementTaxDivisor: Number(reimbursementTaxDivisor) }
+                : {}),
+              ...(fixedKamRecovery !== undefined && fixedKamRecovery !== null
+                ? { fixedKamRecovery: Number(fixedKamRecovery) }
                 : {}),
             }
           )
@@ -153,6 +165,8 @@ export async function PATCH(request: Request) {
       feeRate,
       aitRate,
       aitGrossupRate,
+      reimbursementTaxDivisor,
+      fixedKamRecovery,
       vatRate,
       billCycleDays,
       funding,
@@ -205,6 +219,20 @@ export async function PATCH(request: Request) {
         ? {
             aitGrossupRate:
               aitGrossupRate === null ? undefined : Number(aitGrossupRate),
+          }
+        : {}),
+      ...(reimbursementTaxDivisor !== undefined
+        ? {
+            reimbursementTaxDivisor:
+              reimbursementTaxDivisor === null
+                ? undefined
+                : Number(reimbursementTaxDivisor),
+          }
+        : {}),
+      ...(fixedKamRecovery !== undefined
+        ? {
+            fixedKamRecovery:
+              fixedKamRecovery === null ? undefined : Number(fixedKamRecovery),
           }
         : {}),
     };

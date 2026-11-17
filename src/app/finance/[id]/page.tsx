@@ -93,6 +93,19 @@ export default async function ProjectFinanceDetailPage({ params }: Props) {
         : fallbackTerms.aitGrossupRate !== undefined
         ? Number(fallbackTerms.aitGrossupRate)
         : undefined,
+    reimbursementTaxDivisor:
+      meta.reimbursementTaxDivisor !== undefined &&
+      meta.reimbursementTaxDivisor !== null
+        ? Number(meta.reimbursementTaxDivisor)
+        : fallbackTerms.reimbursementTaxDivisor !== undefined
+        ? Number(fallbackTerms.reimbursementTaxDivisor)
+        : undefined,
+    fixedKamRecovery:
+      meta.fixedKamRecovery !== undefined && meta.fixedKamRecovery !== null
+        ? Number(meta.fixedKamRecovery)
+        : fallbackTerms.fixedKamRecovery !== undefined
+        ? Number(fallbackTerms.fixedKamRecovery)
+        : undefined,
     vatRate:
       p.vatRate !== undefined && p.vatRate !== null
         ? Number(p.vatRate)

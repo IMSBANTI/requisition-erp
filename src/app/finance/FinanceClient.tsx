@@ -128,6 +128,8 @@ type ProjectFinanceItem = {
     feeRate: number;
     aitRate: number;
     aitGrossupRate?: number;
+    reimbursementTaxDivisor?: number;
+    fixedKamRecovery?: number;
     vatRate: number;
     billCycleDays: number;
     funding: any;
@@ -980,13 +982,24 @@ export default function FinanceClient({
     const executedSpend = totalSpend;
     const pendingSpend = pendingReqs.reduce((sum, r) => sum + r.total, 0);
 
+    const invoicedBills = pnlBills.filter((b) => b.billExVat > 0);
+    const activeMonthSet = new Set<string>([
+      ...reqs.map((r) => r.forMonth).filter(Boolean),
+      ...confirmedDirectExps.map((de) => de.forMonth).filter(Boolean),
+      ...invoicedBills
+        .map((b) => b.forMonth)
+        .filter((m) => m && m !== "ALL"),
+    ]);
+    const distinctMonths = Math.max(1, activeMonthSet.size);
+    const periodMonthCount = selectedMonth === "ALL" ? distinctMonths : 1;
+
     const calc = calculateProfitSummary({
       terms: selectedProject.terms,
       billableCost: billableSpend,
       imsInvestment: imsSpend,
+      activeMonthCount: periodMonthCount,
     });
 
-    const invoicedBills = pnlBills.filter((b) => b.billExVat > 0);
     const billedExVat =
       invoicedBills.length > 0
         ? invoicedBills.reduce((sum, b) => sum + b.billExVat, 0)
@@ -1021,12 +1034,8 @@ export default function FinanceClient({
           : Math.min(100, Math.round((receivedAmount / expectedInflow) * 100))
         : 0;
 
-    const distinctMonths = new Set(reqs.map((r) => r.forMonth)).size || 1;
     const monthlyAvgSpend = totalSpend / distinctMonths;
-    const activeMonthCount =
-      monthlyAvgSpend > 0
-        ? Math.max(1, Math.round(totalSpend / monthlyAvgSpend))
-        : 1;
+    const activeMonthCount = distinctMonths;
     const reqWc2x = monthlyAvgSpend * 2;
     const reqWc25x = monthlyAvgSpend * 2.5;
     const annualizedNetProfit = (accruedProfit / activeMonthCount) * 12;
@@ -4538,6 +4547,16 @@ export default function FinanceClient({
                       <span>·</span>
                       <span>
                         {(selectedProject.terms.feeRate * 100).toFixed(1)}% Fee
+                        {selectedProject.terms.reimbursementTaxDivisor &&
+                        selectedProject.terms.reimbursementTaxDivisor < 1
+                          ? ` · ÷${selectedProject.terms.reimbursementTaxDivisor} Claim`
+                          : ""}
+                        {selectedProject.terms.fixedKamRecovery &&
+                        selectedProject.terms.fixedKamRecovery > 0
+                          ? ` · +Tk ${formatCompactBDT(
+                              selectedProject.terms.fixedKamRecovery
+                            )} KAM`
+                          : ""}
                       </span>
                       <span>·</span>
                       <span>

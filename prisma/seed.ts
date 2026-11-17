@@ -277,7 +277,7 @@ const EXCEL_USERS: SeedUser[] = [
   { empId: "1071", name: "Rakib Hasan", email: "rakib@ims.com.bd", dept: "Outsourcing", secondaryDepts: ["TradePulse", "Events projects"], priority: 4, level: "Manager", role: "sr_manager", company: "IMS", scopes: ["IMS", "TP", "SCL"], supervisorEmpId: "1004", notes: "Manager Outsourcing & TradePulse" },
   { empId: "1072", name: "Nawshad Ur Rahman", email: "nawshad@ims.com.bd", dept: "Outsourcing", secondaryDepts: ["TradePulse", "Events projects"], priority: 3, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS", "TP"], supervisorEmpId: "1070", notes: "Approver ID 1070 or 1071" },
   { empId: "1073", name: "Nasir Hazra", email: "nasir.hazra@ims.com.bd", dept: "Project Singer", priority: 3, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1070", notes: "Approver ID 1070 or 1071" },
-  { empId: "1074", name: "Munir Kabir", email: "ruhan@ims.com.bd", dept: "Project Robi", priority: 3, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1070", notes: "Approver ID 1070 or 1071" },
+  { empId: "1074", name: "Munir Kabir", email: "ruhan@ims.com.bd", dept: "Project Robi & DBH", priority: 3, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1071", notes: "Reports to 1071 (Rakib Hasan) for DBH projects; Approver ID 1070 or 1071" },
   { empId: "1075", name: "Monirul Islam", email: "monirul@ims.com.bd", dept: "Project BAT CE", priority: 3, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1070", notes: "Approver ID 1070 or 1071" },
   { empId: "1076", name: "Mohammad Suruz", email: "suruz@ims.com.bd", dept: "Project BAT CE", priority: 3, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1070", notes: "Approver ID 1070 or 1071" },
   { empId: "1077", name: "Salauddin Saju", email: "saju@ims.com.bd", dept: "Project GP", priority: 3, level: "Executive", role: "executive", company: "IMS", scopes: ["IMS"], supervisorEmpId: "1070", notes: "Approver ID 1070 or 1071" },
@@ -545,7 +545,7 @@ async function main() {
       checkerEmpId: "1071",
       directorEmpId: "1004",
       md: "MONTHLY",
-      memberEmpIds: ["1070", "1071", "1072"],
+      memberEmpIds: ["1074", "1070", "1071", "1072"],
     },
     {
       code: "PROJ-NAGAD",
@@ -600,7 +600,7 @@ async function main() {
       checkerEmpId: "1071",
       directorEmpId: "1004",
       md: "MONTHLY",
-      memberEmpIds: ["1070", "1071", "1072"],
+      memberEmpIds: ["1074", "1070", "1071", "1072"],
     },
     {
       code: "PROJ-PUREIT",

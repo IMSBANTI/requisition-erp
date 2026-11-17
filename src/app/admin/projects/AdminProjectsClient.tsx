@@ -34,6 +34,8 @@ interface ProjectItem {
   feeRate?: number;
   aitRate?: number;
   aitGrossupRate?: number;
+  reimbursementTaxDivisor?: number;
+  fixedKamRecovery?: number;
   vatRate?: number;
   billCycleDays?: number;
   funding?: string;
@@ -155,6 +157,8 @@ export default function AdminProjectsClient({
   const [editFeeRatePct, setEditFeeRatePct] = useState("8");
   const [editAitRatePct, setEditAitRatePct] = useState("1.2");
   const [editAitGrossupRatePct, setEditAitGrossupRatePct] = useState("2");
+  const [editReimbursementTaxDivisor, setEditReimbursementTaxDivisor] = useState("");
+  const [editFixedKamRecovery, setEditFixedKamRecovery] = useState("");
   const [editVatRatePct, setEditAitVatRatePct] = useState("15");
   const [editBillCycleDays, setEditBillCycleDays] = useState("30");
   const [editFunding, setEditFunding] = useState("POSTPAID");
@@ -270,6 +274,16 @@ export default function AdminProjectsClient({
     setEditFeeRatePct(String(Number(fRate.toFixed(2))));
     setEditAitRatePct(String(Number(aRate.toFixed(2))));
     setEditAitGrossupRatePct(String(Number(gRate.toFixed(2))));
+    setEditReimbursementTaxDivisor(
+      p.reimbursementTaxDivisor !== undefined && p.reimbursementTaxDivisor > 0
+        ? String(p.reimbursementTaxDivisor)
+        : ""
+    );
+    setEditFixedKamRecovery(
+      p.fixedKamRecovery !== undefined && p.fixedKamRecovery > 0
+        ? String(p.fixedKamRecovery)
+        : ""
+    );
     setEditAitVatRatePct(String(Number(vRate.toFixed(2))));
     setEditBillCycleDays(String(p.billCycleDays ?? 30));
     setEditFunding(p.funding || "POSTPAID");
@@ -320,6 +334,15 @@ export default function AdminProjectsClient({
           editBillingProfile === "COST_PLUS_GROSSUP"
             ? (parseFloat(editAitGrossupRatePct) || 0) / 100
             : undefined,
+        reimbursementTaxDivisor:
+          parseFloat(editReimbursementTaxDivisor) > 0 &&
+          parseFloat(editReimbursementTaxDivisor) < 1
+            ? parseFloat(editReimbursementTaxDivisor)
+            : undefined,
+        fixedKamRecovery:
+          parseFloat(editFixedKamRecovery) > 0
+            ? parseFloat(editFixedKamRecovery)
+            : undefined,
         vatRate: (parseFloat(editVatRatePct) || 0) / 100,
         fixedMonthlyBill: parseFloat(editFixedMonthlyBill) || 0,
         maintenanceBudget: parseFloat(editMaintenanceBudget) || 0,
@@ -333,6 +356,8 @@ export default function AdminProjectsClient({
     editFeeRatePct,
     editAitRatePct,
     editAitGrossupRatePct,
+    editReimbursementTaxDivisor,
+    editFixedKamRecovery,
     editVatRatePct,
     editFixedMonthlyBill,
     editMaintenanceBudget,
@@ -433,6 +458,15 @@ export default function AdminProjectsClient({
           aitGrossupRate:
             editBillingProfile === "COST_PLUS_GROSSUP"
               ? (parseFloat(editAitGrossupRatePct) || 0) / 100
+              : null,
+          reimbursementTaxDivisor:
+            parseFloat(editReimbursementTaxDivisor) > 0 &&
+            parseFloat(editReimbursementTaxDivisor) < 1
+              ? parseFloat(editReimbursementTaxDivisor)
+              : null,
+          fixedKamRecovery:
+            parseFloat(editFixedKamRecovery) > 0
+              ? parseFloat(editFixedKamRecovery)
               : null,
           vatRate: (parseFloat(editVatRatePct) || 0) / 100,
           billCycleDays: parseInt(editBillCycleDays, 10) || 30,
@@ -1259,6 +1293,49 @@ export default function AdminProjectsClient({
                             className="mt-1 block w-full px-2.5 py-1 border border-gray-300 rounded text-xs font-mono bg-white"
                           />
                         </div>
+                        {editKind !== "EVENT" &&
+                          editBillingProfile !== "FIXED_FEE" &&
+                          editBillingProfile !== "FIXED_QUOTE" && (
+                            <>
+                              <div>
+                                <label
+                                  className="block text-xs font-semibold text-gray-700"
+                                  title="Disbursed reimbursable spend is divided by this factor before billing (e.g. 0.98 for DBH Sales Officer ÷ 0.98)"
+                                >
+                                  Claim Tax Divisor (e.g. 0.98)
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.001"
+                                  min="0"
+                                  max="1"
+                                  placeholder="Optional (none)"
+                                  value={editReimbursementTaxDivisor}
+                                  onChange={(e) =>
+                                    setEditReimbursementTaxDivisor(e.target.value)
+                                  }
+                                  className="mt-1 block w-full px-2.5 py-1 border border-gray-300 rounded text-xs font-mono bg-white"
+                                />
+                              </div>
+                              <div>
+                                <label
+                                  className="block text-xs font-semibold text-gray-700"
+                                  title="Fixed monthly KAM / management allowance added to claim base before service fee (e.g. 5101.93)"
+                                >
+                                  Monthly KAM Recovery (BDT)
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="Optional (0)"
+                                  value={editFixedKamRecovery}
+                                  onChange={(e) => setEditFixedKamRecovery(e.target.value)}
+                                  className="mt-1 block w-full px-2.5 py-1 border border-gray-300 rounded text-xs font-mono bg-white"
+                                />
+                              </div>
+                            </>
+                          )}
                       </div>
                     )}
                   </div>

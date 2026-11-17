@@ -120,10 +120,22 @@ export default function ProjectFinanceDetailClient({
     const totalBillable = filteredReqs.reduce((s, r) => s + r.billableCost, 0);
     const totalImsInv = filteredReqs.reduce((s, r) => s + r.imsInvestment, 0);
 
+    const periodMonthCount =
+      selectedMonth === "ALL"
+        ? Math.max(
+            1,
+            new Set([
+              ...filteredReqs.map((r) => r.forMonth).filter(Boolean),
+              ...filteredPayments.map((p) => p.forMonth).filter(Boolean),
+            ]).size
+          )
+        : 1;
+
     const calc = calculateProfitSummary({
       terms: project.terms,
       billableCost: totalBillable,
       imsInvestment: totalImsInv,
+      activeMonthCount: periodMonthCount,
     });
 
     const totalCostSpent =

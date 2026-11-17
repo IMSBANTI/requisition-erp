@@ -212,6 +212,19 @@ export default async function FinancePnlPage() {
           : fallbackTerms.aitGrossupRate !== undefined
           ? Number(fallbackTerms.aitGrossupRate)
           : undefined,
+      reimbursementTaxDivisor:
+        meta.reimbursementTaxDivisor !== undefined &&
+        meta.reimbursementTaxDivisor !== null
+          ? Number(meta.reimbursementTaxDivisor)
+          : fallbackTerms.reimbursementTaxDivisor !== undefined
+          ? Number(fallbackTerms.reimbursementTaxDivisor)
+          : undefined,
+      fixedKamRecovery:
+        meta.fixedKamRecovery !== undefined && meta.fixedKamRecovery !== null
+          ? Number(meta.fixedKamRecovery)
+          : fallbackTerms.fixedKamRecovery !== undefined
+          ? Number(fallbackTerms.fixedKamRecovery)
+          : undefined,
       vatRate:
         p.vatRate !== undefined && p.vatRate !== null
           ? Number(p.vatRate)
@@ -219,14 +232,37 @@ export default async function FinancePnlPage() {
       billCycleDays: p.billCycleDays ?? fallbackTerms.billCycleDays ?? 30,
       funding: p.funding || fallbackTerms.funding || "POSTPAID",
       fixedMonthlyBill: effectiveFixedBill,
-      maintenanceBudget: p.maintenanceBudget ? Number(p.maintenanceBudget) : 0,
-      monthlyAmortization: p.monthlyAmortization ? Number(p.monthlyAmortization) : 0,
+      maintenanceBudget:
+        p.maintenanceBudget !== undefined && p.maintenanceBudget !== null
+          ? Number(p.maintenanceBudget)
+          : Number(fallbackTerms.maintenanceBudget ?? 0),
+      monthlyAmortization:
+        p.monthlyAmortization !== undefined && p.monthlyAmortization !== null
+          ? Number(p.monthlyAmortization)
+          : Number(fallbackTerms.monthlyAmortization ?? 0),
     };
+
+    const overallActiveMonths = Math.max(
+      1,
+      new Set([
+        ...Object.keys(byMonth),
+        ...(p.clientBills || [])
+          .filter(
+            (b: any) =>
+              !String(b.notes || "").startsWith("[OPENING_BALANCE]") &&
+              Number(b.billExVat || 0) > 0 &&
+              b.forMonth &&
+              b.forMonth !== "ALL"
+          )
+          .map((b: any) => String(b.forMonth)),
+      ]).size
+    );
 
     const overallCalc = calculateProfitSummary({
       terms,
       billableCost: totalBillableReq,
       imsInvestment: totalImsInvReq,
+      activeMonthCount: overallActiveMonths,
     });
 
     const bills = (p.clientBills || []).map((b: any) => {

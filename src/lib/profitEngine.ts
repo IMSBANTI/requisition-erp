@@ -72,6 +72,12 @@ export interface ProjectExtendedMeta {
   requiresRequisition?: boolean;
   /** Separate billing gross-up AIT rate (e.g. 0.02 for 2%) when different from actual AIT deducted (e.g. 0.01 for 1%). */
   aitGrossupRate?: number;
+  /** Tax gross-up divisor applied to disbursed reimbursable spend when billing client (e.g. 0.98 = ÷ 0.98). */
+  reimbursementTaxDivisor?: number;
+  /** Fixed monthly KAM / management allowance recovery added to claim base before service fee (e.g. 5101.93). */
+  fixedKamRecovery?: number;
+  /** Internal one-time sync marker so DBH v2 defaults upgrade cleanly once without clobbering admin edits. */
+  dbhSyncedV2?: boolean;
 }
 
 export interface BillingTermsInput {
@@ -82,6 +88,10 @@ export interface BillingTermsInput {
   aitRate: number | string | Decimal;
   /** Optional decimal rate for COST_PLUS_GROSSUP invoice AIT gross-up (defaults to aitRate if omitted) */
   aitGrossupRate?: number | string | Decimal;
+  /** Tax gross-up divisor applied to disbursed reimbursable spend before fee (e.g. 0.98) */
+  reimbursementTaxDivisor?: number | string | Decimal;
+  /** Fixed monthly KAM recovery added to claim base before service fee */
+  fixedKamRecovery?: number | string | Decimal;
   /** Decimal rate (default 0.15 for 15%) */
   vatRate?: number | string | Decimal;
   billCycleDays?: number;
@@ -101,6 +111,8 @@ export interface ProfitCalculationInput {
   terms: BillingTermsInput;
   billableCost: number | string | Decimal;
   imsInvestment: number | string | Decimal;
+  /** Number of active months covered by cumulative totals (defaults to 1). */
+  activeMonthCount?: number;
   /** Optional override for maintenance budget in a specific month */
   maintenanceCostOverride?: number | string | Decimal;
   /** Optional override for capex amortization in a specific month */
@@ -168,34 +180,55 @@ export function calculateProfitSummary(input: ProfitCalculationInput): ProfitCal
   );
   const vatRate = normalizeRate(input.terms.vatRate, 0.15);
 
+  const monthMult = Math.max(1, Number(input.activeMonthCount || 1));
+  const taxDivisor = Number(input.terms.reimbursementTaxDivisor || 0);
+  const kamRecoveryMonthly = new Decimal(input.terms.fixedKamRecovery || 0);
+
+  let claimBase = billable;
+  if (
+    profile !== "FIXED_FEE" &&
+    profile !== "FIXED_QUOTE" &&
+    billable.greaterThan(0)
+  ) {
+    if (taxDivisor > 0 && taxDivisor < 1) {
+      claimBase = round2(claimBase.dividedBy(taxDivisor));
+    }
+    if (kamRecoveryMonthly.greaterThan(0)) {
+      claimBase = round2(claimBase.plus(kamRecoveryMonthly.times(monthMult)));
+    }
+  }
+
   let fee = new Decimal(0);
   let aitGrossup = new Decimal(0);
   let billExVat = new Decimal(0);
   let ait = new Decimal(0);
 
   if (profile === "COST_PLUS") {
-    fee = round2(billable.times(feeRate));
-    billExVat = round2(billable.plus(fee));
+    fee = round2(claimBase.times(feeRate));
+    billExVat = round2(claimBase.plus(fee));
     ait = round2(billExVat.times(aitRate));
   } else if (profile === "COST_PLUS_GROSSUP") {
-    fee = round2(billable.times(feeRate));
-    aitGrossup = round2(billable.plus(fee).times(grossupRate));
-    billExVat = round2(billable.plus(fee).plus(aitGrossup));
+    fee = round2(claimBase.times(feeRate));
+    aitGrossup = round2(claimBase.plus(fee).times(grossupRate));
+    billExVat = round2(claimBase.plus(fee).plus(aitGrossup));
     ait = round2(billExVat.times(aitRate));
   } else if (profile === "COMMISSION") {
     // Pass-through cost + commission %; AIT is deducted on the commission only
-    fee = round2(billable.times(feeRate));
-    billExVat = round2(billable.plus(fee));
+    fee = round2(claimBase.times(feeRate));
+    billExVat = round2(claimBase.plus(fee));
     ait = round2(fee.times(aitRate));
   } else if (profile === "FIXED_FEE" || profile === "FIXED_QUOTE") {
-    const fixedBill = round2(input.terms.fixedMonthlyBill || 0);
+    const fixedMonthMult = profile === "FIXED_FEE" ? monthMult : 1;
+    const fixedBill = round2(
+      new Decimal(input.terms.fixedMonthlyBill || 0).times(fixedMonthMult)
+    );
     billExVat = fixedBill;
     fee = round2(Decimal.max(0, fixedBill.minus(billable)));
     ait = round2(billExVat.times(aitRate));
   } else {
     // Fallback to COST_PLUS
-    fee = round2(billable.times(feeRate));
-    billExVat = round2(billable.plus(fee));
+    fee = round2(claimBase.times(feeRate));
+    billExVat = round2(claimBase.plus(fee));
     ait = round2(billExVat.times(aitRate));
   }
 
@@ -204,15 +237,16 @@ export function calculateProfitSummary(input: ProfitCalculationInput): ProfitCal
   const expectedInflow = round2(billExVat.minus(ait));
   const grossProfit = round2(expectedInflow.minus(billable));
 
+  const fixedCostMonthMult = profile === "FIXED_FEE" ? monthMult : 1;
   const maintenance = round2(
     input.maintenanceCostOverride !== undefined
       ? input.maintenanceCostOverride
-      : input.terms.maintenanceBudget || 0
+      : new Decimal(input.terms.maintenanceBudget || 0).times(fixedCostMonthMult)
   );
   const amortization = round2(
     input.amortizationOverride !== undefined
       ? input.amortizationOverride
-      : input.terms.monthlyAmortization || 0
+      : new Decimal(input.terms.monthlyAmortization || 0).times(fixedCostMonthMult)
   );
 
   const netProfit = round2(
@@ -373,6 +407,33 @@ export const ROBI_SME_COST_HEADS: CostHeadConfig[] = [
 ];
 
 /**
+ * DBH Office Set-up Cost Heads (4 Regional Offices: Tongi, Savar, Basila, Matuail)
+ */
+export const DBH_OFFICE_COST_HEADS: CostHeadConfig[] = [
+  { id: "dbh_house_rent", name: "House Rent (Branch Office)", tag: "BILLABLE", isSalary: false, aliases: ["House rent", "Rent & Service Charge"] },
+  { id: "dbh_utility", name: "Utility (Electricity / Water / Gas)", tag: "BILLABLE", isSalary: false, aliases: ["Utility", "Utilities"] },
+  { id: "dbh_internet", name: "Internet Connection", tag: "BILLABLE", isSalary: false, aliases: ["Internet", "Internet Connection Charge"] },
+  { id: "dbh_refreshment", name: "Refreshment & Drinking Water", tag: "BILLABLE", isSalary: false, aliases: ["Refreshment & Water"] },
+  { id: "dbh_hygiene", name: "Hygienic Item & Cleaning Materials", tag: "BILLABLE", isSalary: false, aliases: ["Hygienic Item"] },
+  { id: "dbh_peon", name: "Peon / Office Support Service", tag: "BILLABLE", isSalary: false, aliases: ["Peon Service"] },
+  { id: "dbh_maintenance", name: "Office Maintenance & Servicing (Monthly Reserve)", tag: "BILLABLE", isSalary: false, aliases: ["Maintenance & Servicing", "Maintainance & Servicing"] },
+  { id: "dbh_kam_conv_in", name: "Conveyance Bill for KAM (Inside Dhaka)", tag: "IMS_INVESTMENT", isSalary: false, aliases: ["Conveyance Bill for KAM inside dhaka"] },
+  { id: "dbh_kam_conv_out", name: "Conveyance Bill for KAM (Outside Dhaka)", tag: "IMS_INVESTMENT", isSalary: false, aliases: ["Conveyance Bill for KAM Outside dhaka"] },
+  { id: "dbh_courier", name: "Courier Cost (IMS Investment)", tag: "IMS_INVESTMENT", isSalary: false, aliases: ["Courier Cost"] },
+];
+
+/**
+ * DBH Sales Officer Cost Heads (DBH HR Outsource Sales Officer Salary)
+ */
+export const DBH_SALES_OFFICER_COST_HEADS: CostHeadConfig[] = [
+  { id: "so_gross_salary", name: "Sales Officer Salary (with Tax)", tag: "BILLABLE", isSalary: true, aliases: ["Total Salary with Tax", "Sales Officer Gross Salary"] },
+  { id: "so_incentive", name: "Incentive / Yearly Commission", tag: "BILLABLE", isSalary: true, aliases: ["Incentive", "Commission", "Additional / Adjustment / Yearly Incentive"] },
+  { id: "so_eid_bonus", name: "Eid Bonus", tag: "BILLABLE", isSalary: true, aliases: ["EID Bonus"] },
+  { id: "so_id_card", name: "ID Card for BDO (Without Agency Charge)", tag: "BILLABLE", isSalary: false, aliases: ["ID Card", "ID Card for BDO"] },
+  { id: "so_kam_ims", name: "KAM Salary / Conveyance (IMS Cost)", tag: "IMS_INVESTMENT", isSalary: false, aliases: ["Total IMS Cost / KAM Salary", "KAM Salary"] },
+];
+
+/**
  * Default Cost Heads for Events / Activations (strictly for 🎪 Event Requisition)
  */
 export const DEFAULT_EVENT_COST_HEADS: CostHeadConfig[] = [
@@ -444,8 +505,20 @@ export function resolveCostHeadsForKind(
   isEvent: boolean,
   projectCode?: string
 ): CostHeadConfig[] {
-  const isRobiProject =
-    !isEvent && (projectCode || "").toUpperCase().includes("ROBI");
+  const c = (projectCode || "").toUpperCase();
+  const isRobiProject = !isEvent && c.includes("ROBI");
+  const isSalesOfficerProject =
+    !isEvent && (c.includes("SALES-OFFICER") || c.includes("SALES_OFFICER"));
+  const isDbhOfficeProject =
+    !isEvent && (c.includes("DBH") || c.includes("OFFICE-SETUP")) && !isSalesOfficerProject;
+
+  const specializedDefaults = isRobiProject
+    ? ROBI_SME_COST_HEADS
+    : isDbhOfficeProject
+    ? DBH_OFFICE_COST_HEADS
+    : isSalesOfficerProject
+    ? DBH_SALES_OFFICER_COST_HEADS
+    : null;
 
   if (Array.isArray(rawCostHeads) && rawCostHeads.length > 0) {
     const withoutMeta = (rawCostHeads as CostHeadConfig[]).filter(
@@ -462,9 +535,9 @@ export function resolveCostHeadsForKind(
         if (cleaned.length > 0) return cleaned;
         return DEFAULT_EVENT_COST_HEADS;
       }
-      // If PROJ-ROBI only has unmodified generic defaults, upgrade cleanly to ROBI_SME_COST_HEADS
+      // If a known specialized project still has only unmodified generic defaults, upgrade cleanly
       if (
-        isRobiProject &&
+        specializedDefaults &&
         withoutMeta.length <= DEFAULT_PROJECT_COST_HEADS.length &&
         withoutMeta.every(
           (ch) =>
@@ -472,13 +545,13 @@ export function resolveCostHeadsForKind(
             PROJECT_DEFAULT_NAMES.has(ch.name.toLowerCase())
         )
       ) {
-        return ROBI_SME_COST_HEADS;
+        return specializedDefaults;
       }
       return withoutMeta;
     }
   }
   if (isEvent) return DEFAULT_EVENT_COST_HEADS;
-  if (isRobiProject) return ROBI_SME_COST_HEADS;
+  if (specializedDefaults) return specializedDefaults;
   return DEFAULT_PROJECT_COST_HEADS;
 }
 
@@ -543,18 +616,33 @@ export function getDefaultProjectTermsByCode(code: string, kind?: string): Billi
     };
   }
 
+  if (c.includes("SALES-OFFICER") || c.includes("SALES_OFFICER")) {
+    return {
+      billingProfile: "COST_PLUS",
+      feeRate: 0.07, // 7.0% Agency Commission / Service Charge
+      aitRate: 0.01, // 1.0% actual AIT deducted (Jul 2026+ DBH rate; was 2.0% prior)
+      vatRate: 0.15,
+      billCycleDays: 1, // Pre-Paid billing cycle
+      funding: "PREPAID",
+      salaryMonthLag: 0,
+      reimbursementTaxDivisor: 0.98, // Disbursed SO salary grossed up ÷ 0.98 on client claim
+      fixedKamRecovery: 5101.93, // Fixed monthly KAM allowance recovery (5,000 ÷ 0.98)
+      varianceThresholdPct: 10,
+    };
+  }
+
   if (c.includes("DBH") || c.includes("OFFICE-SETUP")) {
     return {
       billingProfile: "FIXED_FEE",
       feeRate: 0,
-      aitRate: 0.015, // 1.5% AIT
+      aitRate: 0.01, // 1.0% actual AIT deducted (Jul 2026+ DBH rate; was 10% on 8% SC prior)
       vatRate: 0.15,
       billCycleDays: 15,
       funding: "POSTPAID",
       salaryMonthLag: 0,
       fixedMonthlyBill: 278685,
       maintenanceBudget: 7200,
-      monthlyAmortization: 43514.8,
+      monthlyAmortization: 43514.84,
       varianceThresholdPct: 10,
     };
   }
