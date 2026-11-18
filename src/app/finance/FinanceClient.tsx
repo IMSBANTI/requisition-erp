@@ -8,6 +8,8 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
@@ -1223,12 +1225,21 @@ export default function FinanceClient({
       map[m].receivedAmount += b.receivedAmount;
     }
 
+    const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    const toShortMonth = (ym: string) => {
+      const m = ym.match(/^(\d{4})-(\d{2})$/);
+      if (!m) return ym;
+      return `${MONTH_NAMES[Number(m[2]) - 1] || m[2]} ${m[1].slice(2)}`;
+    };
+
     return Object.values(map)
       .sort((a, b) => a.month.localeCompare(b.month))
       .map((row) => {
+        const shortMonth = toShortMonth(row.month);
         if (selectedProject.kind === "COMPANY") {
           return {
             ...row,
+            shortMonth,
             expectedInflow: 0,
             accruedProfit: 0,
           };
@@ -1240,6 +1251,7 @@ export default function FinanceClient({
         });
         return {
           ...row,
+          shortMonth,
           expectedInflow: Math.round(c.expectedInflow),
           accruedProfit: Math.round(c.netProfit),
         };
@@ -5296,7 +5308,7 @@ export default function FinanceClient({
                     {selectedProject.name}
                   </span>
                   <span className="px-2 py-0.5 rounded-full bg-gray-100 text-gray-600 text-[10px] font-semibold">
-                    3 Charts ({costHeadPieData.length} Cost Heads)
+                    Monthly Analytics &amp; {costHeadPieData.length} Cost Heads
                   </span>
                 </div>
                 <span className="text-xs font-bold text-blue-700">
@@ -5305,244 +5317,349 @@ export default function FinanceClient({
               </button>
 
               {showSingleCharts && (
-                <div className="p-4 border-t border-gray-200 bg-gray-50/40 grid grid-cols-1 md:grid-cols-3 gap-4">
-                  {/* Compact Chart 1 */}
-                  <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm">
-                  <div className="mb-2">
-                    <h4 className="text-xs font-bold text-gray-900">
-                      {selectedProject.kind === "COMPANY"
-                        ? "📈 Monthly Overhead Spend Trend"
-                        : "📈 Spend vs. Inflow & Profit"}
-                    </h4>
-                    <p className="text-[11px] text-gray-500">
-                      {selectedProject.kind === "COMPANY"
-                        ? "Monthly internal requisition spend"
-                        : "Monthly Spend, Expected Inflow, Received & Profit"}
-                    </p>
-                  </div>
-
-                  {monthlyChartData.length === 0 ? (
-                    <div className="h-40 flex items-center justify-center text-xs text-gray-400">
-                      No monthly data yet.
-                    </div>
-                  ) : (
-                    <div className="h-40 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={monthlyChartData}
-                          margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
-                        >
-                          <CartesianGrid
-                            strokeDasharray="3 3"
-                            stroke="#e5e7eb"
-                          />
-                          <XAxis dataKey="month" tick={{ fontSize: 10 }} />
-                          <YAxis
-                            tick={{ fontSize: 10 }}
-                            width={40}
-                            tickFormatter={(v) =>
-                              v >= 100000
-                                ? `${(v / 100000).toFixed(1)}L`
-                                : v >= 1000
-                                ? `${(v / 1000).toFixed(0)}k`
-                                : String(v)
-                            }
-                          />
-                          <Tooltip
-                            formatter={(val: any) =>
-                              `Tk ${formatBDT(Number(val || 0))}`
-                            }
-                          />
-                          <Legend wrapperStyle={{ fontSize: 10 }} />
-                          <Bar
-                            dataKey="totalCost"
-                            name={
-                              selectedProject.kind === "COMPANY"
-                                ? "Overhead Spend"
-                                : "Cost"
-                            }
-                            fill={
-                              selectedProject.kind === "COMPANY"
-                                ? "#be123c"
-                                : "#4b5563"
-                            }
-                            radius={[3, 3, 0, 0]}
-                          />
-                          {selectedProject.kind !== "COMPANY" && (
-                            <>
-                              <Bar
-                                dataKey="expectedInflow"
-                                name="Inflow (-AIT)"
-                                fill="#4f46e5"
-                                radius={[3, 3, 0, 0]}
-                              />
-                              <Bar
-                                dataKey="receivedAmount"
-                                name="Received"
-                                fill="#059669"
-                                radius={[3, 3, 0, 0]}
-                              />
-                              <Bar
-                                dataKey="accruedProfit"
-                                name="Profit"
-                                fill="#10b981"
-                                radius={[3, 3, 0, 0]}
-                              />
-                            </>
-                          )}
-                        </BarChart>
-                      </ResponsiveContainer>
-                    </div>
-                  )}
-                </div>
-
-                {/* Compact Chart 2 */}
-                <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm">
-                  <div className="mb-2">
-                    <h4 className="text-xs font-bold text-gray-900">
-                      🍩 Cost Head Breakdown
-                    </h4>
-                    <p className="text-[11px] text-gray-500">
-                      Requisition spend by cost head
-                    </p>
-                  </div>
-
-                  {costHeadPieData.length === 0 ? (
-                    <div className="h-40 flex items-center justify-center text-xs text-gray-400">
-                      No line items yet.
-                    </div>
-                  ) : (
-                    <div className="h-40 w-full flex items-center gap-2">
-                      <div className="h-36 w-1/2">
-                        <ResponsiveContainer width="100%" height="100%">
-                          <PieChart>
-                            <Pie
-                              data={costHeadPieData}
-                              dataKey="value"
-                              nameKey="name"
-                              cx="50%"
-                              cy="50%"
-                              innerRadius={25}
-                              outerRadius={48}
-                              paddingAngle={2}
-                            >
-                              {costHeadPieData.map((_, idx) => (
-                                <Cell
-                                  key={idx}
-                                  fill={PIE_COLORS[idx % PIE_COLORS.length]}
-                                />
-                              ))}
-                            </Pie>
-                            <Tooltip
-                              formatter={(val: any) =>
-                                `Tk ${formatBDT(Number(val || 0))}`
-                              }
-                            />
-                          </PieChart>
-                        </ResponsiveContainer>
+                <div className="p-4 border-t border-gray-200 bg-gray-50/40 space-y-4">
+                  {/* ROW 1: 2 WIDE CHARTS SIDE BY SIDE (NO SQUISHED TOOTHPICK BARS) */}
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Chart 1: Monthly Spend, Expected Inflow & Cash Received */}
+                    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                      <div className="flex items-start justify-between gap-2 mb-3">
+                        <div>
+                          <h4 className="text-xs font-bold text-gray-900">
+                            {selectedProject.kind === "COMPANY"
+                              ? "📈 Monthly Overhead Spend Trend"
+                              : "📈 Monthly Spend vs. Client Inflow & Collection"}
+                          </h4>
+                          <p className="text-[11px] text-gray-500">
+                            {selectedProject.kind === "COMPANY"
+                              ? "Monthly internal requisition spend"
+                              : "Comparing Cost, Expected Inflow (−AIT), and Actual Cash Received"}
+                          </p>
+                        </div>
                       </div>
 
-                      <div className="w-1/2 space-y-1 max-h-36 overflow-y-auto pr-1">
-                        {costHeadPieData.map((d, idx) => (
-                          <div
-                            key={d.name}
-                            className="flex items-center justify-between text-[10px]"
-                          >
-                            <div className="flex items-center gap-1 truncate">
-                              <span
-                                className="w-2 h-2 rounded-full shrink-0"
-                                style={{
-                                  backgroundColor:
-                                    PIE_COLORS[idx % PIE_COLORS.length],
-                                }}
+                      {monthlyChartData.length === 0 ? (
+                        <div className="h-52 flex items-center justify-center text-xs text-gray-400">
+                          No monthly data yet.
+                        </div>
+                      ) : (
+                        <div className="h-52 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart
+                              data={monthlyChartData}
+                              margin={{ top: 6, right: 10, left: 0, bottom: 0 }}
+                            >
+                              <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                              <XAxis dataKey="shortMonth" tick={{ fontSize: 10 }} />
+                              <YAxis
+                                tick={{ fontSize: 10 }}
+                                width={46}
+                                tickFormatter={(v) =>
+                                  v >= 100000
+                                    ? `${(v / 100000).toFixed(0)}L`
+                                    : v >= 1000
+                                    ? `${(v / 1000).toFixed(0)}k`
+                                    : String(v)
+                                }
                               />
-                              <span className="text-gray-700 truncate">
-                                {d.name}
-                              </span>
+                              <Tooltip
+                                formatter={(val: any) =>
+                                  `Tk ${formatBDT(Number(val || 0))}`
+                                }
+                              />
+                              <Legend wrapperStyle={{ fontSize: 11 }} />
+                              <Bar
+                                dataKey="totalCost"
+                                name={
+                                  selectedProject.kind === "COMPANY"
+                                    ? "Overhead Spend"
+                                    : "Total Cost"
+                                }
+                                fill={
+                                  selectedProject.kind === "COMPANY"
+                                    ? "#be123c"
+                                    : "#475569"
+                                }
+                                radius={[3, 3, 0, 0]}
+                              />
+                              {selectedProject.kind !== "COMPANY" && (
+                                <>
+                                  <Bar
+                                    dataKey="expectedInflow"
+                                    name="Expected Inflow"
+                                    fill="#4f46e5"
+                                    radius={[3, 3, 0, 0]}
+                                  />
+                                  <Bar
+                                    dataKey="receivedAmount"
+                                    name="Cash Received"
+                                    fill="#059669"
+                                    radius={[3, 3, 0, 0]}
+                                  />
+                                </>
+                              )}
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Chart 2: Dedicated Net Profit Trend (Own Scale!) OR Overhead by Voucher */}
+                    <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                      {selectedProject.kind !== "COMPANY" ? (
+                        <>
+                          <div className="flex flex-wrap items-start justify-between gap-2 mb-3">
+                            <div>
+                              <h4 className="text-xs font-bold text-gray-900">
+                                💹 Monthly Net Profit Trend (Tk)
+                              </h4>
+                              <p className="text-[11px] text-gray-500">
+                                Dedicated profit scale after AIT &amp; IMS investments
+                              </p>
                             </div>
-                            <span className="font-mono font-bold text-gray-900 ml-1">
-                              {formatBDT(d.value)}
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-800 text-[10px] font-bold font-mono">
+                              Avg: Tk{" "}
+                              {formatCompactBDT(
+                                monthlyChartData.length > 0
+                                  ? monthlyChartData.reduce(
+                                      (s, m) => s + m.accruedProfit,
+                                      0
+                                    ) / monthlyChartData.length
+                                  : 0
+                              )}
+                              /mo
                             </span>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
 
-                {/* Compact Chart 3 */}
-                <div className="bg-white border border-gray-200 rounded-xl p-3.5 shadow-sm">
-                  <div className="mb-2">
-                    <h4 className="text-xs font-bold text-gray-900">
-                      📊 Requisitions Spend ({reqBarData.length})
-                    </h4>
-                    <p className="text-[11px] text-gray-500">
-                      Individual requisition amounts
-                    </p>
+                          {monthlyChartData.length === 0 ? (
+                            <div className="h-52 flex items-center justify-center text-xs text-gray-400">
+                              No monthly profit data yet.
+                            </div>
+                          ) : (
+                            <div className="h-52 w-full">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <AreaChart
+                                  data={monthlyChartData}
+                                  margin={{ top: 8, right: 12, left: 0, bottom: 0 }}
+                                >
+                                  <defs>
+                                    <linearGradient
+                                      id="profitAreaGrad"
+                                      x1="0"
+                                      y1="0"
+                                      x2="0"
+                                      y2="1"
+                                    >
+                                      <stop
+                                        offset="5%"
+                                        stopColor="#10b981"
+                                        stopOpacity={0.35}
+                                      />
+                                      <stop
+                                        offset="95%"
+                                        stopColor="#10b981"
+                                        stopOpacity={0.03}
+                                      />
+                                    </linearGradient>
+                                  </defs>
+                                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                  <XAxis dataKey="shortMonth" tick={{ fontSize: 10 }} />
+                                  <YAxis
+                                    tick={{ fontSize: 10 }}
+                                    width={46}
+                                    tickFormatter={(v) =>
+                                      Math.abs(v) >= 100000
+                                        ? `${(v / 100000).toFixed(1)}L`
+                                        : Math.abs(v) >= 1000
+                                        ? `${(v / 1000).toFixed(0)}k`
+                                        : String(v)
+                                    }
+                                  />
+                                  <Tooltip
+                                    formatter={(val: any) => [
+                                      `Tk ${formatBDT(Number(val || 0))}`,
+                                      "Net Profit",
+                                    ]}
+                                  />
+                                  <Area
+                                    type="monotone"
+                                    dataKey="accruedProfit"
+                                    name="Net Profit"
+                                    stroke="#059669"
+                                    strokeWidth={2.5}
+                                    fill="url(#profitAreaGrad)"
+                                    dot={{ r: 3.5, fill: "#059669" }}
+                                    activeDot={{ r: 5 }}
+                                  />
+                                </AreaChart>
+                              </ResponsiveContainer>
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        <>
+                          <div className="mb-3">
+                            <h4 className="text-xs font-bold text-gray-900">
+                              📊 Requisitions Spend ({reqBarData.length})
+                            </h4>
+                            <p className="text-[11px] text-gray-500">
+                              Individual requisition voucher amounts
+                            </p>
+                          </div>
+                          {reqBarData.length === 0 ? (
+                            <div className="h-52 flex items-center justify-center text-xs text-gray-400">
+                              No requisitions yet.
+                            </div>
+                          ) : (
+                            <div className="h-52 w-full">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <BarChart
+                                  data={reqBarData}
+                                  margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
+                                >
+                                  <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                                  <XAxis dataKey="name" tick={{ fontSize: 10 }} />
+                                  <YAxis
+                                    tick={{ fontSize: 10 }}
+                                    width={46}
+                                    tickFormatter={(v) =>
+                                      v >= 100000
+                                        ? `${(v / 100000).toFixed(1)}L`
+                                        : v >= 1000
+                                        ? `${(v / 1000).toFixed(0)}k`
+                                        : String(v)
+                                    }
+                                  />
+                                  <Tooltip
+                                    formatter={(val: any) =>
+                                      `Tk ${formatBDT(Number(val || 0))}`
+                                    }
+                                  />
+                                  <Bar
+                                    dataKey="Total"
+                                    name="Overhead Amount"
+                                    fill="#be123c"
+                                    radius={[3, 3, 0, 0]}
+                                  />
+                                </BarChart>
+                              </ResponsiveContainer>
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
                   </div>
 
-                  {reqBarData.length === 0 ? (
-                    <div className="h-40 flex items-center justify-center text-xs text-gray-400">
-                      No requisitions yet.
-                    </div>
-                  ) : (
-                    <div className="h-40 w-full">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <BarChart
-                          data={reqBarData}
-                          margin={{ top: 5, right: 10, left: 0, bottom: 0 }}
-                        >
-                          <CartesianGrid
-                            strokeDasharray="3 3"
-                            stroke="#e5e7eb"
-                          />
-                          <XAxis dataKey="name" tick={{ fontSize: 10 }} />
-                          <YAxis
-                            tick={{ fontSize: 10 }}
-                            width={40}
-                            tickFormatter={(v) =>
-                              v >= 100000
-                                ? `${(v / 100000).toFixed(1)}L`
-                                : v >= 1000
-                                ? `${(v / 1000).toFixed(0)}k`
-                                : String(v)
-                            }
-                          />
-                          <Tooltip
-                            formatter={(val: any) =>
-                              `Tk ${formatBDT(Number(val || 0))}`
-                            }
-                          />
-                          <Legend wrapperStyle={{ fontSize: 10 }} />
-                          {selectedProject.kind === "COMPANY" ? (
-                            <Bar
-                              dataKey="Total"
-                              name="Overhead Amount"
-                              fill="#be123c"
-                              radius={[3, 3, 0, 0]}
-                            />
-                          ) : (
-                            <>
-                              <Bar
-                                dataKey="Billable"
-                                name="Billable"
-                                stackId="a"
-                                fill="#2563eb"
-                              />
-                              <Bar
-                                dataKey="IMS_Investment"
-                                name="IMS Inv."
-                                stackId="a"
-                                fill="#d97706"
-                                radius={[3, 3, 0, 0]}
-                              />
-                            </>
+                  {/* ROW 2: FULL-WIDTH COST HEAD BREAKDOWN (FULL UNTRUNCATED NAMES + % SHARE BARS) */}
+                  <div className="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+                    <div className="flex flex-wrap items-center justify-between gap-2 mb-3 pb-2 border-b border-gray-100">
+                      <div>
+                        <h4 className="text-xs font-bold text-gray-900">
+                          🍩 Cost Head Breakdown ({costHeadPieData.length} Cost Heads)
+                        </h4>
+                        <p className="text-[11px] text-gray-500">
+                          Full breakdown by category with exact Taka totals and % share of spend
+                        </p>
+                      </div>
+                      <span className="text-xs font-semibold text-gray-600">
+                        Total Spend:{" "}
+                        <strong className="font-mono text-gray-900">
+                          Tk{" "}
+                          {formatBDT(
+                            costHeadPieData.reduce((s, d) => s + d.value, 0)
                           )}
-                        </BarChart>
-                      </ResponsiveContainer>
+                        </strong>
+                      </span>
                     </div>
-                  )}
-                </div>
+
+                    {costHeadPieData.length === 0 ? (
+                      <div className="h-32 flex items-center justify-center text-xs text-gray-400">
+                        No line items yet.
+                      </div>
+                    ) : (
+                      (() => {
+                        const grandHeadSum = costHeadPieData.reduce(
+                          (s, d) => s + d.value,
+                          0
+                        );
+                        return (
+                          <div className="grid grid-cols-1 md:grid-cols-12 gap-5 items-center">
+                            <div className="md:col-span-4 h-48">
+                              <ResponsiveContainer width="100%" height="100%">
+                                <PieChart>
+                                  <Pie
+                                    data={costHeadPieData}
+                                    dataKey="value"
+                                    nameKey="name"
+                                    cx="50%"
+                                    cy="50%"
+                                    innerRadius={38}
+                                    outerRadius={72}
+                                    paddingAngle={2}
+                                  >
+                                    {costHeadPieData.map((_, idx) => (
+                                      <Cell
+                                        key={idx}
+                                        fill={PIE_COLORS[idx % PIE_COLORS.length]}
+                                      />
+                                    ))}
+                                  </Pie>
+                                  <Tooltip
+                                    formatter={(val: any) =>
+                                      `Tk ${formatBDT(Number(val || 0))}`
+                                    }
+                                  />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+
+                            <div className="md:col-span-8 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-2.5">
+                              {costHeadPieData.map((d, idx) => {
+                                const pct =
+                                  grandHeadSum > 0
+                                    ? (d.value / grandHeadSum) * 100
+                                    : 0;
+                                const color =
+                                  PIE_COLORS[idx % PIE_COLORS.length];
+                                return (
+                                  <div key={d.name} className="space-y-1">
+                                    <div className="flex items-baseline justify-between gap-2 text-xs">
+                                      <div className="flex items-center gap-1.5 min-w-0">
+                                        <span
+                                          className="w-2.5 h-2.5 rounded-full shrink-0"
+                                          style={{ backgroundColor: color }}
+                                        />
+                                        <span
+                                          className="font-semibold text-gray-800 truncate"
+                                          title={d.name}
+                                        >
+                                          {d.name}
+                                        </span>
+                                      </div>
+                                      <span className="font-mono font-bold text-gray-900 shrink-0 text-[11px]">
+                                        Tk {formatBDT(d.value)}{" "}
+                                        <span className="text-gray-400 font-normal">
+                                          ({pct.toFixed(1)}%)
+                                        </span>
+                                      </span>
+                                    </div>
+                                    <div className="w-full h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                      <div
+                                        className="h-full rounded-full"
+                                        style={{
+                                          width: `${Math.max(2, pct)}%`,
+                                          backgroundColor: color,
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        );
+                      })()
+                    )}
+                  </div>
                 </div>
               )}
             </div>
