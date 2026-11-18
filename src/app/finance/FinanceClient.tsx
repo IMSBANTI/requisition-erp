@@ -710,6 +710,12 @@ export default function FinanceClient({
   // Group Overview filter state
   const [groupKamFilter, setGroupKamFilter] = useState<string>("ALL");
   const [showSingleCharts, setShowSingleCharts] = useState<boolean>(false);
+  const [singleDetailTab, setSingleDetailTab] = useState<
+    "REQUISITIONS" | "PAYMENTS"
+  >("REQUISITIONS");
+  const [companyDetailTab, setCompanyDetailTab] = useState<
+    "REQUISITIONS" | "COST_HEADS"
+  >("REQUISITIONS");
 
   const currentList = useMemo(() => {
     if (activeType === "PERMANENT") return permanentProjects;
@@ -4275,22 +4281,49 @@ export default function FinanceClient({
                 </div>
               </div>
 
-              {/* STEP 4 (COMPANY): TWO CLEAN TABLES FOR IMS GROUP EXPENSES */}
-              <div className="space-y-6">
-                {/* TABLE A: ALL REQUISITIONS OF THIS IMS GROUP DIVISION */}
-                <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
-                  <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/60">
-                    <div>
-                      <h3 className="text-sm font-bold text-gray-900">
-                        📋 Internal Requisitions — {selectedProject.name} (
-                        {activeStats.reqs.length})
-                      </h3>
-                      <p className="text-xs text-gray-500">
-                        Click any requisition voucher to view or expand its expense line items.
-                      </p>
-                    </div>
+              {/* STEP 4 (COMPANY): UNIFIED TABBED PANEL FOR INTERNAL REQUISITIONS & COST HEAD BREAKDOWN */}
+              <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                <div className="px-4 sm:px-5 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3 bg-gray-50/70">
+                  <div className="inline-flex flex-wrap items-center gap-1.5 bg-gray-200/70 p-1 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => setCompanyDetailTab("REQUISITIONS")}
+                      className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        companyDetailTab === "REQUISITIONS"
+                          ? "bg-white text-gray-900 shadow-xs"
+                          : "text-gray-600 hover:text-gray-900"
+                      }`}
+                    >
+                      <span>📋 Internal Requisitions</span>
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-gray-100 text-gray-700 border border-gray-200">
+                        {activeStats.reqs.length}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCompanyDetailTab("COST_HEADS")}
+                      className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        companyDetailTab === "COST_HEADS"
+                          ? "bg-white text-gray-900 shadow-xs"
+                          : "text-gray-600 hover:text-gray-900"
+                      }`}
+                    >
+                      <span>🧾 Breakdown by Cost Head</span>
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-gray-100 text-gray-700 border border-gray-200">
+                        {costHeadPieData.length}
+                      </span>
+                    </button>
                   </div>
+                  <div className="text-xs font-semibold text-gray-600">
+                    Total Overhead:{" "}
+                    <strong className="font-mono text-rose-900">
+                      Tk {formatBDT(activeStats.totalSpend)}
+                    </strong>
+                  </div>
+                </div>
 
+                {companyDetailTab === "REQUISITIONS" && (
+                  <>
                   {activeStats.reqs.length === 0 ? (
                     <div className="p-8 text-center text-xs text-gray-500">
                       No requisitions recorded for{" "}
@@ -4424,20 +4457,11 @@ export default function FinanceClient({
                       </table>
                     </div>
                   )}
-                </div>
+                  </>
+                )}
 
-                {/* TABLE B: OVERHEAD EXPENSE BREAKDOWN BY COST HEAD / DIVISION */}
-                <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
-                  <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/60">
-                    <div>
-                      <h3 className="text-sm font-bold text-gray-900">
-                        🧾 Expense Breakdown by Cost Head & Division
-                      </h3>
-                      <p className="text-xs text-gray-500">
-                        Summary of where IMS Group internal overhead is spent.
-                      </p>
-                    </div>
-                  </div>
+                {companyDetailTab === "COST_HEADS" && (
+                  <>
 
                   {costHeadPieData.length === 0 ? (
                     <div className="p-8 text-center text-xs text-gray-500">
@@ -4504,7 +4528,8 @@ export default function FinanceClient({
                       </table>
                     </div>
                   )}
-                </div>
+                  </>
+                )}
               </div>
             </>
           ) : (
@@ -4739,22 +4764,78 @@ export default function FinanceClient({
                 </div>
               )}
 
-              {/* STEP 4: TWO CLEAN TABLES FOR THE SELECTED PROJECT / EVENT */}
-              <div className="space-y-6">
-                {/* TABLE A: ALL REQUISITIONS OF THIS PROJECT / EVENT */}
-                <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
-                  <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/60">
-                    <div>
-                      <h3 className="text-sm font-bold text-gray-900">
-                        📋 Requisitions of {selectedProject.name} (
-                        {activeStats.reqs.length})
-                      </h3>
-                      <p className="text-xs text-gray-500">
-                        Every requisition adds to total project spend. Click a row to view its line items.
-                      </p>
-                    </div>
+              {/* STEP 4: UNIFIED TABBED CARD FOR REQUISITIONS & PAYMENTS */}
+              <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
+                <div className="px-4 sm:px-5 py-3 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3 bg-gray-50/70">
+                  <div className="inline-flex flex-wrap items-center gap-1.5 bg-gray-200/70 p-1 rounded-lg">
+                    <button
+                      type="button"
+                      onClick={() => setSingleDetailTab("REQUISITIONS")}
+                      className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        singleDetailTab === "REQUISITIONS"
+                          ? "bg-white text-gray-900 shadow-xs"
+                          : "text-gray-600 hover:text-gray-900"
+                      }`}
+                    >
+                      <span>📋 Requisitions</span>
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-gray-100 text-gray-700 border border-gray-200">
+                        {activeStats.reqs.length}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSingleDetailTab("PAYMENTS")}
+                      className={`px-3 py-1.5 rounded-md text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                        singleDetailTab === "PAYMENTS"
+                          ? "bg-white text-emerald-800 shadow-xs"
+                          : "text-gray-600 hover:text-gray-900"
+                      }`}
+                    >
+                      <span>💵 Partial &amp; Full Payments Received</span>
+                      <span className="px-1.5 py-0.5 rounded-full text-[10px] font-mono bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        {activeStats.bills.length}
+                      </span>
+                    </button>
                   </div>
 
+                  <div className="flex flex-wrap items-center gap-3">
+                    {singleDetailTab === "REQUISITIONS" ? (
+                      <span className="text-xs text-gray-600">
+                        Total Spend:{" "}
+                        <strong className="font-mono text-gray-900">
+                          Tk {formatBDT(activeStats.totalSpend)}
+                        </strong>
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-600">
+                        Received:{" "}
+                        <strong className="font-mono text-emerald-800">
+                          Tk {formatBDT(activeStats.receivedAmount)}
+                        </strong>
+                        {" · "}
+                        Due:{" "}
+                        <strong className="font-mono text-amber-800">
+                          Tk {formatBDT(activeStats.remainingDue)}
+                        </strong>
+                      </span>
+                    )}
+                    {canEditFinance && (
+                      <button
+                        type="button"
+                        onClick={() => openPaymentModal()}
+                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 shrink-0 cursor-pointer"
+                      >
+                        + Add Payment
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {singleDetailTab === "REQUISITIONS" && (
+                  <>
+                  <div className="px-5 py-2.5 bg-gray-50/40 border-b border-gray-100 text-[11px] text-gray-500">
+                    Requisitions of <strong className="text-gray-800">{selectedProject.name}</strong> ({activeStats.reqs.length}) — Click ▼ to expand line items or click a Voucher # to open details.
+                  </div>
                   {activeStats.reqs.length === 0 ? (
                     <div className="p-8 text-center text-xs text-gray-500">
                       No requisitions created for{" "}
@@ -4905,29 +4986,13 @@ export default function FinanceClient({
                       </table>
                     </div>
                   )}
-                </div>
+                  </>
+                )}
 
-                {/* TABLE B: PARTIAL & FULL PAYMENT INSTALLMENTS FOR THIS PROJECT / EVENT */}
-                <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
-                  <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/60">
-                    <div>
-                      <h3 className="text-sm font-bold text-gray-900">
-                        💵 Partial & Full Payments Received (
-                        {activeStats.bills.length})
-                      </h3>
-                      <p className="text-xs text-gray-500">
-                        Derived maturity status with ±10 BDT tolerance. Each installment reduces Remaining Due.
-                      </p>
-                    </div>
-                    {canEditFinance && (
-                      <button
-                        type="button"
-                        onClick={() => openPaymentModal()}
-                        className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-bold text-white shadow-sm hover:bg-emerald-700 shrink-0"
-                      >
-                        + Add Payment
-                      </button>
-                    )}
+                {singleDetailTab === "PAYMENTS" && (
+                  <>
+                  <div className="px-5 py-2.5 bg-emerald-50/40 border-b border-emerald-100 text-[11px] text-gray-600">
+                    Derived maturity status with ±10 BDT tolerance. Each installment reduces Remaining Due.
                   </div>
 
                   {activeStats.bills.length === 0 ? (
@@ -5058,7 +5123,8 @@ export default function FinanceClient({
                       </table>
                     </div>
                   )}
-                </div>
+                  </>
+                )}
               </div>
 
               {/* DIRECT EXPENSES & EXCEL IMPORT QUEUE (Priority 2B) */}
