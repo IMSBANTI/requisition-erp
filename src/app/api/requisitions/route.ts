@@ -129,8 +129,8 @@ export async function POST(request: Request) {
           include: { company: true },
         })) ||
         (selectedCompany
-          ? await prisma.project.findFirst({
-              where: { companyId: selectedCompany.id },
+          ? await prisma.project.findUnique({
+              where: { code: `${selectedCompany.code}-CORP` },
               include: { company: true },
             })
           : null);
@@ -138,12 +138,18 @@ export async function POST(request: Request) {
       if (divProject) {
         project = divProject;
       } else if (selectedCompany) {
+        const divCode = targetCode || `${selectedCompany.code}-CORP`;
+        const divName =
+          divCode === "IMS-IT"
+            ? "AI & IT Transformation"
+            : `${selectedCompany.name} (${divCode})`;
         project = await prisma.project.create({
           data: {
-            code: `${selectedCompany.code}-CORP`,
-            name: `${selectedCompany.name} Corporate & Permanent Staff`,
+            code: divCode,
+            name: divName,
             companyId: selectedCompany.id,
-            category,
+            kind: "PERMANENT",
+            category: divCode === "IMS-IT" ? "AI_IT" : "IMS",
             headId: selectedDepartment?.headId || null,
             requisitionTypes: ["ADMIN", "CASH", "BPO", "IT", "STUDIO"],
           },

@@ -141,7 +141,7 @@ let syncedInProcess = false;
 export async function ensureUploadedKitProjectsSynced(): Promise<void> {
   if (syncedInProcess) return;
   try {
-    const [existingDbh, legacyCount, existingRobiList, existingSalesOfficer] = await Promise.all([
+    const [existingDbh, legacyCount, existingRobiList, existingSalesOfficer, misplacedItReq] = await Promise.all([
       prisma.project.findUnique({
         where: { code: "PROJ-DBH" },
         select: { id: true, costHeads: true },
@@ -164,6 +164,13 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
       prisma.project.findUnique({
         where: { code: "PROJ-SALES-OFFICER" },
         select: { id: true, costHeads: true },
+      }),
+      prisma.requisition.findFirst({
+        where: {
+          number: "IMS-IT-2026-10-0001",
+          project: { code: { in: ["PROJ-ROBI", "PROJ-ROBI-SME"] } },
+        },
+        select: { id: true },
       }),
     ]);
 
@@ -199,7 +206,8 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
       !robiNeedsUpgrade &&
       !dbhNeedsUpgrade &&
       !soNeedsUpgrade &&
-      !histNeedsImport
+      !histNeedsImport &&
+      !misplacedItReq
     ) {
       syncedInProcess = true;
       return;
@@ -450,6 +458,32 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
         });
         await prisma.project.delete({ where: { id: lp.id } });
       }
+    }
+
+    if (misplacedItReq) {
+      let imsItProj = await prisma.project.findUnique({
+        where: { code: "IMS-IT" },
+        select: { id: true },
+      });
+      if (!imsItProj) {
+        imsItProj = await prisma.project.create({
+          data: {
+            code: "IMS-IT",
+            name: "AI & IT Transformation",
+            companyId: imsCo.id,
+            kind: "PERMANENT",
+            category: "AI_IT",
+            mdApprovalMode: "INSTANT",
+            requisitionTypes: ["IT", "ADMIN", "CASH"],
+            costHeads: DEFAULT_PROJECT_COST_HEADS as any,
+          },
+          select: { id: true },
+        });
+      }
+      await prisma.requisition.update({
+        where: { id: misplacedItReq.id },
+        data: { projectId: imsItProj.id },
+      });
     }
 
     await ensureHistorical2026DataImported();
