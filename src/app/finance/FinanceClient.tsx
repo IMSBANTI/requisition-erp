@@ -4275,7 +4275,7 @@ export default function FinanceClient({
               </div>
 
               {/* STEP 4 (COMPANY): TWO CLEAN TABLES FOR IMS GROUP EXPENSES */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="space-y-6">
                 {/* TABLE A: ALL REQUISITIONS OF THIS IMS GROUP DIVISION */}
                 <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
                   <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/60">
@@ -4739,7 +4739,7 @@ export default function FinanceClient({
               )}
 
               {/* STEP 4: TWO CLEAN TABLES FOR THE SELECTED PROJECT / EVENT */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="space-y-6">
                 {/* TABLE A: ALL REQUISITIONS OF THIS PROJECT / EVENT */}
                 <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden flex flex-col">
                   <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between bg-gray-50/60">
@@ -4801,10 +4801,10 @@ export default function FinanceClient({
                                   <td className="py-3 px-3 text-right font-mono text-amber-800">
                                     {formatBDT(r.imsInvestment)}
                                   </td>
-                                  <td className="py-3 px-3 text-right font-mono font-bold text-gray-900">
+                                  <td className="py-3 px-3 text-right font-mono font-bold text-gray-900 whitespace-nowrap">
                                     {formatBDT(r.total)}
                                   </td>
-                                  <td className="py-3 px-3 text-center">
+                                  <td className="py-3 px-3 text-center whitespace-nowrap">
                                     <button
                                       type="button"
                                       onClick={() =>
@@ -4812,11 +4812,11 @@ export default function FinanceClient({
                                           isExpanded ? null : r.id
                                         )
                                       }
-                                      className="px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 text-[11px] font-semibold text-gray-700"
+                                      className="px-2.5 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 text-[11px] font-semibold text-gray-700 cursor-pointer"
                                     >
                                       {isExpanded
                                         ? "▲ Hide"
-                                        : `▼ ${r.items?.length || 0}`}
+                                        : `▼ ${r.items?.length || 0} Items`}
                                     </button>
                                   </td>
                                 </tr>
@@ -4994,7 +4994,7 @@ export default function FinanceClient({
                                     </div>
                                   )}
                                 </td>
-                                <td className="py-3 px-3">
+                                <td className="py-3 px-3 whitespace-nowrap">
                                   <span
                                     className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold border ${derived.cls}`}
                                   >
@@ -5008,25 +5008,29 @@ export default function FinanceClient({
                                       : b.submittedAt || "—"}
                                   </div>
                                 </td>
-                                <td className="py-3 px-3 text-right font-mono font-bold text-emerald-800">
+                                <td className="py-3 px-3 text-right font-mono font-bold text-emerald-800 whitespace-nowrap">
                                   Tk {formatBDT(b.receivedAmount)}
                                 </td>
                                 {canEditFinance && (
                                   <td className="py-3 px-3 text-right whitespace-nowrap">
-                                    <button
-                                      type="button"
-                                      onClick={() => openPaymentModal(b)}
-                                      className="px-2 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 text-[11px] font-semibold text-gray-700 mr-1"
-                                    >
-                                      ✏️
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleDeleteBill(b.id)}
-                                      className="px-2 py-1 rounded border border-red-200 bg-red-50 hover:bg-red-100 text-[11px] font-semibold text-red-700"
-                                    >
-                                      🗑️
-                                    </button>
+                                    <div className="inline-flex items-center justify-end gap-1.5">
+                                      <button
+                                        type="button"
+                                        title="Edit bill / payment"
+                                        onClick={() => openPaymentModal(b)}
+                                        className="px-2.5 py-1 rounded border border-gray-300 bg-white hover:bg-gray-100 text-[11px] font-semibold text-gray-700 cursor-pointer"
+                                      >
+                                        ✏️ Edit
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title="Delete bill / payment"
+                                        onClick={() => handleDeleteBill(b.id)}
+                                        className="px-2.5 py-1 rounded border border-red-200 bg-red-50 hover:bg-red-100 text-[11px] font-semibold text-red-700 cursor-pointer"
+                                      >
+                                        🗑️ Delete
+                                      </button>
+                                    </div>
                                   </td>
                                 )}
                               </tr>
