@@ -1643,7 +1643,8 @@ export default function FinanceClient({
     if (res.ok) {
       router.refresh();
     } else {
-      alert("Failed to delete payment record.");
+      const data = await res.json().catch(() => null);
+      alert(data?.error || "Failed to delete payment record.");
     }
   }
 

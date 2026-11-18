@@ -17,21 +17,24 @@ import {
 
 const OPENING_BILL_PREFIX = "[OPENING_BALANCE]";
 
+function canManageFinanceBills(user: Awaited<ReturnType<typeof requireUser>>): boolean {
+  return (
+    canAccessFinancialReports(user) &&
+    (user.permissions.includes("req.accounts.check") ||
+      user.permissions.includes("req.execute") ||
+      user.permissions.includes("req.director") ||
+      user.permissions.includes("req.md") ||
+      user.permissions.includes("admin.users") ||
+      user.permissions.includes("project.manage") ||
+      Boolean(user.role.isManager))
+  );
+}
+
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
 
-    const canManageFinance =
-      canAccessFinancialReports(user) &&
-      (user.permissions.includes("req.accounts.check") ||
-        user.permissions.includes("req.execute") ||
-        user.permissions.includes("req.director") ||
-        user.permissions.includes("req.md") ||
-        user.permissions.includes("admin.users") ||
-        user.permissions.includes("project.manage") ||
-        Boolean(user.role.isManager));
-
-    if (!canManageFinance) {
+    if (!canManageFinanceBills(user)) {
       return NextResponse.json(
         { error: "Unauthorized to record client bills or finance actions" },
         { status: 403 }
@@ -583,14 +586,11 @@ export async function POST(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const user = await requireUser();
-    const canDelete =
-      user.permissions.includes("req.accounts.check") ||
-      user.permissions.includes("req.director") ||
-      user.permissions.includes("req.md") ||
-      user.permissions.includes("admin.users");
-
-    if (!canDelete) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    if (!canManageFinanceBills(user)) {
+      return NextResponse.json(
+        { error: "Unauthorized to delete client bills or payment records" },
+        { status: 403 }
+      );
     }
 
     const { searchParams } = new URL(request.url);
@@ -604,6 +604,7 @@ export async function DELETE(request: Request) {
         id,
         project: financialReportProjectScope(user),
       },
+      include: { project: { select: { name: true } } },
     });
     if (!existingBill) {
       return NextResponse.json(
@@ -613,6 +614,13 @@ export async function DELETE(request: Request) {
     }
 
     await (prisma as any).clientBill.delete({ where: { id } });
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "CLIENT_BILL_DELETED",
+        details: `${existingBill.project?.name || existingBill.projectId} (${existingBill.forMonth}) — Deleted bill ${existingBill.billNumber || id} (Received Tk ${existingBill.receivedAmount}) by ${user.name}`,
+      },
+    });
     return NextResponse.json({ deleted: true });
   } catch (err: any) {
     return NextResponse.json({ error: err.message || "Delete failed" }, { status: 500 });
