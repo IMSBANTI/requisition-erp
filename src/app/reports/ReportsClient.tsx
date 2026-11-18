@@ -211,36 +211,70 @@ export default function ReportsClient({
       </div>
 
       {/* KPI Overview Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3.5">
-        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-          <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Total Requisitions</p>
-          <p className="text-xl font-extrabold text-gray-900 mt-1">{metrics.count}</p>
-          <p className="text-[10px] text-gray-400 mt-0.5">Matching current filters</p>
-        </div>
-
-        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-          <p className="text-[11px] font-bold text-gray-500 uppercase tracking-wider">Total Requested</p>
-          <p className="text-xl font-extrabold text-gray-900 mt-1">Tk {formatTaka(metrics.totalRequested)}</p>
-          <p className="text-[10px] text-gray-400 mt-0.5">Gross sum</p>
-        </div>
-
-        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-          <p className="text-[11px] font-bold text-blue-700 uppercase tracking-wider">Approved / Forwarded</p>
-          <p className="text-xl font-extrabold text-blue-700 mt-1">Tk {formatTaka(metrics.totalApproved)}</p>
-          <p className="text-[10px] text-blue-500 mt-0.5">Committed funds</p>
-        </div>
-
-        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-          <p className="text-[11px] font-bold text-emerald-700 uppercase tracking-wider">Executed / Paid</p>
-          <p className="text-xl font-extrabold text-emerald-700 mt-1">Tk {formatTaka(metrics.totalExecuted)}</p>
-          <p className="text-[10px] text-emerald-500 mt-0.5">Disbursed by Accounts</p>
-        </div>
-
-        <div className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
-          <p className="text-[11px] font-bold text-amber-600 uppercase tracking-wider">Pending Approvals</p>
-          <p className="text-xl font-extrabold text-amber-600 mt-1">Tk {formatTaka(metrics.totalPending)}</p>
-          <p className="text-[10px] text-amber-500 mt-0.5">In approval pipeline</p>
-        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
+        {[
+          {
+            label: "Total Requisitions",
+            value: String(metrics.count),
+            isCurrency: false,
+            sub: "Matching current filters",
+            labelClass: "text-gray-500",
+            valueClass: "text-gray-900",
+            subClass: "text-gray-400",
+          },
+          {
+            label: "Total Requested",
+            value: formatTaka(metrics.totalRequested),
+            isCurrency: true,
+            sub: "Gross sum",
+            labelClass: "text-gray-500",
+            valueClass: "text-gray-900",
+            subClass: "text-gray-400",
+          },
+          {
+            label: "Approved / Forwarded",
+            value: formatTaka(metrics.totalApproved),
+            isCurrency: true,
+            sub: "Committed funds",
+            labelClass: "text-blue-700",
+            valueClass: "text-blue-700",
+            subClass: "text-blue-500",
+          },
+          {
+            label: "Executed / Paid",
+            value: formatTaka(metrics.totalExecuted),
+            isCurrency: true,
+            sub: "Disbursed by Accounts",
+            labelClass: "text-emerald-700",
+            valueClass: "text-emerald-700",
+            subClass: "text-emerald-500",
+          },
+          {
+            label: "Pending Approvals",
+            value: formatTaka(metrics.totalPending),
+            isCurrency: true,
+            sub: "In approval pipeline",
+            labelClass: "text-amber-600",
+            valueClass: "text-amber-600",
+            subClass: "text-amber-500",
+          },
+        ].map((card) => (
+          <div
+            key={card.label}
+            className="bg-white px-3.5 py-3.5 rounded-lg border border-gray-200 shadow-sm min-w-0 flex flex-col justify-between"
+          >
+            <p className={`text-[11px] font-bold uppercase tracking-wider leading-tight truncate ${card.labelClass}`}>
+              {card.label}
+            </p>
+            <p
+              className={`mt-2 flex items-baseline gap-1 font-extrabold tracking-tight tabular-nums whitespace-nowrap leading-none text-base sm:text-[17px] lg:text-[13.5px] xl:text-[17px] ${card.valueClass}`}
+            >
+              {card.isCurrency && <span className="text-[11px] xl:text-xs font-bold opacity-80">Tk</span>}
+              <span>{card.value}</span>
+            </p>
+            <p className={`text-[10px] mt-1.5 leading-tight ${card.subClass}`}>{card.sub}</p>
+          </div>
+        ))}
       </div>
 
       {/* Tabs Navigation */}
