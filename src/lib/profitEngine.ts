@@ -80,6 +80,8 @@ export interface ProjectExtendedMeta {
   dbhSyncedV2?: boolean;
   /** Internal one-time sync marker so Robi SME (`PROJ-ROBI` / `PROJ-ROBI-SME`) upgrades cleanly once. */
   robiSyncedV2?: boolean;
+  /** Internal one-time marker for Jan–Oct 2026 historical Excel baseline import (Robi SME, DBH Office, DBH SO). */
+  hist2026ImportedV1?: boolean;
 }
 
 export interface BillingTermsInput {

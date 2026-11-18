@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { ensureHistorical2026DataImported } from "@/lib/historical2026Sync";
 import {
   DBH_OFFICE_COST_HEADS,
   DBH_SALES_OFFICER_COST_HEADS,
@@ -180,13 +181,25 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
     const soNeedsUpgrade =
       existingSalesOfficer &&
       extractProjectMeta(existingSalesOfficer.costHeads).dbhSyncedV2 !== true;
+    const histNeedsImport =
+      existingRobiList.some(
+        (rp) => extractProjectMeta(rp.costHeads).hist2026ImportedV1 !== true
+      ) ||
+      Boolean(
+        existingDbh && extractProjectMeta(existingDbh.costHeads).hist2026ImportedV1 !== true
+      ) ||
+      Boolean(
+        existingSalesOfficer &&
+          extractProjectMeta(existingSalesOfficer.costHeads).hist2026ImportedV1 !== true
+      );
 
     if (
       existingDbh &&
       legacyCount === 0 &&
       !robiNeedsUpgrade &&
       !dbhNeedsUpgrade &&
-      !soNeedsUpgrade
+      !soNeedsUpgrade &&
+      !histNeedsImport
     ) {
       syncedInProcess = true;
       return;
@@ -439,6 +452,7 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
       }
     }
 
+    await ensureHistorical2026DataImported();
     syncedInProcess = true;
   } catch (err) {
     console.error("Failed to sync uploaded kit projects:", err);
