@@ -5485,20 +5485,20 @@ export default function FinanceClient({
 
       {/* MODAL: RECORD / UPDATE PARTIAL OR FULL PAYMENT */}
       {modalOpen && (modalProject || selectedProject) && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-2xl w-full p-6 shadow-xl border border-gray-200 my-8">
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-xl border border-gray-200 overflow-hidden">
             {(() => {
               const proj = (modalProject || selectedProject)!;
               return (
                 <>
-                  <div className="flex items-start justify-between border-b border-gray-200 pb-3">
+                  <div className="shrink-0 flex items-start justify-between border-b border-gray-200 px-5 py-3 bg-white">
                     <div>
-                      <h2 className="text-base font-bold text-gray-900">
+                      <h2 className="text-sm sm:text-base font-bold text-gray-900">
                         {editingBillId
                           ? "✏️ Edit Payment / Client Bill Record"
                           : "💰 Record Partial or Full Client Payment"}
                       </h2>
-                      <p className="text-xs text-gray-500 mt-0.5">
+                      <p className="text-[11px] text-gray-500 mt-0.5">
                         {proj.kind === "EVENT" ? "🎪 Event: " : "📁 Project: "}
                         <strong>{proj.name}</strong> ({proj.code}) • Cycle:{" "}
                         <strong>{proj.terms.billCycleDays} Days</strong>
@@ -5507,7 +5507,8 @@ export default function FinanceClient({
                     <button
                       type="button"
                       onClick={() => setModalOpen(false)}
-                      className="text-gray-400 hover:text-gray-700 text-lg font-bold"
+                      className="text-gray-400 hover:text-gray-700 text-lg font-bold leading-none p-1 cursor-pointer"
+                      aria-label="Close modal"
                     >
                       ✕
                     </button>
@@ -5515,11 +5516,12 @@ export default function FinanceClient({
 
                   <form
                     onSubmit={handleSaveBill}
-                    className="mt-4 space-y-4 text-xs"
+                    className="flex flex-col flex-1 min-h-0 text-xs"
                   >
-                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2.5">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                       <div>
-                        <label className="block font-semibold text-gray-700 mb-1">
+                        <label className="block font-semibold text-gray-700 mb-0.5">
                           Service Month
                         </label>
                         <input
@@ -5528,17 +5530,17 @@ export default function FinanceClient({
                           value={formMonth}
                           onChange={(e) => setFormMonth(e.target.value)}
                           placeholder="e.g. 2026-10"
-                          className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                          className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5"
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-gray-700 mb-1">
+                        <label className="block font-semibold text-gray-700 mb-0.5">
                           Payment Status
                         </label>
                         <select
                           value={formStatus}
                           onChange={(e) => setFormStatus(e.target.value)}
-                          className="w-full rounded-lg border border-gray-300 px-3 py-2 font-semibold"
+                          className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 font-semibold"
                         >
                           <option value="PARTIAL_PAID">
                             Partial Payment
@@ -5550,7 +5552,7 @@ export default function FinanceClient({
                         </select>
                       </div>
                       <div>
-                        <label className="block font-semibold text-gray-700 mb-1">
+                        <label className="block font-semibold text-gray-700 mb-0.5">
                           Invoice / Bill #
                         </label>
                         <input
@@ -5558,11 +5560,11 @@ export default function FinanceClient({
                           value={formBillNo}
                           onChange={(e) => setFormBillNo(e.target.value)}
                           placeholder="e.g. INV-2026-042"
-                          className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                          className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5"
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-gray-700 mb-1">
+                        <label className="block font-semibold text-gray-700 mb-0.5">
                           PO Number
                         </label>
                         <input
@@ -5570,15 +5572,15 @@ export default function FinanceClient({
                           value={formPoNo}
                           onChange={(e) => setFormPoNo(e.target.value)}
                           placeholder="e.g. PO-8821"
-                          className="w-full rounded-lg border border-gray-300 px-3 py-2"
+                          className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5"
                         />
                       </div>
                     </div>
 
                     {/* Bill Submission Date & Auto-Calculated Due Date (§4.4) */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-blue-50/40 border border-blue-100 rounded-xl p-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-blue-50/40 border border-blue-100 rounded-xl p-2.5">
                       <div>
-                        <label className="block font-semibold text-gray-700 mb-1">
+                        <label className="block font-semibold text-gray-700 mb-0.5">
                           Bill Submitted Date
                         </label>
                         <input
@@ -5596,11 +5598,11 @@ export default function FinanceClient({
                               );
                             }
                           }}
-                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5"
+                          className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1"
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-gray-700 mb-1">
+                        <label className="block font-semibold text-gray-700 mb-0.5">
                           Maturity / Due Date (+{proj.terms.billCycleDays}d
                           auto)
                         </label>
@@ -5608,18 +5610,18 @@ export default function FinanceClient({
                           type="date"
                           value={formDueDate}
                           onChange={(e) => setFormDueDate(e.target.value)}
-                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5"
+                          className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1"
                         />
                       </div>
                     </div>
 
-                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-3.5 space-y-3">
+                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5 space-y-2">
                       <div className="font-bold text-gray-800">
-                        1. Requisition Cost & Expected Client Bill Snapshot (Tk)
+                        1. Requisition Cost &amp; Expected Client Bill Snapshot (Tk)
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <div>
-                          <label className="block text-gray-600 mb-1">
+                          <label className="block text-gray-600 mb-0.5">
                             Billable Requisition Cost (Tk)
                           </label>
                           <input
@@ -5629,11 +5631,11 @@ export default function FinanceClient({
                             onChange={(e) =>
                               handleAutoRecalculate(e.target.value, formImsInv)
                             }
-                            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 font-mono"
+                            className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1 font-mono"
                           />
                         </div>
                         <div>
-                          <label className="block text-gray-600 mb-1">
+                          <label className="block text-gray-600 mb-0.5">
                             IMS Own Investment Cost (Tk)
                           </label>
                           <input
@@ -5646,13 +5648,13 @@ export default function FinanceClient({
                                 e.target.value
                               )
                             }
-                            className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5 font-mono"
+                            className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1 font-mono"
                           />
                         </div>
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                         <div>
-                          <label className="block text-blue-800 mb-1">
+                          <label className="block text-blue-800 mb-0.5">
                             Client Bill Ex-VAT (Tk)
                           </label>
                           <input
@@ -5660,11 +5662,11 @@ export default function FinanceClient({
                             step="0.01"
                             value={formBillExVat}
                             onChange={(e) => setFormBillExVat(e.target.value)}
-                            className="w-full rounded-lg border border-blue-300 bg-white px-3 py-1.5 font-mono"
+                            className="w-full rounded-lg border border-blue-300 bg-white px-2.5 py-1 font-mono"
                           />
                         </div>
                         <div>
-                          <label className="block text-blue-800 mb-1">
+                          <label className="block text-blue-800 mb-0.5">
                             15% VAT Amount (Tk)
                           </label>
                           <input
@@ -5672,11 +5674,11 @@ export default function FinanceClient({
                             step="0.01"
                             value={formVatAmt}
                             onChange={(e) => setFormVatAmt(e.target.value)}
-                            className="w-full rounded-lg border border-blue-300 bg-white px-3 py-1.5 font-mono"
+                            className="w-full rounded-lg border border-blue-300 bg-white px-2.5 py-1 font-mono"
                           />
                         </div>
                         <div>
-                          <label className="block text-blue-800 mb-1">
+                          <label className="block text-blue-800 mb-0.5">
                             AIT Deducted by Client (Tk)
                           </label>
                           <input
@@ -5684,11 +5686,11 @@ export default function FinanceClient({
                             step="0.01"
                             value={formAitAmt}
                             onChange={(e) => setFormAitAmt(e.target.value)}
-                            className="w-full rounded-lg border border-blue-300 bg-white px-3 py-1.5 font-mono"
+                            className="w-full rounded-lg border border-blue-300 bg-white px-2.5 py-1 font-mono"
                           />
                         </div>
                       </div>
-                      <div className="text-[11px] text-blue-900 pt-1">
+                      <div className="text-[11px] text-blue-900">
                         Bill With VAT:{" "}
                         <strong>Tk {formatBDT(liveBillWithVat)}</strong> •
                         Expected Net Inflow (Bill Ex-VAT − AIT):{" "}
@@ -5697,8 +5699,8 @@ export default function FinanceClient({
                     </div>
 
                     {/* Partial / Full Payment Amount */}
-                    <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-3.5 space-y-3">
-                      <div className="flex items-center justify-between">
+                    <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-2.5 space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-1">
                         <span className="font-bold text-emerald-950">
                           2. Payment Received in This Installment
                         </span>
@@ -5718,9 +5720,9 @@ export default function FinanceClient({
                           </span>
                         )}
                       </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
                         <div>
-                          <label className="block font-bold text-emerald-900 mb-1">
+                          <label className="block font-bold text-emerald-900 mb-0.5">
                             Received Payment Amount (Tk) *
                           </label>
                           <input
@@ -5730,24 +5732,24 @@ export default function FinanceClient({
                             value={formReceivedAmt}
                             onChange={(e) => setFormReceivedAmt(e.target.value)}
                             placeholder="Enter amount received (0 if only submitting bill)"
-                            className="w-full rounded-lg border-2 border-emerald-500 bg-white px-3 py-2 font-mono font-bold text-sm text-emerald-950"
+                            className="w-full rounded-lg border-2 border-emerald-500 bg-white px-2.5 py-1.5 font-mono font-bold text-sm text-emerald-950"
                           />
                         </div>
                         <div>
-                          <label className="block text-emerald-900 font-semibold mb-1">
+                          <label className="block text-emerald-900 font-semibold mb-0.5">
                             Payment Received Date
                           </label>
                           <input
                             type="date"
                             value={formReceivedAt}
                             onChange={(e) => setFormReceivedAt(e.target.value)}
-                            className="w-full rounded-lg border border-emerald-300 bg-white px-3 py-2"
+                            className="w-full rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5"
                           />
                         </div>
                       </div>
 
                       <div>
-                        <label className="block text-gray-700 font-semibold mb-1">
+                        <label className="block text-gray-700 font-semibold mb-0.5">
                           Installment Description / Bank Reference / Deviation Reason
                         </label>
                         <input
@@ -5755,12 +5757,12 @@ export default function FinanceClient({
                           value={formNotes}
                           onChange={(e) => setFormNotes(e.target.value)}
                           placeholder="e.g. 1st Partial Payment (40% Advance via Bank Transfer)"
-                          className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5"
+                          className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1"
                         />
                       </div>
 
                       {/* Priority 1C: Opening Balance Bill Toggle */}
-                      <label className="flex items-start gap-2 pt-1 cursor-pointer select-none">
+                      <label className="flex items-start gap-2 pt-0.5 cursor-pointer select-none">
                         <input
                           type="checkbox"
                           checked={formIsOpeningBalance}
@@ -5777,19 +5779,20 @@ export default function FinanceClient({
                         </span>
                       </label>
                     </div>
+                    </div>
 
-                    <div className="flex items-center justify-end gap-2 pt-3 border-t border-gray-200">
+                    <div className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-200 bg-gray-50/70">
                       <button
                         type="button"
                         onClick={() => setModalOpen(false)}
-                        className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 font-semibold hover:bg-gray-50"
+                        className="px-4 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 font-semibold hover:bg-gray-100 cursor-pointer"
                       >
                         Cancel
                       </button>
                       <button
                         type="submit"
                         disabled={saving}
-                        className="px-5 py-2 rounded-lg bg-gray-900 text-white font-bold hover:bg-gray-800 disabled:opacity-50"
+                        className="px-5 py-1.5 rounded-lg bg-gray-900 text-white font-bold hover:bg-gray-800 disabled:opacity-50 cursor-pointer"
                       >
                         {saving ? "Saving..." : "Save Record"}
                       </button>
@@ -6009,8 +6012,8 @@ export default function FinanceClient({
 
       {/* MODAL 4: DIRECT EXPENSE & EXCEL/CSV IMPORT (Priority 2B) */}
       {directExpModalOpen && selectedProject && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-xl w-full p-6 shadow-xl border border-gray-200 my-8">
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-2 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-xl border border-gray-200">
             <div className="flex items-center justify-between border-b border-gray-200 pb-3">
               <div>
                 <h3 className="text-sm font-bold text-gray-900">
