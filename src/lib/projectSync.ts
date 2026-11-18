@@ -231,10 +231,8 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
       }
     }
 
-    // 1. Ensure all 14 uploaded projects exist
+    // 1. Ensure all 14 uploaded projects exist & upgrade existing kit records
     for (const p of UPLOADED_KIT_PROJECTS) {
-      if (deletedCodes.has(p.code.toUpperCase())) continue;
-
       const existing = await prisma.project.findFirst({
         where:
           p.code === "PROJ-ROBI"
@@ -242,10 +240,9 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
             : { code: p.code },
       });
 
-      if (
-        !existing &&
-        !(p.code === "PROJ-ROBI" && deletedCodes.has("PROJ-ROBI-SME"))
-      ) {
+      if (!existing) {
+        if (deletedCodes.has(p.code.toUpperCase())) continue;
+        if (p.code === "PROJ-ROBI" && deletedCodes.has("PROJ-ROBI-SME")) continue;
         const defaultTerms = getDefaultProjectTermsByCode(p.code, "PERMANENT");
         const memberIds = p.memberEmpIds
           .map((eid) => userByEmpId[eid])
