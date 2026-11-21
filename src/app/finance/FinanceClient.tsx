@@ -28,6 +28,7 @@ import {
   MonthCloseModal,
 } from "./components/MonthCloseAndForecastModals";
 import ReceivablesAgeingView from "./components/ReceivablesAgeingView";
+import { useToast } from "@/components/ToastProvider";
 import {
   ResponsiveContainer,
   BarChart,
@@ -47,15 +48,18 @@ import {
 export default function FinanceClient({
   projects,
   canEditFinance,
+  canDisburse = false,
   canCloseMonth = false,
   isFullReportAccess = false,
 }: {
   projects: ProjectFinanceItem[];
   canEditFinance: boolean;
+  canDisburse?: boolean;
   canCloseMonth?: boolean;
   isFullReportAccess?: boolean;
 }) {
   const router = useRouter();
+  const { toast, confirmDialog } = useToast();
 
   // Strictly separate Projects vs Events vs IMS Group Internal Divisions
   const permanentProjects = useMemo(
@@ -723,9 +727,10 @@ export default function FinanceClient({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || "Failed to save payment record");
+        toast.error(err.error || "Failed to save payment record");
         return;
       }
+      toast.success("Payment record saved.");
       setModalOpen(false);
       router.refresh();
     } finally {
@@ -753,9 +758,14 @@ export default function FinanceClient({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.error || "Failed to update month close status");
+        toast.error(data.error || "Failed to update month close status");
         return;
       }
+      toast.success(
+        closeMonthMode === "CLOSE"
+          ? `Month ${closeMonthTarget} marked as closed.`
+          : `Month ${closeMonthTarget} reopened.`
+      );
       setCloseMonthModalOpen(false);
       setCloseMonthReason("");
       router.refresh();
@@ -782,9 +792,14 @@ export default function FinanceClient({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        alert(data.error || "Failed to save forecast override");
+        toast.error(data.error || "Failed to save forecast override");
         return;
       }
+      toast.success(
+        clearOverride
+          ? "Forecast override cleared."
+          : "Manual forecast override saved."
+      );
       setForecastModalOpen(false);
       router.refresh();
     } finally {
@@ -793,15 +808,22 @@ export default function FinanceClient({
   }
 
   async function handleDeleteBill(id: string) {
-    if (!confirm("Delete this payment / bill record?")) return;
+    const ok = await confirmDialog({
+      title: "Delete Payment / Bill Record",
+      message: "Delete this payment / bill record? This action cannot be undone.",
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
+    if (!ok) return;
     const res = await fetch(`/api/finance/bills?id=${id}`, {
       method: "DELETE",
     });
     if (res.ok) {
+      toast.success("Payment / bill record deleted.");
       router.refresh();
     } else {
       const data = await res.json().catch(() => null);
-      alert(data?.error || "Failed to delete payment record.");
+      toast.error(data?.error || "Failed to delete payment record.");
     }
   }
 
@@ -1112,11 +1134,11 @@ export default function FinanceClient({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || "Failed to save bill");
+        toast.error(err.error || "Failed to save bill");
         return;
       }
 
-      alert("Client bill saved successfully!");
+      toast.success("Client bill saved successfully!");
       setInlineBillNo("");
       setInlinePoNo("");
       router.refresh();
@@ -1207,10 +1229,10 @@ export default function FinanceClient({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || "Failed to record payment");
+        toast.error(err.error || "Failed to record payment");
         return;
       }
-      alert("Payment recorded successfully!");
+      toast.success("Payment recorded successfully!");
       setQuickPayAmountStr("");
       setQuickPayDeviationReason("");
       router.refresh();
@@ -1222,7 +1244,7 @@ export default function FinanceClient({
   // Disburse approved funds with line-by-line payout
   async function handleDisburseRequisition(req: RequisitionSummaryItem) {
     if (!disbursePinOrPassword.trim()) {
-      alert("Please enter your 4-digit PIN or login password to authorize disbursement.");
+      toast.error("Please enter your 4-digit PIN or login password to authorize disbursement.");
       return;
     }
     setSaving(true);
@@ -1259,10 +1281,10 @@ export default function FinanceClient({
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || "Failed to disburse requisition");
+        toast.error(err.error || "Failed to disburse requisition");
         return;
       }
-      alert("Requisition marked as disbursed & funds executed!");
+      toast.success("Requisition marked as disbursed & funds executed!");
       setSelectedDisburseReqId("");
       setDisbursePinOrPassword("");
       router.refresh();
@@ -1293,9 +1315,14 @@ export default function FinanceClient({
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        alert(err.error || "Failed to update month close status");
+        toast.error(err.error || "Failed to update month close status");
         return;
       }
+      toast.success(
+        isCurrentlyClosed
+          ? `${project.name} (${targetMonth}) reopened.`
+          : `${project.name} (${targetMonth}) closed.`
+      );
       router.refresh();
     } finally {
       setSaving(false);
@@ -1364,7 +1391,7 @@ export default function FinanceClient({
           </div>
         )}
 
-        {/* 1B. Fixed-Position Quick View Mode Pills (Never shifts when switching tabs) */}
+        {/* 1B. Fixed-Position Quick View Mode Pills (Role-clean tabs) */}
         <div
           className={`flex flex-wrap items-center gap-1.5 ${
             viewMode !== "NEW_ENTRY" ? "pb-3 border-b border-gray-100" : ""
@@ -1381,17 +1408,19 @@ export default function FinanceClient({
           >
             📊 Profit Summary
           </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("NEW_ENTRY")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              viewMode === "NEW_ENTRY"
-                ? "bg-[#E42528] text-white shadow-sm"
-                : "bg-red-50 text-red-700 hover:bg-red-100"
-            }`}
-          >
-            🧾 Bill to Client
-          </button>
+          {canEditFinance && (
+            <button
+              type="button"
+              onClick={() => setViewMode("NEW_ENTRY")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                viewMode === "NEW_ENTRY"
+                  ? "bg-[#E42528] text-white shadow-sm"
+                  : "bg-red-50 text-red-700 hover:bg-red-100"
+              }`}
+            >
+              🧾 Bill to Client
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setViewMode("AGEING")}
@@ -1403,33 +1432,37 @@ export default function FinanceClient({
           >
             ✅ Receivables &amp; Bills
           </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("DISBURSE")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              viewMode === "DISBURSE"
-                ? "bg-emerald-700 text-white shadow-sm"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            💸 Disburse
-            {approvalPipelineCounts.readyDisburseCount > 0 && (
-              <span className="ml-1 px-1.5 py-0.2 rounded-full bg-emerald-200 text-emerald-950 text-[10px] font-extrabold">
-                {approvalPipelineCounts.readyDisburseCount}
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setViewMode("MONTH_CLOSE")}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              viewMode === "MONTH_CLOSE"
-                ? "bg-indigo-600 text-white shadow-sm"
-                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-            }`}
-          >
-            🔒 Month Close
-          </button>
+          {canDisburse && (
+            <button
+              type="button"
+              onClick={() => setViewMode("DISBURSE")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                viewMode === "DISBURSE"
+                  ? "bg-emerald-700 text-white shadow-sm"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              💸 Disburse
+              {approvalPipelineCounts.readyDisburseCount > 0 && (
+                <span className="ml-1 px-1.5 py-0.2 rounded-full bg-emerald-200 text-emerald-950 text-[10px] font-extrabold">
+                  {approvalPipelineCounts.readyDisburseCount}
+                </span>
+              )}
+            </button>
+          )}
+          {canCloseMonth && (
+            <button
+              type="button"
+              onClick={() => setViewMode("MONTH_CLOSE")}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                viewMode === "MONTH_CLOSE"
+                  ? "bg-indigo-600 text-white shadow-sm"
+                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+              }`}
+            >
+              🔒 Month Close
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setViewMode("GROUP_OVERVIEW")}
@@ -1450,7 +1483,7 @@ export default function FinanceClient({
                 : "bg-gray-100 text-gray-700 hover:bg-gray-200"
             }`}
           >
-            🔍 Single Item
+            🔍 Project Details
           </button>
         </div>
 

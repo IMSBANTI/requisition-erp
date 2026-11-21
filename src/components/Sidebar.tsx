@@ -3,6 +3,21 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import {
+  IconAudit,
+  IconBolt,
+  IconDashboard,
+  IconFinance,
+  IconKey,
+  IconMenu,
+  IconPlusCircle,
+  IconProjects,
+  IconReports,
+  IconRequisitions,
+  IconSignature,
+  IconUsers,
+  IconWallet,
+} from "./NavIcons";
 
 export function MobileMenuTrigger() {
   return (
@@ -52,10 +67,10 @@ export default function Sidebar({
     return () => window.removeEventListener("toggle-mobile-sidebar", handleToggle);
   }, []);
 
-  const links = [
-    { href: "/", label: "Dashboard", icon: "📊" },
-    { href: "/requisitions", label: "All Requisitions", icon: "📋" },
-    { href: "/requisitions/new", label: "New Requisition", icon: "➕" },
+  const links: Array<{ href: string; label: string; icon: React.ReactNode }> = [
+    { href: "/", label: "Dashboard", icon: <IconDashboard className="w-4 h-4 shrink-0" /> },
+    { href: "/requisitions", label: "All Requisitions", icon: <IconRequisitions className="w-4 h-4 shrink-0" /> },
+    { href: "/requisitions/new", label: "New Requisition", icon: <IconPlusCircle className="w-4 h-4 shrink-0" /> },
   ];
 
   const canSignOrCheck =
@@ -68,7 +83,7 @@ export default function Sidebar({
     links.push({
       href: "/requisitions?filter=pending",
       label: `Pending Signatures ${pendingCount > 0 ? `(${pendingCount})` : ""}`,
-      icon: "✍️",
+      icon: <IconSignature className="w-4 h-4 shrink-0" />,
     });
   }
 
@@ -76,7 +91,7 @@ export default function Sidebar({
     links.push({
       href: "/md/batch",
       label: `MD Batch Queue ${batchCount > 0 ? `(${batchCount})` : ""}`,
-      icon: "⚡",
+      icon: <IconBolt className="w-4 h-4 shrink-0" />,
     });
   }
 
@@ -84,7 +99,7 @@ export default function Sidebar({
     links.push({
       href: "/requisitions?filter=to_execute",
       label: "To Execute / Disburse",
-      icon: "💰",
+      icon: <IconWallet className="w-4 h-4 shrink-0" />,
     });
   }
 
@@ -106,12 +121,12 @@ export default function Sidebar({
         {
           href: "/finance",
           label: "Projects, Events & P&L",
-          icon: "💹",
+          icon: <IconFinance className="w-4 h-4 shrink-0" />,
         },
         {
           href: "/reports",
           label: "Query & Financial Reports",
-          icon: "📈",
+          icon: <IconReports className="w-4 h-4 shrink-0" />,
         },
       ]
     : [];
@@ -233,7 +248,7 @@ export default function Sidebar({
                     : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
                 }`}
               >
-                <span className="mr-2.5 text-sm">👥</span>
+                <span className="mr-2.5"><IconUsers className="w-4 h-4 shrink-0" /></span>
                 Users & Roles
               </Link>
             )}
@@ -247,7 +262,7 @@ export default function Sidebar({
                     : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
                 }`}
               >
-                <span className="mr-2.5 text-sm">📁</span>
+                <span className="mr-2.5"><IconProjects className="w-4 h-4 shrink-0" /></span>
                 Projects & Workflows
               </Link>
             )}
@@ -261,7 +276,7 @@ export default function Sidebar({
                     : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
                 }`}
               >
-                <span className="mr-2.5 text-sm">📜</span>
+                <span className="mr-2.5"><IconAudit className="w-4 h-4 shrink-0" /></span>
                 Audit Trail
               </Link>
             )}
@@ -274,9 +289,9 @@ export default function Sidebar({
         <Link
           href="/profile"
           onClick={() => setMobileOpen(false)}
-          className="flex items-center text-xs font-medium text-gray-700 hover:text-[#E42528]"
+          className="flex items-center gap-1.5 text-xs font-medium text-gray-700 hover:text-[#E42528]"
         >
-          <span className="mr-1.5 text-sm">🔑</span>
+          <IconKey className="w-3.5 h-3.5 shrink-0" />
           Password &amp; Profile
         </Link>
         <button
@@ -326,7 +341,7 @@ export default function Sidebar({
             pathname === "/" ? "text-[#E42528]" : "text-gray-600 hover:text-gray-900"
           }`}
         >
-          <span className="text-base leading-none mb-0.5">📊</span>
+          <IconDashboard className="w-4 h-4 mb-0.5" />
           <span>Home</span>
         </Link>
 
@@ -336,7 +351,7 @@ export default function Sidebar({
             pathname === "/requisitions" ? "text-[#E42528]" : "text-gray-600 hover:text-gray-900"
           }`}
         >
-          <span className="text-base leading-none mb-0.5">📋</span>
+          <IconRequisitions className="w-4 h-4 mb-0.5" />
           <span>Requisitions</span>
         </Link>
 
@@ -345,7 +360,7 @@ export default function Sidebar({
           className="flex flex-col items-center justify-center -mt-3 bg-[#E42528] text-white rounded-full w-11 h-11 shadow-md border-2 border-white"
           title="New Requisition"
         >
-          <span className="text-base leading-none font-bold">➕</span>
+          <IconPlusCircle className="w-5 h-5" />
           <span className="text-[8px] font-bold leading-none mt-0.5">New</span>
         </Link>
 
@@ -356,7 +371,7 @@ export default function Sidebar({
               pathname.startsWith("/requisitions") ? "text-gray-700" : "text-gray-600"
             }`}
           >
-            <span className="text-base leading-none mb-0.5">✍️</span>
+            <IconSignature className="w-4 h-4 mb-0.5" />
             <span>Pending</span>
             {pendingCount > 0 && (
               <span className="absolute top-0.5 right-1 min-w-[16px] h-4 px-1 rounded-full bg-[#E42528] text-white text-[9px] font-extrabold flex items-center justify-center">
@@ -371,7 +386,7 @@ export default function Sidebar({
               pathname.startsWith("/finance") ? "text-[#E42528]" : "text-gray-600"
             }`}
           >
-            <span className="text-base leading-none mb-0.5">💹</span>
+            <IconFinance className="w-4 h-4 mb-0.5" />
             <span>P&amp;L</span>
           </Link>
         ) : (
@@ -381,7 +396,7 @@ export default function Sidebar({
               pathname.startsWith("/profile") ? "text-[#E42528]" : "text-gray-600"
             }`}
           >
-            <span className="text-base leading-none mb-0.5">🔑</span>
+            <IconKey className="w-4 h-4 mb-0.5" />
             <span>Profile</span>
           </Link>
         )}
@@ -391,7 +406,7 @@ export default function Sidebar({
           onClick={() => setMobileOpen(true)}
           className="flex flex-col items-center justify-center py-1 px-2 rounded-lg text-[10px] font-semibold text-gray-600 hover:text-gray-900 cursor-pointer"
         >
-          <span className="text-base leading-none mb-0.5">☰</span>
+          <IconMenu className="w-4 h-4 mb-0.5" />
           <span>Menu</span>
         </button>
       </nav>

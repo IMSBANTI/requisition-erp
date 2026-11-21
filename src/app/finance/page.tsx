@@ -43,14 +43,26 @@ export default async function FinancePnlPage() {
     redirect("/?denied=1");
   }
 
-  const canEditFinance =
+  const isSuperAdmin =
+    user.permissions.includes("admin.users") || user.role.key === "super_admin";
+  const isAccounts =
     user.permissions.includes("req.accounts.check") ||
     user.permissions.includes("req.execute") ||
-    user.permissions.includes("req.director") ||
-    user.permissions.includes("req.md") ||
-    user.permissions.includes("admin.users") ||
-    user.permissions.includes("project.manage") ||
-    Boolean(user.role.isManager);
+    user.permissions.includes("req.forward");
+  const isMdOnly =
+    (user.role.key === "md" || user.permissions.includes("req.md")) &&
+    !isSuperAdmin &&
+    !isAccounts;
+
+  const canEditFinance =
+    !isMdOnly &&
+    (isAccounts ||
+      user.permissions.includes("req.director") ||
+      isSuperAdmin ||
+      user.permissions.includes("project.manage") ||
+      Boolean(user.role.isManager));
+
+  const canDisburse = isAccounts || isSuperAdmin;
 
   const projects = await prisma.project.findMany({
     where: financialReportProjectScope(user),
@@ -305,12 +317,11 @@ export default async function FinancePnlPage() {
   });
 
   const canCloseMonth =
-    user.permissions.includes("req.accounts.check") ||
-    user.permissions.includes("req.execute") ||
-    user.permissions.includes("req.director") ||
-    user.permissions.includes("req.md") ||
-    user.permissions.includes("admin.users") ||
-    user.permissions.includes("project.manage");
+    !isMdOnly &&
+    (isAccounts ||
+      user.permissions.includes("req.director") ||
+      isSuperAdmin ||
+      user.permissions.includes("project.manage"));
 
   const isFullReportAccess = hasFullReportAccess(user);
 
@@ -344,6 +355,7 @@ export default async function FinancePnlPage() {
         <FinanceClient
           projects={formattedProjects}
           canEditFinance={canEditFinance}
+          canDisburse={canDisburse}
           canCloseMonth={canCloseMonth}
           isFullReportAccess={isFullReportAccess}
         />

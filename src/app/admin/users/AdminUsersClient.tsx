@@ -9,6 +9,7 @@ import {
   backupApproverPermissionTag,
   extractBackupApproverId,
 } from "@/lib/workflow";
+import { useToast } from "@/components/ToastProvider";
 
 interface Props {
   users: any[];
@@ -36,6 +37,7 @@ export default function AdminUsersClient({
   isReadOnly,
 }: Props) {
   const router = useRouter();
+  const { toast, confirmDialog } = useToast();
 
   // Filters
   const [search, setSearch] = useState("");
@@ -47,6 +49,7 @@ export default function AdminUsersClient({
   const [modalType, setModalType] = useState<
     "CREATE_USER" | "EDIT_USER" | "PASSWORD" | "PROJECT_MANAGER" | null
   >(null);
+  const [userModalTab, setUserModalTab] = useState<"PROFILE" | "ROUTING" | "SCOPES">("PROFILE");
   const [selectedUser, setSelectedUser] = useState<any | null>(null);
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState("");
@@ -270,6 +273,7 @@ export default function AdminUsersClient({
     setActive(true);
     setMsg("");
     setErrorMsg("");
+    setUserModalTab("PROFILE");
     setModalType("CREATE_USER");
   }
 
@@ -312,6 +316,7 @@ export default function AdminUsersClient({
     setActive(u.active ?? true);
     setMsg("");
     setErrorMsg("");
+    setUserModalTab("PROFILE");
     setModalType("EDIT_USER");
   }
 
@@ -394,6 +399,11 @@ export default function AdminUsersClient({
 
   async function handleSaveUser(e: React.FormEvent) {
     e.preventDefault();
+    if (!name.trim() || !email.trim()) {
+      setUserModalTab("PROFILE");
+      setErrorMsg("Please enter both Full Name and Login Email.");
+      return;
+    }
     setLoading(true);
     setMsg("");
     setErrorMsg("");
@@ -492,23 +502,25 @@ export default function AdminUsersClient({
   }
 
   async function handleDeleteUser(u: any) {
-    if (
-      !window.confirm(
-        `Are you sure you want to delete or deactivate "${u.name}" (${u.email})?`
-      )
-    ) {
-      return;
-    }
+    const confirmed = await confirmDialog({
+      title: "Delete or Deactivate User",
+      message: `Are you sure you want to delete or deactivate "${u.name}" (${u.email})?`,
+      confirmLabel: "Confirm",
+      tone: "danger",
+    });
+    if (!confirmed) return;
     try {
       const res = await fetch(`/api/admin/users?id=${u.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to remove user");
       if (data.deactivated) {
-        alert(data.message);
+        toast.info(data.message || `User "${u.name}" deactivated.`);
+      } else {
+        toast.success(`User "${u.name}" removed.`);
       }
       router.refresh();
     } catch (err: any) {
-      alert(err.message || "Error removing user");
+      toast.error(err.message || "Error removing user");
     }
   }
 
@@ -925,40 +937,75 @@ export default function AdminUsersClient({
 
       {/* ────────────────── CREATE / EDIT USER & PRIVILEGES MODAL ────────────────── */}
       {(modalType === "CREATE_USER" || modalType === "EDIT_USER") && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full p-6 border border-gray-200 my-8 max-h-[92vh] overflow-y-auto">
-            <div className="flex items-center justify-between pb-3 border-b border-gray-200">
-              <div>
-                <h3 className="text-base font-bold text-gray-900">
-                  {modalType === "CREATE_USER"
-                    ? "Add New Employee / User & Configure Privileges"
-                    : `Edit User & Privileges — ${selectedUser?.name}`}
-                </h3>
-                <p className="text-xs text-gray-500">
-                  Configure personal details, login email/password, priority level, reporting supervisor, company scopes, and projects/events.
-                </p>
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-xl shadow-2xl max-w-4xl w-full border border-gray-200 max-h-[90vh] flex flex-col overflow-hidden">
+            {/* Sticky Header + Tab Switcher */}
+            <div className="px-5 sm:px-6 pt-4 pb-3 border-b border-gray-200 bg-white shrink-0">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-bold text-gray-900">
+                    {modalType === "CREATE_USER"
+                      ? "Add New Employee / User & Configure Privileges"
+                      : `Edit User & Privileges — ${selectedUser?.name}`}
+                  </h3>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Configure identity, approval routing, company scopes, financial reports, and extra privileges.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setModalType(null)}
+                  className="text-gray-400 hover:text-gray-700 text-lg font-bold px-2 py-0.5 rounded hover:bg-gray-100 cursor-pointer"
+                  aria-label="Close modal"
+                >
+                  ✕
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => setModalType(null)}
-                className="text-gray-400 hover:text-gray-700 text-lg font-bold px-2"
-              >
-                ✕
-              </button>
+
+              {/* 3-Tab Navigation */}
+              <div className="mt-3 flex flex-wrap gap-1.5 border-t border-gray-100 pt-3">
+                {(
+                  [
+                    { id: "PROFILE", label: "1. Profile & Role" },
+                    { id: "ROUTING", label: "2. Approval Routing" },
+                    { id: "SCOPES", label: "3. Scopes & Privileges" },
+                  ] as const
+                ).map((tab) => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setUserModalTab(tab.id)}
+                    className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      userModalTab === tab.id
+                        ? "bg-gray-900 text-white shadow-xs"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {msg && (
+                <div className="mt-3 p-2.5 bg-green-50 border border-green-200 text-xs text-green-800 font-semibold rounded">
+                  {msg}
+                </div>
+              )}
+              {errorMsg && (
+                <div className="mt-3 p-2.5 bg-red-50 border border-red-200 text-xs text-red-700 font-semibold rounded">
+                  {errorMsg}
+                </div>
+              )}
             </div>
 
-            {msg && (
-              <div className="mt-3 p-2.5 bg-green-50 border border-green-200 text-xs text-green-800 font-semibold rounded">
-                {msg}
-              </div>
-            )}
-            {errorMsg && (
-              <div className="mt-3 p-2.5 bg-red-50 border border-red-200 text-xs text-red-700 font-semibold rounded">
-                {errorMsg}
-              </div>
-            )}
-
-            <form onSubmit={handleSaveUser} className="mt-4 space-y-5 text-xs">
+            <form
+              onSubmit={handleSaveUser}
+              className="flex flex-col flex-1 min-h-0 text-xs"
+            >
+              {/* Scrollable Tab Body */}
+              <div className="flex-1 overflow-y-auto px-5 sm:px-6 py-4 space-y-5">
+                {/* ── TAB 1: PROFILE & ROLE ── */}
+                <div className={userModalTab === "PROFILE" ? "space-y-5" : "hidden"}>
               {/* Row 1: Identity & Login */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 bg-gray-50 p-3.5 rounded-lg border border-gray-200">
                 <div>
@@ -1181,7 +1228,10 @@ export default function AdminUsersClient({
                   <span className="text-[10px] text-gray-400">Comma-separated secondary units</span>
                 </div>
               </div>
+                </div>
 
+                {/* ── TAB 2: APPROVAL ROUTING ── */}
+                <div className={userModalTab === "ROUTING" ? "space-y-5" : "hidden"}>
               {/* Row 3B: Choose Requisition Type Access (3 Separate Options: Company, Project, Event) */}
               <div className="border border-slate-200 bg-slate-50/70 rounded-lg p-3.5">
                 <div className="mb-2">
@@ -1373,7 +1423,10 @@ export default function AdminUsersClient({
                   );
                 })()}
               </div>
+                </div>
 
+                {/* ── TAB 3: SCOPES & PRIVILEGES ── */}
+                <div className={userModalTab === "SCOPES" ? "space-y-5" : "hidden"}>
               {/* Row 5: Company Scopes (IMS, CLAN, TradePULSE, SCL) */}
               <div className="border border-gray-200 rounded-lg p-3.5">
                 <div className="flex items-center justify-between mb-2">
@@ -1886,9 +1939,11 @@ export default function AdminUsersClient({
                   </div>
                 </div>
               </div>
+                </div>
+              </div>
 
-              {/* Footer */}
-              <div className="pt-3 border-t border-gray-200 flex items-center justify-between">
+              {/* Sticky Footer */}
+              <div className="px-5 sm:px-6 py-3.5 border-t border-gray-200 bg-gray-50 flex flex-wrap items-center justify-between gap-3 shrink-0">
                 <label className="flex items-center gap-2 font-semibold text-gray-700 cursor-pointer">
                   <input
                     type="checkbox"
@@ -1902,7 +1957,7 @@ export default function AdminUsersClient({
                   <button
                     type="button"
                     onClick={() => setModalType(null)}
-                    className="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 bg-gray-100 rounded-lg cursor-pointer"
+                    className="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 bg-white border border-gray-300 rounded-lg cursor-pointer"
                   >
                     Cancel
                   </button>

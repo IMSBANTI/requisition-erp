@@ -8,9 +8,14 @@ import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
 import { ensureUploadedKitProjectsSynced } from "@/lib/projectSync";
 import AppShell from "@/components/AppShell";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ denied?: string }>;
+}) {
   const user = await requireUser();
   await ensureUploadedKitProjectsSynced();
+  const { denied } = await searchParams;
 
   // Scoped queries
   const scope = requisitionScope(user);
@@ -39,23 +44,42 @@ export default async function DashboardPage() {
     orPendingDashboard.push({ status: { in: ["FORWARDED", "APPROVED"] } });
   }
 
+  const pendingWhere = {
+    AND: [
+      scope,
+      { OR: orPendingDashboard },
+      { status: { notIn: ["EXECUTED", "SETTLED", "REJECTED", "CANCELLED", "DRAFT", "RETURNED"] } },
+      { makerId: { not: user.id } },
+    ],
+  };
+
   const [
     totalCount,
     myCount,
     totalPending,
     toExecuteCount,
     batchCount,
+    pendingActionRequisitions,
     recentRequisitions,
   ] = await Promise.all([
     prisma.requisition.count({ where: scope }),
     prisma.requisition.count({ where: { makerId: user.id } }),
-    prisma.requisition.count({ where: { AND: [scope, { OR: orPendingDashboard }] } }),
+    prisma.requisition.count({ where: pendingWhere }),
     user.permissions.includes("req.execute") || user.permissions.includes("req.forward")
       ? prisma.requisition.count({ where: { status: { in: ["FORWARDED", "APPROVED"] } } })
       : Promise.resolve(0),
     user.permissions.includes("req.md")
       ? prisma.requisition.count({ where: { mdStatus: "PENDING_BATCH" } })
       : Promise.resolve(0),
+    prisma.requisition.findMany({
+      where: pendingWhere,
+      take: 6,
+      orderBy: { createdAt: "desc" },
+      include: {
+        company: true,
+        project: true,
+      },
+    }),
     prisma.requisition.findMany({
       where: scope,
       take: 8,
@@ -74,6 +98,20 @@ export default async function DashboardPage() {
   return (
     <AppShell>
       <div className="p-3 sm:p-6 max-w-7xl mx-auto w-full">
+        {denied === "1" && (
+          <div className="mb-4 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-2">
+            <span>
+              <strong>Access restricted:</strong> You do not have permission to open that section. Contact System Admin if you need access.
+            </span>
+            <Link
+              href="/"
+              className="text-[11px] font-bold text-amber-800 hover:underline shrink-0"
+            >
+              Dismiss
+            </Link>
+          </div>
+        )}
+
         {/* Top welcome */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 sm:pb-6 border-b border-gray-200 gap-3 sm:gap-4">
           <div>
@@ -144,6 +182,68 @@ export default async function DashboardPage() {
             </Link>
           </div>
         </div>
+
+        {/* Action-First Queue: Needs Your Action */}
+        {pendingActionRequisitions.length > 0 && (
+          <div className="mt-6 bg-white rounded-xl border-2 border-red-200 shadow-sm overflow-hidden">
+            <div className="px-4 sm:px-5 py-3 border-b border-red-100 bg-red-50/50 flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <span className="h-2.5 w-2.5 rounded-full bg-[#E42528]" />
+                <h2 className="text-sm font-bold text-gray-900">
+                  Needs Your Action ({totalPending})
+                </h2>
+              </div>
+              <Link
+                href="/requisitions?filter=pending"
+                className="text-xs text-[#E42528] font-bold hover:underline"
+              >
+                Open Full Pending Queue &rarr;
+              </Link>
+            </div>
+            <div className="divide-y divide-gray-100">
+              {pendingActionRequisitions.map((req) => {
+                const cMeta = getCurrencyMeta((req as any).currency, req.amountInWords);
+                return (
+                  <div
+                    key={req.id}
+                    className="px-4 sm:px-5 py-3 flex flex-wrap items-center justify-between gap-3 hover:bg-red-50/30 transition-colors"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Link
+                          href={`/requisitions/${req.id}`}
+                          className="text-xs font-mono font-bold text-gray-900 hover:text-[#E42528]"
+                        >
+                          {req.number || "Draft"}
+                        </Link>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-semibold ${STATUS_COLORS[req.status] || "bg-gray-100"}`}>
+                          {STATUS_LABELS[req.status] || req.status}
+                        </span>
+                        <span className="text-xs font-semibold text-gray-800 truncate">
+                          {req.project.name}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-500 mt-0.5">
+                        By {req.makerName} &bull; {new Date(req.date).toLocaleDateString("en-GB")} &bull; {req.company.name}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-xs font-mono font-extrabold text-gray-900">
+                        {cMeta.listPrefix} {formatMoney(req.total, cMeta.code)}
+                      </span>
+                      <Link
+                        href={`/requisitions/${req.id}`}
+                        className="px-3 py-1.5 rounded-md bg-[#E42528] hover:bg-[#B81D20] text-white text-xs font-bold shadow-2xs transition-colors"
+                      >
+                        Review &amp; Sign &rarr;
+                      </Link>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Recent Requisitions */}
         <div className="mt-6 sm:mt-8 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

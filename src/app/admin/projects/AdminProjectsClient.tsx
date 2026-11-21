@@ -10,6 +10,7 @@ import {
   DEFAULT_EVENT_COST_HEADS,
   calculateProfitSummary,
 } from "@/lib/profitEngine";
+import { useToast } from "@/components/ToastProvider";
 
 interface ProjectItem {
   id: string;
@@ -85,6 +86,7 @@ export default function AdminProjectsClient({
   canCreateProject = false,
 }: Props) {
   const router = useRouter();
+  const { toast, confirmDialog } = useToast();
   const [projectList, setProjectList] = useState<ProjectItem[]>(projects);
 
   useEffect(() => {
@@ -505,9 +507,12 @@ export default function AdminProjectsClient({
 
   async function handleDeleteProject(p: ProjectItem) {
     const label = p.kind === "EVENT" ? "event" : "project";
-    const confirmed = window.confirm(
-      `Are you sure you want to permanently delete ${label}:\n"${p.name} (${p.code})"?`
-    );
+    const confirmed = await confirmDialog({
+      title: `Delete ${p.kind === "EVENT" ? "Event" : "Project"}`,
+      message: `Are you sure you want to permanently delete ${label} "${p.name} (${p.code})"?`,
+      confirmLabel: "Delete",
+      tone: "danger",
+    });
     if (!confirmed) return;
 
     setLoading(true);
@@ -518,9 +523,10 @@ export default function AdminProjectsClient({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to delete");
       setProjectList((prev) => prev.filter((item) => item.id !== p.id));
+      toast.success(`Deleted ${label} "${p.name}".`);
       router.refresh();
     } catch (err: any) {
-      alert(err.message || "Error deleting");
+      toast.error(err.message || "Error deleting");
     } finally {
       setLoading(false);
     }

@@ -22,6 +22,7 @@ import {
   buildMonthlyChartSeries,
   computeProjectPeriodMetrics,
 } from "@/lib/financeMetrics";
+import { useToast } from "@/components/ToastProvider";
 
 interface Props {
   project: {
@@ -65,6 +66,7 @@ export default function ProjectFinanceDetailClient({
   canEditFinance,
 }: Props) {
   const router = useRouter();
+  const { toast, confirmDialog } = useToast();
   const isEvent = project.kind === "EVENT";
 
   const [selectedMonth, setSelectedMonth] = useState<string>("ALL");
@@ -265,13 +267,27 @@ export default function ProjectFinanceDetailClient({
   }
 
   async function handleDeletePayment(id: string) {
-    if (!window.confirm("Remove this payment installment record?")) return;
+    const ok = await confirmDialog({
+      title: "Delete Payment Record",
+      message: "Remove this payment installment record? This action cannot be undone.",
+      confirmLabel: "Remove",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       const res = await fetch(`/api/finance/bills?id=${id}`, {
         method: "DELETE",
       });
-      if (res.ok) router.refresh();
-    } catch (_) {}
+      if (res.ok) {
+        toast.success("Payment record removed.");
+        router.refresh();
+      } else {
+        const data = await res.json().catch(() => null);
+        toast.error(data?.error || "Failed to remove payment record.");
+      }
+    } catch {
+      toast.error("Network error while removing payment record.");
+    }
   }
 
   return (

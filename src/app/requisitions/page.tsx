@@ -1,22 +1,34 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { requisitionScope } from "@/lib/rbac";
+import { projectScope, requisitionScope } from "@/lib/rbac";
 import { backupApproverPermissionTag } from "@/lib/workflow";
 import { formatMoney, getCurrencyMeta } from "@/lib/money";
 import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
 import { ensureUploadedKitProjectsSynced } from "@/lib/projectSync";
 import AppShell from "@/components/AppShell";
+import RequisitionsFilterBar from "./RequisitionsFilterBar";
 
 interface Props {
-  searchParams: Promise<{ filter?: string; company?: string; search?: string }>;
+  searchParams: Promise<{
+    filter?: string;
+    company?: string;
+    status?: string;
+    project?: string;
+    search?: string;
+    page?: string;
+    denied?: string;
+  }>;
 }
+
+const PAGE_SIZE = 25;
 
 export default async function RequisitionsListPage({ searchParams }: Props) {
   const user = await requireUser();
   await ensureUploadedKitProjectsSynced();
-  const { filter, company, search } = await searchParams;
+  const { filter, company, status, project, search, page, denied } = await searchParams;
 
+  const currentPage = Math.max(1, parseInt(page || "1", 10) || 1);
   const baseScope = requisitionScope(user);
   const andConditions: any[] = [baseScope];
 
@@ -48,26 +60,39 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
     }
     andConditions.push({ OR: orPending });
   } else if (filter === "to_execute") {
-    andConditions.push({ status: { in: ["FORWARDED", "APPROVED"] } });
+    andConditions.push({ status: { in: ["FORWARDED", "APPROVED", "PARTIAL_PAID"] } });
   }
 
   if (company) {
     andConditions.push({ company: { code: company } });
   }
 
-  if (search) {
+  if (status) {
+    andConditions.push({ status });
+  }
+
+  if (project) {
+    andConditions.push({ projectId: project });
+  }
+
+  if (search && search.trim()) {
+    const q = search.trim();
     andConditions.push({
       OR: [
-        { number: { contains: search, mode: "insensitive" } },
-        { makerName: { contains: search, mode: "insensitive" } },
-        { comments: { contains: search, mode: "insensitive" } },
+        { number: { contains: q, mode: "insensitive" } },
+        { makerName: { contains: q, mode: "insensitive" } },
+        { poNumber: { contains: q, mode: "insensitive" } },
+        { comments: { contains: q, mode: "insensitive" } },
+        { project: { name: { contains: q, mode: "insensitive" } } },
+        { items: { some: { particulars: { contains: q, mode: "insensitive" } } } },
       ],
     });
   }
 
   const whereClause = { AND: andConditions };
 
-  const [requisitions, companies] = await Promise.all([
+  const [totalMatching, requisitions, companies, projectsList] = await Promise.all([
+    prisma.requisition.count({ where: whereClause }),
     prisma.requisition.findMany({
       where: whereClause,
       include: {
@@ -80,13 +105,44 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
         },
       },
       orderBy: { createdAt: "desc" },
+      skip: (currentPage - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
     }),
     prisma.company.findMany({ select: { code: true, name: true } }),
+    prisma.project.findMany({
+      where: projectScope(user),
+      select: { id: true, name: true, code: true },
+      orderBy: { name: "asc" },
+    }),
   ]);
+
+  const totalPages = Math.max(1, Math.ceil(totalMatching / PAGE_SIZE));
+  const buildPageHref = (targetPage: number) => {
+    const p = new URLSearchParams();
+    if (filter) p.set("filter", filter);
+    if (company) p.set("company", company);
+    if (status) p.set("status", status);
+    if (project) p.set("project", project);
+    if (search) p.set("search", search);
+    if (targetPage > 1) p.set("page", String(targetPage));
+    const qs = p.toString();
+    return qs ? `/requisitions?${qs}` : "/requisitions";
+  };
 
   return (
     <AppShell>
       <div className="p-3 sm:p-6 max-w-7xl mx-auto w-full">
+        {denied === "1" && (
+          <div className="mb-4 px-4 py-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 flex items-center justify-between gap-2">
+            <span>
+              <strong>Access restricted:</strong> You do not have permission to open that requisition.
+            </span>
+            <Link href="/requisitions" className="text-[11px] font-bold text-amber-800 hover:underline shrink-0">
+              Dismiss
+            </Link>
+          </div>
+        )}
+
         {/* Title Bar */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-4 border-b border-gray-200 gap-3 sm:gap-4">
           <div>
@@ -115,7 +171,8 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
         </div>
 
         {/* Filters and Search Bar */}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 bg-white p-2.5 sm:p-3 rounded-xl border border-gray-200">
+        <div className="mt-4 bg-white p-2.5 sm:p-3 rounded-xl border border-gray-200">
+          <div className="flex flex-wrap items-center justify-between gap-2.5 sm:gap-3">
           <div className="flex flex-wrap items-center gap-1.5">
             <Link
               href="/requisitions"
@@ -159,7 +216,13 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
             {companies.map((c) => (
               <Link
                 key={c.code}
-                href={`/requisitions?${new URLSearchParams({ ...(filter ? { filter } : {}), company: c.code }).toString()}`}
+                href={`/requisitions?${new URLSearchParams({
+                  ...(filter ? { filter } : {}),
+                  ...(status ? { status } : {}),
+                  ...(project ? { project } : {}),
+                  ...(search ? { search } : {}),
+                  company: c.code,
+                }).toString()}`}
                 className={`px-2 py-0.5 text-[11px] rounded font-semibold border ${
                   company === c.code ? "bg-gray-900 text-white border-gray-900" : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"
                 }`}
@@ -168,11 +231,29 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
               </Link>
             ))}
             {company && (
-              <Link href={`/requisitions${filter ? `?filter=${filter}` : ""}`} className="text-xs text-red-500 hover:underline ml-1">
+              <Link
+                href={`/requisitions?${new URLSearchParams({
+                  ...(filter ? { filter } : {}),
+                  ...(status ? { status } : {}),
+                  ...(project ? { project } : {}),
+                  ...(search ? { search } : {}),
+                }).toString()}`}
+                className="text-xs text-red-500 hover:underline ml-1"
+              >
                 Clear
               </Link>
             )}
           </div>
+          </div>
+
+          <RequisitionsFilterBar
+            initialSearch={search || ""}
+            initialStatus={status || ""}
+            initialProjectId={project || ""}
+            filter={filter}
+            company={company}
+            projects={projectsList}
+          />
         </div>
 
         {/* List / Table */}
@@ -426,6 +507,49 @@ export default async function RequisitionsListPage({ searchParams }: Props) {
                 </table>
               </div>
             </>
+          )}
+
+          {/* Pagination Footer */}
+          {totalMatching > 0 && (
+            <div className="px-4 py-3 border-t border-gray-200 bg-gray-50/60 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-600">
+              <span>
+                Showing{" "}
+                <strong>{(currentPage - 1) * PAGE_SIZE + 1}</strong>–
+                <strong>{Math.min(currentPage * PAGE_SIZE, totalMatching)}</strong> of{" "}
+                <strong>{totalMatching}</strong> requisition{totalMatching === 1 ? "" : "s"}
+              </span>
+              {totalPages > 1 && (
+                <div className="flex items-center gap-1.5">
+                  {currentPage > 1 ? (
+                    <Link
+                      href={buildPageHref(currentPage - 1)}
+                      className="px-2.5 py-1 rounded border border-gray-300 bg-white font-semibold text-gray-700 hover:bg-gray-100"
+                    >
+                      &larr; Prev
+                    </Link>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded border border-gray-200 bg-gray-100 text-gray-400 font-semibold">
+                      &larr; Prev
+                    </span>
+                  )}
+                  <span className="px-2 font-semibold text-gray-800">
+                    Page {currentPage} / {totalPages}
+                  </span>
+                  {currentPage < totalPages ? (
+                    <Link
+                      href={buildPageHref(currentPage + 1)}
+                      className="px-2.5 py-1 rounded border border-gray-300 bg-white font-semibold text-gray-700 hover:bg-gray-100"
+                    >
+                      Next &rarr;
+                    </Link>
+                  ) : (
+                    <span className="px-2.5 py-1 rounded border border-gray-200 bg-gray-100 text-gray-400 font-semibold">
+                      Next &rarr;
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
           )}
         </div>
       </div>
