@@ -1236,39 +1236,11 @@ export default function RequisitionForm({
                 ))}
               </div>
             </div>
-
-            <div className="flex items-center">
-              <span className="font-semibold text-gray-700 mr-1.5">Payment Type :</span>
-              <div className="inline-flex rounded-md border border-gray-300 p-0.5 bg-gray-50">
-                <button
-                  type="button"
-                  onClick={() => setPaymentMode("CASH")}
-                  className={`px-2 py-0.5 text-xs font-bold rounded transition-colors ${
-                    paymentMode === "CASH"
-                      ? "bg-emerald-600 text-white shadow-xs"
-                      : "text-gray-600 hover:text-gray-900"
-                  }`}
-                >
-                  💵 CASH
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPaymentMode("CHEQUE")}
-                  className={`px-2 py-0.5 text-xs font-bold rounded transition-colors ${
-                    paymentMode === "CHEQUE"
-                      ? "bg-blue-600 text-white shadow-xs"
-                      : "text-gray-600 hover:text-gray-900"
-                  }`}
-                >
-                  📝 CHEQUE
-                </button>
-              </div>
-            </div>
           </div>
         </div>
 
         {/* Amount & Purpose Header Line */}
-        <div className="mt-3 pt-3 border-t border-gray-200 text-xs text-gray-800 space-y-1">
+        <div className="mt-3 pt-3 border-t border-gray-200 text-xs text-gray-800 space-y-1.5">
           <div className="flex flex-wrap items-baseline gap-1">
             <span className="font-semibold text-gray-700">An amount {currencyMeta.voucherPrefix}</span>
             <span className="font-bold text-sm text-[#E42528] px-2 py-0.5 bg-red-50 border border-red-200 rounded">
@@ -1289,6 +1261,31 @@ export default function RequisitionForm({
               onChange={(e) => setDisburseOn(e.target.value)}
               className="border border-gray-300 rounded px-2 py-0.5 text-xs font-semibold text-gray-800 focus:ring-[#E42528] focus:border-[#E42528]"
             />
+            <span className="font-semibold text-gray-700 ml-1">via</span>
+            <div
+              className="inline-flex rounded-md border border-gray-300 p-0.5 bg-gray-50"
+              role="group"
+              aria-label="Payment Type"
+            >
+              {[
+                { key: "CASH", label: "💵 CASH", activeCls: "bg-emerald-600 text-white shadow-xs" },
+                { key: "BANK", label: "🏦 BANK", activeCls: "bg-indigo-600 text-white shadow-xs" },
+                { key: "CHEQUE", label: "📝 CHEQUE", activeCls: "bg-blue-600 text-white shadow-xs" },
+              ].map((opt) => (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setPaymentMode(opt.key)}
+                  className={`px-2.5 py-0.5 text-xs font-bold rounded transition-colors cursor-pointer ${
+                    paymentMode === opt.key
+                      ? opt.activeCls
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 

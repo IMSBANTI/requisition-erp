@@ -136,7 +136,7 @@ export default function PrintVoucherClient({ req, qrDataUrl }: Props) {
           <div className="flex">
             <span className="w-24 font-bold">Payment Mode</span>
             <span className="font-extrabold">
-              : {req.paymentMode === "CHEQUE" ? "CHEQUE" : "CASH"} ({currencyMeta.code})
+              : {req.paymentMode === "CHEQUE" ? "CHEQUE" : req.paymentMode === "BANK" ? "BANK" : "CASH"} ({currencyMeta.code})
             </span>
           </div>
           <div className="flex justify-end">
