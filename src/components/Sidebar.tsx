@@ -116,9 +116,11 @@ export default function Sidebar({
       ]
     : [];
 
-  const isAdmin = perms.includes("admin.users") || perms.includes("admin.readonly");
-  const canManageProjects = Boolean(canAccessProjectsAdmin);
-  const canViewAudit = perms.includes("audit.view");
+  const isSystemAdmin = perms.includes("admin.users");
+  const isMdOnly = perms.includes("req.md") && !isSystemAdmin;
+  const isAdmin = isSystemAdmin || (!isMdOnly && perms.includes("admin.readonly"));
+  const canManageProjects = !isMdOnly && Boolean(canAccessProjectsAdmin);
+  const canViewAudit = !isMdOnly && perms.includes("audit.view");
 
   const sidebarContent = (
     <>
@@ -249,7 +251,7 @@ export default function Sidebar({
                 Projects & Workflows
               </Link>
             )}
-            {perms.includes("audit.view") && (
+            {canViewAudit && (
               <Link
                 href="/admin/audit"
                 onClick={() => setMobileOpen(false)}

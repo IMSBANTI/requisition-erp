@@ -21,7 +21,7 @@ export async function POST(request: Request) {
 
     if (!access.canCreateProject) {
       return NextResponse.json(
-        { error: "Only System Admin, Directors/MD, or a Group Project Head can create a new project." },
+        { error: "Only System Admin, Directors, or a Group Project Head can create a new project." },
         { status: 403 }
       );
     }

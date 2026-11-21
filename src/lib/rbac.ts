@@ -110,9 +110,12 @@ export function hasFullReportAccess(user: ScopeUser): boolean {
   if (p.includes(PERMISSIONS.REPORT_VIEW_ALL)) {
     return true;
   }
-  // Central Accounts have full report visibility unless Super Admin explicitly restricted their scope
+  // Managing Directors and Central Accounts have full report visibility across all Projects, Events & IMS Group
+  // unless Super Admin explicitly restricted their scope.
   if (
-    (p.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK) || p.includes(PERMISSIONS.REQ_EXECUTE)) &&
+    (p.includes(PERMISSIONS.REQ_MD) ||
+      p.includes(PERMISSIONS.REQ_ACCOUNTS_CHECK) ||
+      p.includes(PERMISSIONS.REQ_EXECUTE)) &&
     !p.includes("report.strict.scope") &&
     !p.includes("report.none")
   ) {
@@ -124,7 +127,7 @@ export function hasFullReportAccess(user: ScopeUser): boolean {
 /**
  * Whether this user is allowed to open Financial Reports (/finance and /reports) at all.
  */
-export function canAccessFinancialReports(user: ScopeUser & { role?: { isManager?: boolean; key?: string } }): boolean {
+export function canAccessFinancialReports(user: ScopeUser & { role?: { isManager?: boolean; key?: string } | null }): boolean {
   const p = user.permissions;
   if ((user.priorityLevel ?? 2) >= 5 || p.includes(PERMISSIONS.ADMIN_USERS)) {
     return true;
@@ -295,8 +298,9 @@ export function getProjectAdminAccess(
     };
   }
 
-  // KAMs never get Administration / Project Setup access even if accidentally given manager role or extra flags
-  if (isKamUser(user)) {
+  // KAMs and Managing Directors do not need Administration / Project Setup access
+  // (MDs have full visibility across all Financial Reports instead)
+  if (isKamUser(user) || p.includes(PERMISSIONS.REQ_MD)) {
     return {
       isSystemAdmin: false,
       canAccessProjectsAdmin: false,
@@ -306,13 +310,12 @@ export function getProjectAdminAccess(
     };
   }
 
-  const isDirectorOrMd =
-    p.includes(PERMISSIONS.REQ_DIRECTOR) || p.includes(PERMISSIONS.REQ_MD);
+  const isDirector = p.includes(PERMISSIONS.REQ_DIRECTOR);
   const roleKey = String(user.role?.key || "").toLowerCase();
   const isGroupProjectHead =
     roleKey === "sr_manager" || Boolean(opts?.isAssignedProjectHead);
 
-  if (isDirectorOrMd || isGroupProjectHead) {
+  if (isDirector || isGroupProjectHead) {
     return {
       isSystemAdmin: false,
       canAccessProjectsAdmin: true,

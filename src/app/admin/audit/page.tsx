@@ -6,7 +6,10 @@ import AppShell from "@/components/AppShell";
 export default async function AdminAuditPage() {
   const user = await requireUser();
 
-  if (!user.permissions.includes("audit.view")) {
+  const isSystemAdmin = user.permissions.includes("admin.users");
+  const isMdOnly = user.permissions.includes("req.md") && !isSystemAdmin;
+
+  if (isMdOnly || !user.permissions.includes("audit.view")) {
     redirect("/?denied=1");
   }
 

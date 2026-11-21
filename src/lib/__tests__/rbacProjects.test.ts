@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  canAccessFinancialReports,
   canEditSingleProject,
+  financialReportProjectScope,
   getProjectAdminAccess,
+  hasFullReportAccess,
   ProjectAdminUser,
 } from "@/lib/rbac";
 
@@ -75,6 +78,28 @@ describe("Projects Administration RBAC (getProjectAdminAccess & canEditSinglePro
     expect(access.accessMode).toBe("PROJECT_MANAGER");
     expect(canEditSingleProject(pm, { headId: "polok", checkerId: "pm1" })).toBe(true);
     expect(canEditSingleProject(pm, { headId: "polok", checkerId: "other" })).toBe(false);
+  });
+
+  it("gives Managing Director full access to all Financial Reports without Administration access", () => {
+    const md: ProjectAdminUser = {
+      ...baseUser,
+      id: "md1",
+      priorityLevel: 4,
+      levelLabel: "MD",
+      designation: "Managing Director",
+      role: { key: "md", name: "Managing Director", isManager: true },
+      permissions: ["req.create", "req.approve", "req.md", "report.view", "audit.view"],
+    };
+
+    expect(canAccessFinancialReports(md)).toBe(true);
+    expect(hasFullReportAccess(md)).toBe(true);
+    expect(financialReportProjectScope(md)).toEqual({ active: true });
+
+    const adminAccess = getProjectAdminAccess(md);
+    expect(adminAccess.canAccessProjectsAdmin).toBe(false);
+    expect(adminAccess.canCreateProject).toBe(false);
+    expect(adminAccess.canDeleteProject).toBe(false);
+    expect(adminAccess.accessMode).toBe("NONE");
   });
 
   it("gives Super Admin full create/edit/delete access across all projects", () => {
