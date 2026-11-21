@@ -4,6 +4,11 @@ import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { PERMISSION_LABELS, CATEGORIES, Permission } from "@/lib/constants";
 import { syncDesignationWithLevel } from "@/lib/userDisplay";
+import {
+  BACKUP_APPROVER_PREFIX,
+  backupApproverPermissionTag,
+  extractBackupApproverId,
+} from "@/lib/workflow";
 
 interface Props {
   users: any[];
@@ -64,7 +69,7 @@ export default function AdminUsersClient({
   const [newDepartmentName, setNewDepartmentName] = useState("");
   const [secondaryDeptsText, setSecondaryDeptsText] = useState("");
   const [supervisorId, setSupervisorId] = useState("");
-  const [approvalNotes, setApprovalNotes] = useState("");
+  const [backupApproverId, setBackupApproverId] = useState("");
   const [companyScopeIds, setCompanyScopeIds] = useState<string[]>([]);
   const [projectScopeIds, setProjectScopeIds] = useState<string[]>([]);
   const [directorCategories, setDirectorCategories] = useState<string[]>([]);
@@ -250,7 +255,7 @@ export default function AdminUsersClient({
     setNewDepartmentName("");
     setSecondaryDeptsText("");
     setSupervisorId("");
-    setApprovalNotes("");
+    setBackupApproverId("");
     setCompanyScopeIds(imsComp ? [imsComp.id] : []);
     setProjectScopeIds([]);
     setDirectorCategories([]);
@@ -283,7 +288,9 @@ export default function AdminUsersClient({
     setNewDepartmentName("");
     setSecondaryDeptsText((u.secondaryDepartments || []).join(", "));
     setSupervisorId(u.supervisorId || "");
-    setApprovalNotes(u.approvalNotes || "");
+    setBackupApproverId(
+      u.backupApproverId || extractBackupApproverId(u.extraPermissions) || ""
+    );
     setCompanyScopeIds(u.companyScopeIds || []);
     setProjectScopeIds(getAssociatedProjectIdsForUser(u));
     setDirectorCategories(u.directorCategories || []);
@@ -293,6 +300,7 @@ export default function AdminUsersClient({
           !p.startsWith("req.mode.") &&
           !p.startsWith("req.type.") &&
           !p.startsWith("report.scope.") &&
+          !p.startsWith(BACKUP_APPROVER_PREFIX) &&
           p !== "report.strict.scope" &&
           p !== "report.none" &&
           p !== "report.view.all"
@@ -429,7 +437,6 @@ export default function AdminUsersClient({
           .map((s) => s.trim())
           .filter(Boolean),
         supervisorId: supervisorId || null,
-        approvalNotes,
         companyScopeIds,
         projectScopeIds,
         directorCategories,
@@ -440,11 +447,17 @@ export default function AdminUsersClient({
                 !p.startsWith("req.mode.") &&
                 !p.startsWith("req.type.") &&
                 !p.startsWith("report.scope.") &&
+                !p.startsWith(BACKUP_APPROVER_PREFIX) &&
                 p !== "report.strict.scope" &&
                 p !== "report.none" &&
                 p !== "report.view.all" &&
                 (reportAccessMode !== "NONE" || p !== "report.view")
             ),
+            ...(backupApproverId &&
+            backupApproverId !== supervisorId &&
+            backupApproverId !== selectedUser?.id
+              ? [backupApproverPermissionTag(backupApproverId)]
+              : []),
             ...(reqTypesAllowed.length > 0 ? reqTypesAllowed : ["req.type.company"]),
             ...reportFlags,
           ])
@@ -791,17 +804,17 @@ export default function AdminUsersClient({
                         </div>
                       )}
                     </td>
-                    <td className="py-2.5 px-2.5 max-w-[180px]">
+                    <td className="py-2.5 px-2.5 max-w-[190px]">
                       {u.supervisorName ? (
                         <span className="text-[11px] font-semibold text-gray-800 block leading-tight">
                           ↳ {u.supervisorName}
                         </span>
                       ) : (
-                        <span className="text-[10px] text-gray-400 block">Direct / Dept Head</span>
+                        <span className="text-[10px] text-gray-400 block">Project / Dept Default</span>
                       )}
-                      {u.approvalNotes && (
-                        <span className="text-[10px] text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded inline-block mt-1 border border-amber-200 leading-tight">
-                          {u.approvalNotes}
+                      {u.backupApproverName && (
+                        <span className="text-[10px] text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded inline-block mt-1 border border-blue-200 leading-tight font-medium">
+                          Backup: {u.backupApproverName}
                         </span>
                       )}
                     </td>
@@ -1227,41 +1240,138 @@ export default function AdminUsersClient({
                 </div>
               </div>
 
-              {/* Row 4: Reporting Supervisor / Approver & Approval Notes */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-amber-50/40 p-3.5 rounded-lg border border-amber-200">
-                <div>
-                  <label className="block font-semibold text-gray-800">
-                    Direct Reporting Approver (Supervisor / Checked By)
-                  </label>
-                  <select
-                    value={supervisorId}
-                    onChange={(e) => setSupervisorId(e.target.value)}
-                    className="mt-1 w-full px-2.5 py-1.5 border border-gray-300 rounded bg-white"
-                  >
-                    <option value="">— Use Project / Department Default Head —</option>
-                    {approverCandidates
-                      .filter((cand) => cand.id !== selectedUser?.id)
-                      .map((cand) => (
-                        <option key={cand.id} value={cand.id}>
-                          {cand.employeeId ? `[${cand.employeeId}] ` : ""}
-                          {cand.name} — {cand.designation} (P{cand.priorityLevel})
-                        </option>
-                      ))}
-                  </select>
+              {/* Row 4: Reporting Approver, Backup / Alternate Approver & Live Effective Chain Preview */}
+              <div className="bg-amber-50/40 p-3.5 rounded-lg border border-amber-200 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold text-gray-800">
+                      Direct Reporting Approver (Primary Head / Checked By)
+                    </label>
+                    <select
+                      value={supervisorId}
+                      onChange={(e) => {
+                        const nextSup = e.target.value;
+                        setSupervisorId(nextSup);
+                        if (nextSup && nextSup === backupApproverId) {
+                          setBackupApproverId("");
+                        }
+                      }}
+                      className="mt-1 w-full px-2.5 py-1.5 border border-gray-300 rounded bg-white"
+                    >
+                      <option value="">— Use Project / Department Default Head —</option>
+                      {approverCandidates
+                        .filter((cand) => cand.id !== selectedUser?.id)
+                        .map((cand) => (
+                          <option key={cand.id} value={cand.id}>
+                            {cand.employeeId ? `[${cand.employeeId}] ` : ""}
+                            {cand.name} — {cand.designation} (P{cand.priorityLevel})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block font-semibold text-gray-800">
+                      Backup / Alternate Approver (Optional)
+                    </label>
+                    <select
+                      value={backupApproverId}
+                      onChange={(e) => setBackupApproverId(e.target.value)}
+                      className="mt-1 w-full px-2.5 py-1.5 border border-gray-300 rounded bg-white"
+                    >
+                      <option value="">— None (Primary Approver Only) —</option>
+                      {approverCandidates
+                        .filter(
+                          (cand) =>
+                            cand.id !== selectedUser?.id && cand.id !== supervisorId
+                        )
+                        .map((cand) => (
+                          <option key={cand.id} value={cand.id}>
+                            {cand.employeeId ? `[${cand.employeeId}] ` : ""}
+                            {cand.name} — {cand.designation} (P{cand.priorityLevel})
+                          </option>
+                        ))}
+                    </select>
+                  </div>
                 </div>
 
-                <div>
-                  <label className="block font-semibold text-gray-800">
-                    Approval Routing Notes (from Excel)
-                  </label>
-                  <input
-                    type="text"
-                    value={approvalNotes}
-                    onChange={(e) => setApprovalNotes(e.target.value)}
-                    placeholder="e.g. Approver ID 1070 or 1071, Approval from 1004"
-                    className="mt-1 w-full px-2.5 py-1.5 border border-gray-300 rounded bg-white"
-                  />
-                </div>
+                {/* Live Effective Approval Path Preview */}
+                {(() => {
+                  const selectedRole = roles.find((r) => r.id === roleId);
+                  const rolePerms: string[] = selectedRole?.permissions || [];
+                  const isMgr = Boolean(selectedRole?.isManager);
+                  const isMdRole = selectedRole?.key === "md" || rolePerms.includes("req.md");
+                  const isDirRole = rolePerms.includes("req.director");
+                  const isAccountsCheck = rolePerms.includes("req.accounts.check");
+                  const primaryUser = users.find((x) => x.id === supervisorId);
+                  const backupUser = users.find((x) => x.id === backupApproverId);
+
+                  const steps: Array<{ label: string; tone: string }> = [
+                    { label: name.trim() || "This User", tone: "bg-gray-900 text-white" },
+                  ];
+
+                  if (!isMgr && !isMdRole) {
+                    const primaryLabel = primaryUser
+                      ? `${primaryUser.employeeId ? `[${primaryUser.employeeId}] ` : ""}${primaryUser.name}`
+                      : "Project / Dept Head";
+                    const backupLabel = backupUser
+                      ? ` or ${backupUser.employeeId ? `[${backupUser.employeeId}] ` : ""}${backupUser.name}`
+                      : "";
+                    steps.push({
+                      label: `Head: ${primaryLabel}${backupLabel}`,
+                      tone: "bg-blue-50 text-blue-800 border border-blue-200",
+                    });
+                  }
+
+                  if (!isAccountsCheck) {
+                    steps.push({
+                      label: "Accounts Check",
+                      tone: "bg-indigo-50 text-indigo-800 border border-indigo-200",
+                    });
+                  }
+
+                  if (!isDirRole) {
+                    steps.push({
+                      label: "Director",
+                      tone: "bg-purple-50 text-purple-800 border border-purple-200",
+                    });
+                  }
+
+                  if (!isMdRole) {
+                    steps.push({
+                      label: "Managing Director",
+                      tone: "bg-red-50 text-[#E42528] border border-red-200",
+                    });
+                  }
+
+                  steps.push({
+                    label: "Accounts Disburse",
+                    tone: "bg-emerald-50 text-emerald-800 border border-emerald-200",
+                  });
+
+                  return (
+                    <div className="pt-2 border-t border-amber-200/80 flex flex-wrap items-center gap-1.5 text-[11px]">
+                      <span className="font-bold text-amber-900 uppercase tracking-wider text-[10px] mr-1">
+                        Effective Path:
+                      </span>
+                      {steps.map((st, idx) => (
+                        <span key={idx} className="inline-flex items-center gap-1.5">
+                          <span className={`px-2 py-0.5 rounded font-semibold ${st.tone}`}>
+                            {st.label}
+                          </span>
+                          {idx < steps.length - 1 && (
+                            <span className="text-gray-400 font-bold">→</span>
+                          )}
+                        </span>
+                      ))}
+                      {isMgr && !isMdRole && (
+                        <span className="text-[10px] text-amber-800 ml-1">
+                          (Manager role skips Head step)
+                        </span>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
 
               {/* Row 5: Company Scopes (IMS, CLAN, TradePULSE, SCL) */}

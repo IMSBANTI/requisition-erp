@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { requireUser, verifySecret, clientIp } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { resolveChain, stateAfter } from "@/lib/workflow";
+import { extractBackupApproverId, resolveChain, stateAfter } from "@/lib/workflow";
 import { extractProjectMeta } from "@/lib/profitEngine";
 import { generateRequisitionNumber } from "@/lib/reqNumber";
 import { amountInWords } from "@/lib/numberToWords";
@@ -424,7 +424,21 @@ export async function POST(request: Request) {
           message: `New requisition ${number} (${project.name}, ${currencyMeta.listPrefix} ${formatMoney(total, currency)})${poTag} submitted by ${user.name} requires your signature.`,
           link: `/requisitions/${requisition.id}`,
         });
-      } else if (initialWorkflow.status === "PENDING_ACCOUNTS") {
+      }
+
+      if (initialWorkflow.status === "PENDING_HEAD") {
+        const backupApproverId = extractBackupApproverId(user.extraPermissions);
+        if (backupApproverId && !notifiedUserIds.has(backupApproverId)) {
+          notifiedUserIds.add(backupApproverId);
+          await createNotification({
+            userId: backupApproverId,
+            message: `New requisition ${number} (${project.name}, ${currencyMeta.listPrefix} ${formatMoney(total, currency)})${poTag} submitted by ${user.name} is open for your signature (Backup Approver).`,
+            link: `/requisitions/${requisition.id}`,
+          });
+        }
+      }
+
+      if (!initialWorkflow.assigneeId && initialWorkflow.status === "PENDING_ACCOUNTS") {
         const accountsUserIds = await findUsersWithPermission("req.accounts.check");
         accountsUserIds.forEach((uid) => notifiedUserIds.add(uid));
         await notifyUsers({

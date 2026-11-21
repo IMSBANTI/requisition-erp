@@ -2,6 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { requisitionScope } from "@/lib/rbac";
+import { backupApproverPermissionTag } from "@/lib/workflow";
 import { formatMoney, getCurrencyMeta } from "@/lib/money";
 import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
 import { ensureUploadedKitProjectsSynced } from "@/lib/projectSync";
@@ -14,7 +15,13 @@ export default async function DashboardPage() {
   // Scoped queries
   const scope = requisitionScope(user);
 
-  const orPendingDashboard: any[] = [{ currentAssigneeId: user.id }];
+  const orPendingDashboard: any[] = [
+    { currentAssigneeId: user.id },
+    {
+      status: "PENDING_HEAD",
+      maker: { extraPermissions: { has: backupApproverPermissionTag(user.id) } },
+    },
+  ];
   if (user.permissions.includes("req.director")) {
     orPendingDashboard.push({
       status: {

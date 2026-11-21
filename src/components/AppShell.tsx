@@ -1,6 +1,7 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { getProjectAdminAccess } from "@/lib/rbac";
+import { backupApproverPermissionTag } from "@/lib/workflow";
 import Sidebar, { MobileMenuTrigger } from "./Sidebar";
 import NotificationBell from "./NotificationBell";
 import Link from "next/link";
@@ -23,7 +24,22 @@ export default async function AppShell({ children }: { children: React.ReactNode
 
   if (user.permissions.includes("req.approve") || user.permissions.includes("req.director")) {
     pendingCount += await prisma.requisition.count({
-      where: { currentAssigneeId: user.id },
+      where: {
+        OR: [
+          { currentAssigneeId: user.id },
+          {
+            status: "PENDING_HEAD",
+            maker: { extraPermissions: { has: backupApproverPermissionTag(user.id) } },
+          },
+        ],
+      },
+    });
+  } else {
+    pendingCount += await prisma.requisition.count({
+      where: {
+        status: "PENDING_HEAD",
+        maker: { extraPermissions: { has: backupApproverPermissionTag(user.id) } },
+      },
     });
   }
   if (user.permissions.includes("req.accounts.check")) {

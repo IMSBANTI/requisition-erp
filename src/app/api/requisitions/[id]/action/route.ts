@@ -2,7 +2,14 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { requireUser, verifySecret, clientIp } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { allowedActions, stateAfter, STATUS_STEP, ChainStep, Action } from "@/lib/workflow";
+import {
+  allowedActions,
+  extractBackupApproverId,
+  stateAfter,
+  STATUS_STEP,
+  ChainStep,
+  Action,
+} from "@/lib/workflow";
 import { amountInWords } from "@/lib/numberToWords";
 import { grandTotal, lineAmount, resolveCurrency, getCurrencyMeta } from "@/lib/money";
 import { round2 } from "@/lib/profitEngine";
@@ -75,6 +82,7 @@ export async function POST(
       include: {
         project: true,
         company: true,
+        maker: { select: { extraPermissions: true } },
         approvals: true,
         items: true,
         attachments: { select: { id: true, isPo: true, fileName: true } },
@@ -93,6 +101,7 @@ export async function POST(
           status: req.status,
           makerId: req.makerId,
           currentAssigneeId: req.currentAssigneeId,
+          backupApproverId: extractBackupApproverId(req.maker?.extraPermissions),
           executorId: req.executorId,
           mdStatus: req.mdStatus,
         }

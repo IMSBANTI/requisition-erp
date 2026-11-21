@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { allowedActions, resolveChain, stateAfter, WorkflowContext, WorkflowError } from "@/lib/workflow";
+import {
+  allowedActions,
+  backupApproverPermissionTag,
+  extractBackupApproverId,
+  resolveChain,
+  stateAfter,
+  WorkflowContext,
+  WorkflowError,
+} from "@/lib/workflow";
 
 const base: WorkflowContext = {
   makerId: "exec",
@@ -116,5 +124,17 @@ describe("allowedActions", () => {
   it("MD can batch-sign released requisitions", () => {
     const r = { ...req, status: "EXECUTED", mdStatus: "PENDING_BATCH" };
     expect(allowedActions({ id: "md", permissions: ["req.md"] }, r)).toEqual(["MD_BATCH"]);
+  });
+  it("backup approver can sign PENDING_HEAD requisition even without generic req.approve", () => {
+    const tag = backupApproverPermissionTag("rakib");
+    expect(extractBackupApproverId(["report.view", tag])).toBe("rakib");
+    const r = { ...req, status: "PENDING_HEAD", currentAssigneeId: "polok", backupApproverId: "rakib" };
+    const actions = allowedActions({ id: "rakib", permissions: ["req.create"] }, r);
+    expect(actions).toEqual(
+      expect.arrayContaining(["APPROVE", "APPROVE_TO_ACCOUNTS", "APPROVE_TO_DIRECTOR", "RETURN", "REJECT"])
+    );
+    // Self-approval still blocked even if backupApproverId === makerId
+    const selfReq = { ...r, makerId: "rakib" };
+    expect(allowedActions({ id: "rakib", permissions: ["req.create"] }, selfReq)).toEqual([]);
   });
 });

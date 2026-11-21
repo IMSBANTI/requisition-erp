@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { syncDesignationWithLevel } from "@/lib/userDisplay";
+import { extractBackupApproverId } from "@/lib/workflow";
 import AppShell from "@/components/AppShell";
 import AdminUsersClient from "./AdminUsersClient";
 
@@ -44,11 +45,16 @@ export default async function AdminUsersPage() {
     }),
   ]);
 
+  const userById = new Map(users.map((u) => [u.id, u]));
+
   return (
     <AppShell>
       <div className="p-3 sm:p-6 max-w-7xl mx-auto w-full">
         <AdminUsersClient
-          users={users.map((u) => ({
+          users={users.map((u) => {
+            const backupApproverId = extractBackupApproverId(u.extraPermissions) || "";
+            const backupUser = backupApproverId ? userById.get(backupApproverId) : null;
+            return {
             id: u.id,
             employeeId: u.employeeId || "",
             name: u.name,
@@ -67,6 +73,10 @@ export default async function AdminUsersPage() {
             supervisorId: u.supervisorId || "",
             supervisorName: u.supervisor
               ? `${u.supervisor.name}${u.supervisor.employeeId ? ` (${u.supervisor.employeeId})` : ""}`
+              : "",
+            backupApproverId,
+            backupApproverName: backupUser
+              ? `${backupUser.name}${backupUser.employeeId ? ` (${backupUser.employeeId})` : ""}`
               : "",
             roleId: u.roleId,
             roleKey: u.role.key,
@@ -96,7 +106,8 @@ export default async function AdminUsersPage() {
             active: u.active,
             hasSignature: !!u.signature,
             hasPin: !!u.pinHash,
-          }))}
+            };
+          })}
           roles={roles.map((r) => ({
             ...r,
             name:

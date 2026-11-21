@@ -147,10 +147,27 @@ export interface Actor {
   permissions: string[];
 }
 
+export const BACKUP_APPROVER_PREFIX = "backup.approver:";
+
+export function backupApproverPermissionTag(approverId: string): string {
+  return `${BACKUP_APPROVER_PREFIX}${approverId}`;
+}
+
+export function extractBackupApproverId(extraPermissions?: string[] | null): string | null {
+  if (!Array.isArray(extraPermissions)) return null;
+  const tag = extraPermissions.find(
+    (p) => typeof p === "string" && p.startsWith(BACKUP_APPROVER_PREFIX)
+  );
+  if (!tag) return null;
+  const id = tag.slice(BACKUP_APPROVER_PREFIX.length).trim();
+  return id || null;
+}
+
 export interface ReqSnapshot {
   status: string;
   makerId: string;
   currentAssigneeId: string | null;
+  backupApproverId?: string | null;
   executorId: string | null;
   mdStatus: string;
 }
@@ -232,11 +249,16 @@ export function allowedActions(user: Actor, req: ReqSnapshot): Action[] {
       }
     }
 
-    // 5. Manager / Department Head / Project Head / IT Checker actions — never self-approve
+    // 5. Manager / Department Head / Project Head / IT Checker / Backup Approver actions — never self-approve
     const isHeadOrCheckerStage =
       req.status === "PENDING_HEAD" || req.status === "PENDING_CHECKER";
+    const isBackupForHead =
+      req.status === "PENDING_HEAD" &&
+      Boolean(req.backupApproverId) &&
+      req.backupApproverId === user.id;
     const canSignHeadOrChecker =
       req.currentAssigneeId === user.id ||
+      isBackupForHead ||
       has(PERMISSIONS.REQ_APPROVE) ||
       has(PERMISSIONS.REQ_APPROVE_IT);
 

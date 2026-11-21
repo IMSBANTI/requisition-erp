@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { PERMISSIONS } from "./constants";
+import { backupApproverPermissionTag } from "./workflow";
 
 export interface ScopeUser {
   id: string;
@@ -48,6 +49,12 @@ export function requisitionScope(user: ScopeUser): Prisma.RequisitionWhereInput 
     { currentAssigneeId: user.id },
     { executorId: user.id },
     { approvals: { some: { userId: user.id } } },
+    {
+      AND: [
+        { status: "PENDING_HEAD" },
+        { maker: { extraPermissions: { has: backupApproverPermissionTag(user.id) } } },
+      ],
+    },
   ];
 
   // For Managing Directors (where MD step has assigneeId: null), include PENDING_MD / PENDING_BATCH requisitions on their assigned projects

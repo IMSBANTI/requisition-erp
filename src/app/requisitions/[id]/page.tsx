@@ -3,7 +3,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { requisitionScope } from "@/lib/rbac";
-import { allowedActions } from "@/lib/workflow";
+import { allowedActions, extractBackupApproverId } from "@/lib/workflow";
 import { formatTaka, formatMoney, getCurrencyMeta } from "@/lib/money";
 import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
 import AppShell from "@/components/AppShell";
@@ -70,6 +70,7 @@ export default async function RequisitionDetailPage({ params }: Props) {
       status: req.status,
       makerId: req.makerId,
       currentAssigneeId: req.currentAssigneeId,
+      backupApproverId: extractBackupApproverId(req.maker?.extraPermissions),
       executorId: req.executorId,
       mdStatus: req.mdStatus,
     }
