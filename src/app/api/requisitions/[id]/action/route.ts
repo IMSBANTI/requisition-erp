@@ -2,9 +2,11 @@ import { NextResponse } from "next/server";
 import crypto from "crypto";
 import { requireUser, verifySecret, clientIp } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { stateAfter, STATUS_STEP, ChainStep } from "@/lib/workflow";
+import { allowedActions, stateAfter, STATUS_STEP, ChainStep, Action } from "@/lib/workflow";
 import { amountInWords } from "@/lib/numberToWords";
-import { grandTotal, resolveCurrency, getCurrencyMeta } from "@/lib/money";
+import { grandTotal, lineAmount, resolveCurrency, getCurrencyMeta } from "@/lib/money";
+import { round2 } from "@/lib/profitEngine";
+import { sumPartialDisbursedFromApprovals } from "@/lib/financeMetrics";
 import { createNotification, notifyUsers, findUsersWithPermission } from "@/lib/notifications";
 
 function resolveSignerBoxStep(user: { permissions: string[] }, currentStep?: string) {
@@ -83,6 +85,31 @@ export async function POST(
       return NextResponse.json({ error: "Requisition not found" }, { status: 404 });
     }
 
+    // Server-side workflow authorization enforcement (matches UI allowedActions, blocks self-approval & unauthorized API calls)
+    if (action !== "DELETE") {
+      const permitted = allowedActions(
+        { id: user.id, permissions: user.permissions },
+        {
+          status: req.status,
+          makerId: req.makerId,
+          currentAssigneeId: req.currentAssigneeId,
+          executorId: req.executorId,
+          mdStatus: req.mdStatus,
+        }
+      );
+      if (!permitted.includes(action as Action)) {
+        return NextResponse.json(
+          {
+            error:
+              req.makerId === user.id
+                ? "You cannot approve, return, or reject your own requisition."
+                : `You are not authorized to perform "${action}" on this requisition (current status: ${req.status}).`,
+          },
+          { status: 403 }
+        );
+      }
+    }
+
     const hasPo = Boolean(
       (req as any).poNumber ||
         req.attachments.some((a) => a.isPo || a.fileName.startsWith("[PO]"))
@@ -116,13 +143,13 @@ export async function POST(
             ? Math.min(Number(existingItem.unitPrice), Math.max(0, Number(adj.unitPrice)))
             : Number(existingItem.unitPrice);
         const qtyNum = Number(existingItem.qty);
-        const lineAmt = qtyNum * newUnitPrice;
+        const lineAmt = lineAmount({ qty: qtyNum, unitPrice: newUnitPrice }).toNumber();
         updatedForTotal.push({ qty: qtyNum, unitPrice: newUnitPrice });
 
         if ((existingItem as any).costTag === "IMS_INVESTMENT") {
-          newImsInv += lineAmt;
+          newImsInv = round2(newImsInv + lineAmt).toNumber();
         } else {
-          newBillable += lineAmt;
+          newBillable = round2(newBillable + lineAmt).toNumber();
         }
 
         if (newUnitPrice !== Number(existingItem.unitPrice)) {
@@ -520,14 +547,18 @@ export async function POST(
       }
 
       const reqTotalNum = Number(req.total || 0);
+      const priorPartialDisbursed = sumPartialDisbursedFromApprovals(req.approvals);
       let disbursedTotal = reqTotalNum;
       let isPartial = false;
       if (Array.isArray(disbursementLines) && disbursementLines.length > 0) {
-        disbursedTotal = disbursementLines.reduce(
-          (sum: number, l: any) => sum + Math.max(0, Number(l.disbursedAmount || 0)),
-          0
-        );
-        if (disbursedTotal > 0 && disbursedTotal < reqTotalNum - 1) {
+        disbursedTotal = round2(
+          disbursementLines.reduce(
+            (sum: number, l: any) => sum + Math.max(0, Number(l.disbursedAmount || 0)),
+            0
+          )
+        ).toNumber();
+        const cumulativeDisbursed = round2(priorPartialDisbursed + disbursedTotal).toNumber();
+        if (disbursedTotal > 0 && cumulativeDisbursed < reqTotalNum - 1) {
           isPartial = true;
         }
       }
@@ -602,6 +633,80 @@ export async function POST(
         return NextResponse.json({ error: "Unauthorized to settle requisition" }, { status: 403 });
       }
 
+      const originalTotal = round2(Number(req.total || 0)).toNumber();
+      const priorPartialDisbursed = sumPartialDisbursedFromApprovals(req.approvals);
+      const settleAtPartial =
+        req.status === "PARTIAL_PAID" &&
+        priorPartialDisbursed > 0 &&
+        priorPartialDisbursed < originalTotal - 0.01;
+
+      const settleOps: any[] = [];
+      let settleSummary = "";
+
+      if (settleAtPartial) {
+        const ratio = originalTotal > 0 ? priorPartialDisbursed / originalTotal : 1;
+        let settledBillable = 0;
+        let settledIms = 0;
+        let runningItemsTotal = 0;
+
+        for (let i = 0; i < req.items.length; i++) {
+          const item = req.items[i];
+          const isLast = i === req.items.length - 1;
+          const scaledAmt = isLast
+            ? round2(Math.max(0, priorPartialDisbursed - runningItemsTotal)).toNumber()
+            : round2(Number(item.amount || 0) * ratio).toNumber();
+          runningItemsTotal = round2(runningItemsTotal + scaledAmt).toNumber();
+          const qtyNum = Number(item.qty || 1);
+          const scaledUnitPrice = qtyNum > 0 ? round2(scaledAmt / qtyNum).toNumber() : scaledAmt;
+
+          if ((item as any).costTag === "IMS_INVESTMENT") {
+            settledIms = round2(settledIms + scaledAmt).toNumber();
+          } else {
+            settledBillable = round2(settledBillable + scaledAmt).toNumber();
+          }
+
+          settleOps.push(
+            prisma.requisitionItem.update({
+              where: { id: item.id },
+              data: {
+                unitPrice: scaledUnitPrice,
+                amount: scaledAmt,
+              },
+            })
+          );
+        }
+
+        const reqCurrency = resolveCurrency((req as any).currency, req.amountInWords);
+        const cMeta = getCurrencyMeta(reqCurrency);
+        settleSummary = ` [Settled at disbursed total: ${cMeta.listPrefix} ${priorPartialDisbursed.toFixed(2)}, cancelled remainder: ${cMeta.listPrefix} ${round2(originalTotal - priorPartialDisbursed).toFixed(2)}]`;
+
+        settleOps.push(
+          prisma.requisition.update({
+            where: { id: req.id },
+            data: {
+              status: "SETTLED",
+              total: priorPartialDisbursed,
+              billableTotal: settledBillable,
+              imsInvestmentTotal: settledIms,
+              amountInWords: amountInWords(priorPartialDisbursed, reqCurrency),
+              executorId: user.id,
+              executedAt: new Date(),
+            },
+          })
+        );
+      } else {
+        settleOps.push(
+          prisma.requisition.update({
+            where: { id: req.id },
+            data: {
+              status: "SETTLED",
+              executorId: user.id,
+              executedAt: new Date(),
+            },
+          })
+        );
+      }
+
       await prisma.$transaction([
         prisma.approval.create({
           data: {
@@ -613,26 +718,20 @@ export async function POST(
             signerDesignation: user.designation,
             signature: activeSignature,
             comment:
-              comment ||
-              "Requisition settled by Accounts (remaining unpaid balance cancelled)",
+              (comment ||
+                "Requisition settled by Accounts (remaining unpaid balance cancelled)") +
+              settleSummary,
             docHash,
             ip,
           },
         }),
-        prisma.requisition.update({
-          where: { id: req.id },
-          data: {
-            status: "SETTLED",
-            executorId: user.id,
-            executedAt: new Date(),
-          },
-        }),
+        ...settleOps,
         prisma.auditLog.create({
           data: {
             userId: user.id,
             requisitionId: req.id,
             action: "REQUISITION_SETTLED",
-            details: `Requisition ${req.number || req.id} settled by ${user.name}${comment ? `: "${comment}"` : ""}`,
+            details: `Requisition ${req.number || req.id} settled by ${user.name}${settleSummary}${comment ? `: "${comment}"` : ""}`,
             ip,
           },
         }),

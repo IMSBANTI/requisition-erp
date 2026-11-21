@@ -7,15 +7,16 @@ import {
 } from "@/lib/rbac";
 import {
   calculateProfitSummary,
-  getDefaultProjectTermsByCode,
   round2,
   extractProjectMeta,
   packCostHeadsWithMeta,
   resolveCostHeadsForKind,
-  DirectExpenseItem,
 } from "@/lib/profitEngine";
-
-const OPENING_BILL_PREFIX = "[OPENING_BALANCE]";
+import {
+  OPENING_BILL_PREFIX,
+  PAYMENT_TOLERANCE_BDT,
+  resolveEffectiveProjectTerms,
+} from "@/lib/financeMetrics";
 
 function canManageFinanceBills(user: Awaited<ReturnType<typeof requireUser>>): boolean {
   return (
@@ -83,7 +84,7 @@ export async function POST(request: Request) {
 
     const isEvt =
       project.kind === "EVENT" || project.code?.toUpperCase().startsWith("EVT-");
-    const costHeads = resolveCostHeadsForKind(project.costHeads, isEvt);
+    const costHeads = resolveCostHeadsForKind(project.costHeads, isEvt, project.code);
     const meta = extractProjectMeta(project.costHeads);
 
     const isFinanceOrAdmin =
@@ -108,26 +109,13 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Month (YYYY-MM) is required" }, { status: 400 });
       }
 
-      // Readiness Check 1: No pending direct expenses in that month
-      const pendingDirect = (meta.directExpenses || []).filter(
-        (de) => de.forMonth === forMonth && de.status === "PENDING"
-      );
-      if (pendingDirect.length > 0) {
-        return NextResponse.json(
-          {
-            error: `Cannot close ${forMonth}: ${pendingDirect.length} pending Direct Expense(s) must be confirmed or rejected first.`,
-          },
-          { status: 400 }
-        );
-      }
-
-      // Readiness Check 2: No unexecuted/open requisitions in that month
+      // Readiness Check 1: No unexecuted/open requisitions in that month
       const openReqs = await prisma.requisition.count({
         where: {
           projectId,
           forMonth,
           status: {
-            notIn: ["EXECUTED", "SETTLED", "REJECTED", "CANCELLED", "DRAFT"],
+            notIn: ["EXECUTED", "SETTLED", "REJECTED", "CANCELLED", "DRAFT", "RETURNED"],
           },
         },
       });
@@ -140,7 +128,7 @@ export async function POST(request: Request) {
         );
       }
 
-      // Readiness Check 3: Either a bill exists for that month OR noBillReason is provided
+      // Readiness Check 2: Either a bill exists for that month OR noBillReason is provided
       const billCount = await (prisma as any).clientBill.count({
         where: { projectId, forMonth },
       });
@@ -271,154 +259,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, manualForecasts });
     }
 
-    // ------------------------------------------------------------------------
-    // ACTION 4: ADD / IMPORT / CONFIRM / REJECT DIRECT EXPENSES (Priority 2B)
-    // ------------------------------------------------------------------------
     if (
       actionType === "ADD_DIRECT_EXPENSE" ||
       actionType === "IMPORT_DIRECT_EXPENSES" ||
       actionType === "REVIEW_DIRECT_EXPENSE"
     ) {
-      const targetMonth = forMonth || new Date().toISOString().slice(0, 7);
-      if (
-        actionType !== "REVIEW_DIRECT_EXPENSE" &&
-        meta.closedMonths &&
-        meta.closedMonths[targetMonth]
-      ) {
-        return NextResponse.json(
-          {
-            error: `Month ${targetMonth} is closed and locked by Finance. Reopen the month first.`,
-          },
-          { status: 400 }
-        );
-      }
-
-      const directExpenses: DirectExpenseItem[] = [...(meta.directExpenses || [])];
-
-      if (actionType === "ADD_DIRECT_EXPENSE") {
-        const amt = Number(body.amount || 0);
-        if (amt <= 0) {
-          return NextResponse.json({ error: "Amount must be greater than 0" }, { status: 400 });
-        }
-        const matchedHead = costHeads.find(
-          (ch) => ch.name.toLowerCase() === String(body.costHead || "").toLowerCase()
-        );
-        const newExp: DirectExpenseItem = {
-          id: `de_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-          forMonth: targetMonth,
-          paidOn: body.paidOn || new Date().toISOString().slice(0, 10),
-          costHead: body.costHead || costHeads[0]?.name || "General Expense",
-          costTag: body.costTag || matchedHead?.tag || "BILLABLE",
-          amount: amt,
-          paidVia: body.paidVia || "Cash",
-          note: String(body.note || "").trim(),
-          status: isFinanceOrAdmin && body.autoConfirm ? "CONFIRMED" : "PENDING",
-          createdBy: user.name,
-          createdAt: new Date().toISOString().slice(0, 10),
-          ...(isFinanceOrAdmin && body.autoConfirm
-            ? { confirmedBy: user.name, confirmedAt: new Date().toISOString().slice(0, 10) }
-            : {}),
-        };
-        directExpenses.unshift(newExp);
-      } else if (actionType === "IMPORT_DIRECT_EXPENSES") {
-        const rows = Array.isArray(body.rows) ? body.rows : [];
-        if (rows.length === 0) {
-          return NextResponse.json({ error: "No valid rows found in import" }, { status: 400 });
-        }
-        const batchId = `batch_${Date.now()}`;
-        for (const r of rows) {
-          const amt = Number(r.amount || 0);
-          if (amt <= 0) continue;
-          const rawHeadName = String(r.costHead || "").trim();
-          const lower = rawHeadName.toLowerCase();
-          // Match by exact name or alias
-          const matched = costHeads.find(
-            (ch) =>
-              ch.name.toLowerCase() === lower ||
-              (Array.isArray(ch.aliases) &&
-                ch.aliases.some((al) => al.toLowerCase() === lower))
-          );
-          const rowMonth = r.forMonth || targetMonth;
-          if (meta.closedMonths && meta.closedMonths[rowMonth]) {
-            return NextResponse.json(
-              { error: `Month ${rowMonth} is closed. Cannot import expenses into a closed month.` },
-              { status: 400 }
-            );
-          }
-          directExpenses.unshift({
-            id: `de_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-            forMonth: rowMonth,
-            paidOn: r.paidOn || new Date().toISOString().slice(0, 10),
-            costHead: matched ? matched.name : rawHeadName || "Imported Expense",
-            costTag:
-              r.costTag === "IMS_INVESTMENT"
-                ? "IMS_INVESTMENT"
-                : matched?.tag || "BILLABLE",
-            amount: amt,
-            paidVia: r.paidVia || "Bank",
-            note: String(r.note || "Imported from Excel/CSV").trim(),
-            status: isFinanceOrAdmin && body.autoConfirm ? "CONFIRMED" : "PENDING",
-            createdBy: user.name,
-            createdAt: new Date().toISOString().slice(0, 10),
-            batchId,
-            ...(isFinanceOrAdmin && body.autoConfirm
-              ? { confirmedBy: user.name, confirmedAt: new Date().toISOString().slice(0, 10) }
-              : {}),
-          });
-        }
-      } else if (actionType === "REVIEW_DIRECT_EXPENSE") {
-        if (!isFinanceOrAdmin) {
-          return NextResponse.json(
-            { error: "Only Finance or Admin can confirm or reject Direct Expenses." },
-            { status: 403 }
-          );
-        }
-        const expId = body.expenseId;
-        const decision = body.decision as "CONFIRMED" | "REJECTED" | "DELETE";
-        if (decision === "REJECTED" && !String(body.rejectReason || "").trim()) {
-          return NextResponse.json(
-            { error: "A rejection reason is required when rejecting a Direct Expense." },
-            { status: 400 }
-          );
-        }
-        const idx = directExpenses.findIndex((d) => d.id === expId);
-        if (idx === -1) {
-          return NextResponse.json({ error: "Direct Expense not found" }, { status: 404 });
-        }
-        if (decision === "DELETE") {
-          directExpenses.splice(idx, 1);
-        } else {
-          directExpenses[idx] = {
-            ...directExpenses[idx],
-            status: decision,
-            confirmedBy: user.name,
-            confirmedAt: new Date().toISOString().slice(0, 10),
-            ...(decision === "REJECTED"
-              ? { rejectReason: String(body.rejectReason).trim() }
-              : {}),
-          };
-        }
-      }
-
-      const packed = packCostHeadsWithMeta(costHeads, {
-        ...meta,
-        directExpenses,
-      });
-
-      await prisma.project.update({
-        where: { id: projectId },
-        data: { costHeads: packed },
-      });
-
-      await prisma.auditLog.create({
-        data: {
-          userId: user.id,
-          action: actionType,
-          details: `Direct expense action (${actionType}) on ${project.name} by ${user.name}`,
+      return NextResponse.json(
+        {
+          error:
+            "Direct Expenses have been retired. Please record project costs via New Requisition (which supports Excel/CSV import).",
         },
-      });
-
-      return NextResponse.json({ success: true, directExpenses });
+        { status: 410 }
+      );
     }
 
     // ------------------------------------------------------------------------
@@ -434,40 +286,19 @@ export async function POST(request: Request) {
       );
     }
 
-    const fallbackTerms = getDefaultProjectTermsByCode(project.code, project.kind);
-    const effectiveFixedBill =
-      customBillExVat !== undefined && customBillExVat !== "" && Number(customBillExVat) > 0
-        ? Number(customBillExVat)
-        : project.fixedMonthlyBill && Number(project.fixedMonthlyBill) > 0
-        ? Number(project.fixedMonthlyBill)
-        : (project.billingProfile || fallbackTerms.billingProfile) === "FIXED_QUOTE" &&
-          project.budget
-        ? Number(project.budget)
-        : Number(fallbackTerms.fixedMonthlyBill || 0);
+    const effectiveTerms = resolveEffectiveProjectTerms(project);
+    const hasCustomBill =
+      customBillExVat !== undefined &&
+      customBillExVat !== "" &&
+      Number(customBillExVat) > 0;
 
     const calc = calculateProfitSummary({
       terms: {
-        billingProfile:
-          customBillExVat && Number(customBillExVat) > 0
-            ? "FIXED_QUOTE"
-            : project.billingProfile || fallbackTerms.billingProfile,
-        feeRate:
-          project.feeRate !== undefined && project.feeRate !== null
-            ? Number(project.feeRate)
-            : Number(fallbackTerms.feeRate),
-        aitRate:
-          project.aitRate !== undefined && project.aitRate !== null
-            ? Number(project.aitRate)
-            : Number(fallbackTerms.aitRate),
-        vatRate:
-          project.vatRate !== undefined && project.vatRate !== null
-            ? Number(project.vatRate)
-            : Number(fallbackTerms.vatRate ?? 0.15),
-        fixedMonthlyBill: effectiveFixedBill,
-        maintenanceBudget: project.maintenanceBudget ? Number(project.maintenanceBudget) : 0,
-        monthlyAmortization: project.monthlyAmortization
-          ? Number(project.monthlyAmortization)
-          : 0,
+        ...effectiveTerms,
+        billingProfile: hasCustomBill ? "FIXED_QUOTE" : effectiveTerms.billingProfile,
+        fixedMonthlyBill: hasCustomBill
+          ? Number(customBillExVat)
+          : effectiveTerms.fixedMonthlyBill,
       },
       billableCost: Number(billableCost || 0),
       imsInvestment: Number(imsInvestment || 0),
@@ -496,7 +327,7 @@ export async function POST(request: Request) {
         calc.amortizationCost
     ).toNumber();
 
-    // Opening-balance bills (Priority 1C: isOpeningBalance) count in Receivables & Overdue Ageing ONLY, excluded from current-year P&L
+    // Opening-balance bills count in Receivables & Overdue Ageing ONLY, excluded from current-year P&L
     const openingFlag =
       Boolean(isOpeningBalance) ||
       String(notes || "").startsWith(OPENING_BILL_PREFIX);
@@ -518,13 +349,17 @@ export async function POST(request: Request) {
     let resolvedDueDate: Date | null = dueDate ? new Date(dueDate) : null;
     if (!resolvedDueDate && submittedAt) {
       const subDate = new Date(submittedAt);
-      const cycleDays = project.billCycleDays ?? fallbackTerms.billCycleDays ?? 30;
+      const cycleDays = effectiveTerms.billCycleDays ?? 30;
       resolvedDueDate = new Date(subDate.getTime() + cycleDays * 24 * 60 * 60 * 1000);
     }
 
     // Resolve status automatically if payment received (with ±10 BDT rounding tolerance per §4.4)
     let resolvedStatus = status || "SUBMITTED";
-    if (recAmt > 0 && finalExpectedInflow > 0 && recAmt >= finalExpectedInflow - 10) {
+    if (
+      recAmt > 0 &&
+      finalExpectedInflow > 0 &&
+      recAmt >= finalExpectedInflow - PAYMENT_TOLERANCE_BDT
+    ) {
       resolvedStatus = "PAID";
     } else if (recAmt > 0 && resolvedStatus !== "PAID" && resolvedStatus !== "PARTIAL_PAID") {
       resolvedStatus = "PARTIAL_PAID";

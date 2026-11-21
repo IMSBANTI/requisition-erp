@@ -33,17 +33,21 @@ export default function ReportsClient({
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [search, setSearch] = useState("");
+  const [groupByMonth, setGroupByMonth] = useState<"forMonth" | "date">("forMonth");
 
   // Data & loading state
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<{
     metrics: {
       count: number;
+      totalRowCount?: number;
+      excludedCount?: number;
       totalRequested: number;
       totalApproved: number;
       totalExecuted: number;
       totalPending: number;
       totalRejected: number;
+      foreignCurrencies?: { currency: string; count: number; total: number }[];
       companyBreakdown: { name: string; count: number; total: number }[];
       projectBreakdown: { name: string; count: number; total: number; budget: number }[];
       categoryBreakdown: { name: string; count: number; total: number }[];
@@ -101,6 +105,7 @@ export default function ReportsClient({
       if (startDate) params.append("startDate", startDate);
       if (endDate) params.append("endDate", endDate);
       if (search) params.append("search", search);
+      params.append("groupByMonth", groupByMonth);
 
       const res = await fetch(`/api/reports/query?${params.toString()}`);
       if (!res.ok) throw new Error("Failed to load report data");
@@ -115,7 +120,7 @@ export default function ReportsClient({
 
   useEffect(() => {
     fetchData();
-  }, [companyId, projectId, departmentId, category, status, paymentMode, type, startDate, endDate]);
+  }, [companyId, projectId, departmentId, category, status, paymentMode, type, startDate, endDate, groupByMonth]);
 
   function handleSearchSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -134,6 +139,7 @@ export default function ReportsClient({
     if (startDate) params.append("startDate", startDate);
     if (endDate) params.append("endDate", endDate);
     if (search) params.append("search", search);
+    params.append("groupByMonth", groupByMonth);
     params.append("export", "csv");
 
     window.location.href = `/api/reports/query?${params.toString()}`;
@@ -141,11 +147,14 @@ export default function ReportsClient({
 
   const metrics = data?.metrics || {
     count: 0,
+    totalRowCount: 0,
+    excludedCount: 0,
     totalRequested: 0,
     totalApproved: 0,
     totalExecuted: 0,
     totalPending: 0,
     totalRejected: 0,
+    foreignCurrencies: [],
     companyBreakdown: [],
     projectBreakdown: [],
     categoryBreakdown: [],
@@ -217,7 +226,10 @@ export default function ReportsClient({
             label: "Total Requisitions",
             value: String(metrics.count),
             isCurrency: false,
-            sub: "Matching current filters",
+            sub:
+              (metrics.excludedCount || 0) > 0 && status === "ALL"
+                ? `Active (${metrics.excludedCount} draft/rejected excl.)`
+                : "Matching current filters",
             labelClass: "text-gray-500",
             valueClass: "text-gray-900",
             subClass: "text-gray-400",
@@ -226,7 +238,7 @@ export default function ReportsClient({
             label: "Total Requested",
             value: formatTaka(metrics.totalRequested),
             isCurrency: true,
-            sub: "Gross sum",
+            sub: "Active BDT gross sum",
             labelClass: "text-gray-500",
             valueClass: "text-gray-900",
             subClass: "text-gray-400",
@@ -276,6 +288,25 @@ export default function ReportsClient({
           </div>
         ))}
       </div>
+
+      {/* Foreign Currency Separation Notice */}
+      {metrics.foreignCurrencies && metrics.foreignCurrencies.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-amber-900">
+          <span className="font-semibold">
+            Foreign currency requisitions excluded from BDT (Tk) totals above:
+          </span>
+          <div className="flex flex-wrap gap-2">
+            {metrics.foreignCurrencies.map((fc) => (
+              <span
+                key={fc.currency}
+                className="px-2 py-0.5 rounded bg-white border border-amber-300 font-mono font-bold text-amber-900"
+              >
+                {fc.currency} {fc.total.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ({fc.count} req)
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Tabs Navigation */}
       <div className="bg-white border-b border-gray-200 rounded-t-lg px-4 flex flex-wrap gap-2">
@@ -444,9 +475,12 @@ export default function ReportsClient({
                 <option value="PENDING_MD">Pending MD</option>
                 <option value="APPROVED">Approved</option>
                 <option value="FORWARDED">Forwarded</option>
+                <option value="PARTIAL_PAID">Partially Paid</option>
                 <option value="EXECUTED">Executed / Paid</option>
+                <option value="SETTLED">Settled</option>
                 <option value="RETURNED">Returned</option>
                 <option value="REJECTED">Rejected</option>
+                <option value="CANCELLED">Cancelled</option>
               </select>
             </div>
 
@@ -664,11 +698,38 @@ export default function ReportsClient({
         {/* TAB 2: Monthly & Yearly Summary */}
         {activeTab === "monthly" && (
           <div className="bg-white rounded-lg border border-gray-200 shadow-sm p-4 space-y-4">
-            <div>
-              <h2 className="text-sm font-bold text-gray-900">Month-by-Month Financial Trend</h2>
-              <p className="text-[11px] text-gray-500">
-                Monthly breakdown showing total requested, approved, and executed disbursement amounts.
-              </p>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h2 className="text-sm font-bold text-gray-900">Month-by-Month Financial Trend</h2>
+                <p className="text-[11px] text-gray-500">
+                  Monthly breakdown showing active requested, approved, and cash-disbursed amounts (grouped by{" "}
+                  {groupByMonth === "forMonth" ? "Service Month — matches Finance P&L" : "Requisition Submission Date"}).
+                </p>
+              </div>
+              <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5 text-[11px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => setGroupByMonth("forMonth")}
+                  className={`px-2.5 py-1 rounded cursor-pointer transition-colors ${
+                    groupByMonth === "forMonth"
+                      ? "bg-gray-900 text-white"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  Service Month (forMonth)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setGroupByMonth("date")}
+                  className={`px-2.5 py-1 rounded cursor-pointer transition-colors ${
+                    groupByMonth === "date"
+                      ? "bg-gray-900 text-white"
+                      : "text-gray-600 hover:text-gray-900"
+                  }`}
+                >
+                  Submission Date
+                </button>
+              </div>
             </div>
 
             <div className="overflow-x-auto">

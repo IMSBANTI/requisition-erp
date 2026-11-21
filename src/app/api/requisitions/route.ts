@@ -6,7 +6,7 @@ import { resolveChain, stateAfter } from "@/lib/workflow";
 import { extractProjectMeta } from "@/lib/profitEngine";
 import { generateRequisitionNumber } from "@/lib/reqNumber";
 import { amountInWords } from "@/lib/numberToWords";
-import { grandTotal, formatMoney, resolveCurrency, getCurrencyMeta } from "@/lib/money";
+import { grandTotal, lineAmount, formatMoney, resolveCurrency, getCurrencyMeta } from "@/lib/money";
 import { createNotification, notifyUsers, findUsersWithPermission } from "@/lib/notifications";
 import { isR2Configured, uploadToR2 } from "@/lib/r2";
 
@@ -189,8 +189,26 @@ export async function POST(request: Request) {
     const isManager = user.role.isManager;
     const isMd = user.role.key === "md";
 
-    // Calculations
-    const total = grandTotal(items.map((it: any) => ({ qty: it.qty, unitPrice: it.unitPrice })));
+    // Server-side Decimal calculations (never trust client-submitted totals)
+    const normalizedItems = items.map((it: any) => {
+      const amtDec = lineAmount({ qty: it.qty, unitPrice: it.unitPrice });
+      return {
+        ...it,
+        costTag: it.costTag === "IMS_INVESTMENT" ? "IMS_INVESTMENT" : "BILLABLE",
+        computedAmount: amtDec.toNumber(),
+      };
+    });
+    const total = grandTotal(normalizedItems.map((it: any) => ({ qty: it.qty, unitPrice: it.unitPrice })));
+    const serverBillableTotal = grandTotal(
+      normalizedItems
+        .filter((it: any) => it.costTag !== "IMS_INVESTMENT")
+        .map((it: any) => ({ qty: it.qty, unitPrice: it.unitPrice }))
+    );
+    const serverImsInvestmentTotal = grandTotal(
+      normalizedItems
+        .filter((it: any) => it.costTag === "IMS_INVESTMENT")
+        .map((it: any) => ({ qty: it.qty, unitPrice: it.unitPrice }))
+    );
     const inWords = amountInWords(total, currency);
     const ip = await clientIp();
 
@@ -248,8 +266,8 @@ export async function POST(request: Request) {
         disburseOn: disburseOn ? new Date(disburseOn) : null,
         forMonth: forMonth || null,
         total: total.toNumber(),
-        billableTotal: rawBillableTotal ? Number(rawBillableTotal) : total.toNumber(),
-        imsInvestmentTotal: rawImsInvestmentTotal ? Number(rawImsInvestmentTotal) : 0,
+        billableTotal: serverBillableTotal.toNumber(),
+        imsInvestmentTotal: serverImsInvestmentTotal.toNumber(),
         lastMonthTotal: rawLastMonthTotal ? Number(rawLastMonthTotal) : null,
         variancePct: rawVariancePct ? Number(rawVariancePct) : null,
         changeReason: changeReason || null,
@@ -267,10 +285,10 @@ export async function POST(request: Request) {
         currentAssigneeId: initialWorkflow.assigneeId,
         submittedAt: isDraft ? null : new Date(),
         items: {
-          create: items.map((it: any) => ({
+          create: normalizedItems.map((it: any) => ({
             sl: it.sl,
             costHead: it.costHead || null,
-            costTag: it.costTag || "BILLABLE",
+            costTag: it.costTag,
             forMonth: it.forMonth || forMonth || null,
             lastMonthAmount:
               it.lastMonthAmount !== undefined && it.lastMonthAmount !== null
@@ -280,7 +298,7 @@ export async function POST(request: Request) {
             purpose: it.purpose,
             qty: it.qty,
             unitPrice: it.unitPrice,
-            amount: it.qty * it.unitPrice,
+            amount: it.computedAmount,
           })),
         },
         approvals: isDraft

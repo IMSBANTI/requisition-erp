@@ -18,7 +18,10 @@ import {
 } from "recharts";
 import { formatTaka } from "@/lib/money";
 import { STATUS_LABELS, STATUS_COLORS } from "@/lib/constants";
-import { calculateProfitSummary } from "@/lib/profitEngine";
+import {
+  buildMonthlyChartSeries,
+  computeProjectPeriodMetrics,
+} from "@/lib/financeMetrics";
 
 interface Props {
   project: {
@@ -115,138 +118,54 @@ export default function ProjectFinanceDetailClient({
     [payments, selectedMonth]
   );
 
-  // Aggregate Requisition Costs & Partial Payments
+  // Aggregate Requisition Costs & Partial Payments (unified with /finance)
   const summary = useMemo(() => {
-    const totalBillable = filteredReqs.reduce((s, r) => s + r.billableCost, 0);
-    const totalImsInv = filteredReqs.reduce((s, r) => s + r.imsInvestment, 0);
-
-    const periodMonthCount =
-      selectedMonth === "ALL"
-        ? Math.max(
-            1,
-            new Set([
-              ...filteredReqs.map((r) => r.forMonth).filter(Boolean),
-              ...filteredPayments.map((p) => p.forMonth).filter(Boolean),
-            ]).size
-          )
-        : 1;
-
-    const calc = calculateProfitSummary({
+    const m = computeProjectPeriodMetrics({
       terms: project.terms,
-      billableCost: totalBillable,
-      imsInvestment: totalImsInv,
-      activeMonthCount: periodMonthCount,
+      requisitions,
+      bills: payments,
+      selectedMonth,
     });
 
-    const totalCostSpent =
-      calc.billableCost +
-      calc.imsInvestment +
-      (calc.maintenanceCost || 0) +
-      (calc.amortizationCost || 0);
-
-    // Sum all partial/full payments received in this period
-    const totalReceived = filteredPayments.reduce(
-      (s, p) => s + p.receivedAmount,
-      0
-    );
-
-    const expectedInflow = calc.expectedInflow;
-    const remainingDue = Math.max(0, expectedInflow - totalReceived);
-    const collectionPct =
-      expectedInflow > 0
-        ? Math.min(100, Number(((totalReceived / expectedInflow) * 100).toFixed(1)))
-        : 0;
-
-    const accruedNetProfit = expectedInflow - totalCostSpent;
-    const realizedCashProfit = totalReceived - totalCostSpent;
-    const netMarginPct =
-      calc.billExVat > 0
-        ? Number(((accruedNetProfit / calc.billExVat) * 100).toFixed(1))
-        : 0;
-
     return {
-      ...calc,
-      totalCostSpent,
-      totalReceived,
-      remainingDue,
-      collectionPct,
-      accruedNetProfit,
-      realizedCashProfit,
-      netMarginPct,
-      reqCount: filteredReqs.length,
-      paymentCount: filteredPayments.length,
+      ...m.calc,
+      billableCost: m.billableSpend,
+      imsInvestment: m.imsSpend,
+      billExVat: m.billedExVat,
+      billWithVat: m.billedWithVat,
+      aitDeducted: m.aitDeducted,
+      expectedInflow: m.expectedInflow,
+      totalCostSpent: m.totalCostWithFixed,
+      totalReceived: m.receivedAmount,
+      remainingDue: m.remainingDue,
+      collectionPct: m.collectionPercent,
+      accruedNetProfit: m.accruedProfit,
+      realizedCashProfit: m.realizedProfit,
+      netMarginPct: m.netMarginPct,
+      pendingSpend: m.pendingSpend,
+      approvedReqs: m.approvedReqs,
+      reqCount: m.approvedReqs.length,
+      totalReqCount: m.reqs.length,
+      paymentCount: m.pnlBills.length,
     };
-  }, [filteredReqs, filteredPayments, project.terms]);
+  }, [requisitions, payments, selectedMonth, project.terms]);
 
-  // Chart 1 Data: Monthly Financial Trend (Cost vs Expected Inflow vs Payment Received vs Net Profit)
-  const monthlyChartData = useMemo(() => {
-    const map: Record<
-      string,
-      {
-        month: string;
-        billableCost: number;
-        imsInvestment: number;
-        totalCost: number;
-        expectedInflow: number;
-        receivedAmount: number;
-        accruedProfit: number;
-      }
-    > = {};
+  // Chart 1 Data: Monthly Financial Trend (Approved/Executed spend only, reconciled with ClientBills)
+  const monthlyChartData = useMemo(
+    () =>
+      buildMonthlyChartSeries({
+        requisitions,
+        bills: payments,
+        terms: project.terms,
+        kind: project.kind,
+      }),
+    [requisitions, payments, project.terms, project.kind]
+  );
 
-    for (const r of requisitions) {
-      const m = r.forMonth || "Other";
-      if (!map[m]) {
-        map[m] = {
-          month: m,
-          billableCost: 0,
-          imsInvestment: 0,
-          totalCost: 0,
-          expectedInflow: 0,
-          receivedAmount: 0,
-          accruedProfit: 0,
-        };
-      }
-      map[m].billableCost += r.billableCost;
-      map[m].imsInvestment += r.imsInvestment;
-      map[m].totalCost += r.total;
-    }
-
-    for (const p of payments) {
-      const m = p.forMonth || "Other";
-      if (!map[m]) {
-        map[m] = {
-          month: m,
-          billableCost: 0,
-          imsInvestment: 0,
-          totalCost: 0,
-          expectedInflow: 0,
-          receivedAmount: 0,
-          accruedProfit: 0,
-        };
-      }
-      map[m].receivedAmount += p.receivedAmount;
-    }
-
-    return Object.values(map)
-      .sort((a, b) => a.month.localeCompare(b.month))
-      .map((row) => {
-        const c = calculateProfitSummary({
-          terms: project.terms,
-          billableCost: row.billableCost,
-          imsInvestment: row.imsInvestment,
-        });
-        return {
-          ...row,
-          expectedInflow: c.expectedInflow,
-          accruedProfit: c.netProfit,
-        };
-      });
-  }, [requisitions, payments, project.terms]);
-
-  // Chart 2 Data: Cost Head Breakdown across all requisitions in period
+  // Chart 2 Data: Cost Head Breakdown across approved/executed requisitions in period
   const costHeadChartData = useMemo(() => {
     const map: Record<string, { name: string; value: number; tag: string }> = {};
-    for (const r of filteredReqs) {
+    for (const r of summary.approvedReqs) {
       for (const it of r.items || []) {
         const key = it.costHead || it.particulars || "General Expense";
         if (!map[key]) {
@@ -258,11 +177,11 @@ export default function ProjectFinanceDetailClient({
     return Object.values(map)
       .filter((x) => x.value > 0)
       .sort((a, b) => b.value - a.value);
-  }, [filteredReqs]);
+  }, [summary.approvedReqs]);
 
-  // Chart 3 Data: Requisition-by-Requisition Cost Comparison
+  // Chart 3 Data: Requisition-by-Requisition Cost Comparison (Approved/Executed only)
   const reqBarChartData = useMemo(() => {
-    return [...filteredReqs]
+    return [...summary.approvedReqs]
       .reverse()
       .map((r) => ({
         name: r.number || r.date,
@@ -270,7 +189,7 @@ export default function ProjectFinanceDetailClient({
         "IMS Investment": r.imsInvestment,
         Total: r.total,
       }));
-  }, [filteredReqs]);
+  }, [summary.approvedReqs]);
 
   function openAddPartialPaymentModal(existing?: any) {
     setModalError("");
@@ -309,6 +228,12 @@ export default function ProjectFinanceDetailClient({
     setModalError("");
     setSaving(true);
     try {
+      const monthMetrics = computeProjectPeriodMetrics({
+        terms: project.terms,
+        requisitions,
+        bills: payments,
+        selectedMonth: payMonth || "ALL",
+      });
       const res = await fetch("/api/finance/bills", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -319,8 +244,8 @@ export default function ProjectFinanceDetailClient({
           billNumber: payBillNo,
           poNumber: payPoNo,
           status: payStatus,
-          billableCost: summary.billableCost,
-          imsInvestment: summary.imsInvestment,
+          billableCost: monthMetrics.billableSpend,
+          imsInvestment: monthMetrics.imsSpend,
           receivedAmount: parseFloat(payReceivedAmt) || 0,
           submittedAt: paySubmittedAt || null,
           receivedAt: payReceivedAt || null,

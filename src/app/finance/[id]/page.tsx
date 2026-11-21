@@ -6,10 +6,10 @@ import {
   financialReportProjectScope,
 } from "@/lib/rbac";
 import {
-  calculateProfitSummary,
-  extractProjectMeta,
-  getDefaultProjectTermsByCode,
-} from "@/lib/profitEngine";
+  OPENING_BILL_PREFIX,
+  getEffectiveDisbursedAmount,
+  resolveEffectiveProjectTerms,
+} from "@/lib/financeMetrics";
 import AppShell from "@/components/AppShell";
 import ProjectFinanceDetailClient from "./ProjectFinanceDetailClient";
 
@@ -53,6 +53,10 @@ export default async function ProjectFinanceDetailPage({ params }: Props) {
         include: {
           items: { orderBy: { sl: "asc" } },
           maker: { select: { id: true, name: true, designation: true } },
+          approvals: {
+            where: { step: "EXECUTION" },
+            select: { action: true, comment: true },
+          },
         },
         orderBy: { createdAt: "desc" },
       },
@@ -67,55 +71,7 @@ export default async function ProjectFinanceDetailPage({ params }: Props) {
   }
 
   const isEvent = p.kind === "EVENT" || p.code?.toUpperCase().startsWith("EVT-");
-  const fallbackTerms = getDefaultProjectTermsByCode(p.code, p.kind);
-  const meta = extractProjectMeta(p.costHeads);
-
-  const effectiveFixedBill =
-    p.fixedMonthlyBill && Number(p.fixedMonthlyBill) > 0
-      ? Number(p.fixedMonthlyBill)
-      : (p.billingProfile || fallbackTerms.billingProfile) === "FIXED_QUOTE" && p.budget
-      ? Number(p.budget)
-      : Number(fallbackTerms.fixedMonthlyBill || 0);
-
-  const terms = {
-    billingProfile: p.billingProfile || fallbackTerms.billingProfile,
-    feeRate:
-      p.feeRate !== undefined && p.feeRate !== null
-        ? Number(p.feeRate)
-        : Number(fallbackTerms.feeRate),
-    aitRate:
-      p.aitRate !== undefined && p.aitRate !== null
-        ? Number(p.aitRate)
-        : Number(fallbackTerms.aitRate),
-    aitGrossupRate:
-      meta.aitGrossupRate !== undefined && meta.aitGrossupRate !== null
-        ? Number(meta.aitGrossupRate)
-        : fallbackTerms.aitGrossupRate !== undefined
-        ? Number(fallbackTerms.aitGrossupRate)
-        : undefined,
-    reimbursementTaxDivisor:
-      meta.reimbursementTaxDivisor !== undefined &&
-      meta.reimbursementTaxDivisor !== null
-        ? Number(meta.reimbursementTaxDivisor)
-        : fallbackTerms.reimbursementTaxDivisor !== undefined
-        ? Number(fallbackTerms.reimbursementTaxDivisor)
-        : undefined,
-    fixedKamRecovery:
-      meta.fixedKamRecovery !== undefined && meta.fixedKamRecovery !== null
-        ? Number(meta.fixedKamRecovery)
-        : fallbackTerms.fixedKamRecovery !== undefined
-        ? Number(fallbackTerms.fixedKamRecovery)
-        : undefined,
-    vatRate:
-      p.vatRate !== undefined && p.vatRate !== null
-        ? Number(p.vatRate)
-        : Number(fallbackTerms.vatRate ?? 0.15),
-    billCycleDays: p.billCycleDays ?? fallbackTerms.billCycleDays ?? 30,
-    funding: p.funding || fallbackTerms.funding || "POSTPAID",
-    fixedMonthlyBill: effectiveFixedBill,
-    maintenanceBudget: p.maintenanceBudget ? Number(p.maintenanceBudget) : 0,
-    monthlyAmortization: p.monthlyAmortization ? Number(p.monthlyAmortization) : 0,
-  };
+  const terms = resolveEffectiveProjectTerms(p);
 
   // Format all requisitions with their individual Billable & IMS Investment costs
   const requisitions = (p.requisitions || []).map((r: any) => {
@@ -154,38 +110,46 @@ export default async function ProjectFinanceDetailPage({ params }: Props) {
       makerDesignation: r.makerDesignation,
       status: r.status,
       type: r.type,
+      currency: r.currency || "BDT",
       billableCost: billable,
       imsInvestment: imsInv,
       total: Number(r.total || 0),
+      disbursedAmount: getEffectiveDisbursedAmount(r),
       changeReason: r.changeReason || "",
       comments: r.comments || "",
       items,
     };
   });
 
-  // Format all partial/full payment & bill records
-  const payments = (p.clientBills || []).map((b: any) => ({
-    id: b.id,
-    forMonth: b.forMonth,
-    billNumber: b.billNumber || "",
-    poNumber: b.poNumber || "",
-    status: b.status,
-    billableCost: Number(b.billableCost || 0),
-    imsInvestment: Number(b.imsInvestment || 0),
-    billExVat: Number(b.billExVat || 0),
-    vatAmount: Number(b.vatAmount || 0),
-    billWithVat: Number(b.billWithVat || 0),
-    aitAmount: Number(b.aitAmount || 0),
-    expectedInflow: Number(b.expectedInflow || 0),
-    receivedAmount: Number(b.receivedAmount || 0),
-    accruedNetProfit: Number(b.accruedNetProfit || 0),
-    realizedNetProfit: Number(b.realizedNetProfit || 0),
-    submittedAt: b.submittedAt ? new Date(b.submittedAt).toISOString().slice(0, 10) : "",
-    dueDate: b.dueDate ? new Date(b.dueDate).toISOString().slice(0, 10) : "",
-    receivedAt: b.receivedAt ? new Date(b.receivedAt).toISOString().slice(0, 10) : "",
-    deviationReason: b.deviationReason || "",
-    notes: b.notes || "",
-  }));
+  // Format all partial/full payment & bill records (matching /finance opening-balance handling)
+  const payments = (p.clientBills || []).map((b: any) => {
+    const rawNotes = b.notes || "";
+    const isOpeningBalance = rawNotes.startsWith(OPENING_BILL_PREFIX);
+    const cleanNotes = rawNotes.replace(OPENING_BILL_PREFIX, "").trim();
+    return {
+      id: b.id,
+      forMonth: b.forMonth,
+      billNumber: b.billNumber || "",
+      poNumber: b.poNumber || "",
+      status: b.status,
+      billableCost: Number(b.billableCost || 0),
+      imsInvestment: Number(b.imsInvestment || 0),
+      billExVat: Number(b.billExVat || 0),
+      vatAmount: Number(b.vatAmount || 0),
+      billWithVat: Number(b.billWithVat || 0),
+      aitAmount: Number(b.aitAmount || 0),
+      expectedInflow: Number(b.expectedInflow || 0),
+      receivedAmount: Number(b.receivedAmount || 0),
+      accruedNetProfit: isOpeningBalance ? 0 : Number(b.accruedNetProfit || 0),
+      realizedNetProfit: isOpeningBalance ? 0 : Number(b.realizedNetProfit || 0),
+      submittedAt: b.submittedAt ? new Date(b.submittedAt).toISOString().slice(0, 10) : "",
+      dueDate: b.dueDate ? new Date(b.dueDate).toISOString().slice(0, 10) : "",
+      receivedAt: b.receivedAt ? new Date(b.receivedAt).toISOString().slice(0, 10) : "",
+      deviationReason: b.deviationReason || "",
+      notes: cleanNotes,
+      isOpeningBalance,
+    };
+  });
 
   return (
     <AppShell>

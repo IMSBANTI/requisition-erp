@@ -5,7 +5,14 @@ import {
   financialReportRequisitionScope,
 } from "@/lib/rbac";
 import { prisma } from "@/lib/db";
-import { formatTaka } from "@/lib/money";
+import { resolveCurrency } from "@/lib/money";
+import { round2 } from "@/lib/profitEngine";
+import {
+  getEffectiveDisbursedAmount,
+  isApprovedSpendStatus,
+  isExcludedActiveStatus,
+  isPendingApprovalStatus,
+} from "@/lib/financeMetrics";
 
 export async function GET(request: Request) {
   const user = await getCurrentUser();
@@ -14,7 +21,10 @@ export async function GET(request: Request) {
   }
 
   if (!canAccessFinancialReports(user)) {
-    return NextResponse.json({ error: "Access denied: Reports permission required" }, { status: 403 });
+    return NextResponse.json(
+      { error: "Access denied: Reports permission required" },
+      { status: 403 }
+    );
   }
 
   const { searchParams } = new URL(request.url);
@@ -28,12 +38,12 @@ export async function GET(request: Request) {
   const startDate = searchParams.get("startDate");
   const endDate = searchParams.get("endDate");
   const search = searchParams.get("search")?.trim();
+  const groupByMonth = searchParams.get("groupByMonth") === "date" ? "date" : "forMonth";
   const exportFormat = searchParams.get("export");
 
   // Base scope based on strict Financial Report project/event/division RBAC
   const baseScope = financialReportRequisitionScope(user);
 
-  // Construct where clause
   const where: any = {
     AND: [baseScope],
   };
@@ -66,7 +76,6 @@ export async function GET(request: Request) {
       dateFilter.gte = new Date(startDate);
     }
     if (endDate) {
-      // Set end of the selected day
       const end = new Date(endDate);
       end.setHours(23, 59, 59, 999);
       dateFilter.lte = end;
@@ -108,19 +117,28 @@ export async function GET(request: Request) {
         orderBy: { sl: "asc" },
       },
       approvals: {
-        select: { step: true, action: true, signerName: true, createdAt: true },
+        select: { step: true, action: true, signerName: true, comment: true, createdAt: true },
         orderBy: { createdAt: "asc" },
       },
     },
     orderBy: { date: "desc" },
   });
 
-  // Calculate Aggregations & Metrics
+  // When filtering by ALL statuses, exclude DRAFT/REJECTED/CANCELLED/RETURNED from active spend metrics
+  // so rejected/draft test vouchers do not inflate Total Requested or Project Budget vs Spend.
+  const explicitExcludedStatusFilter = Boolean(
+    status && status !== "ALL" && isExcludedActiveStatus(status)
+  );
+
+  let activeCount = 0;
+  let excludedCount = 0;
   let totalRequested = 0;
   let totalApproved = 0;
   let totalExecuted = 0;
   let totalPending = 0;
   let totalRejected = 0;
+
+  const currencyTotals: Record<string, { count: number; total: number }> = {};
 
   const companyBreakdown: Record<string, { name: string; count: number; total: number }> = {};
   const projectBreakdown: Record<string, { name: string; code?: string; count: number; total: number; budget: number }> = {};
@@ -129,88 +147,112 @@ export async function GET(request: Request) {
   const monthBreakdown: Record<string, { month: string; count: number; requested: number; approved: number; executed: number }> = {};
 
   for (const r of requisitions) {
-    const amt = Number(r.total);
-    totalRequested += amt;
+    const amt = Number(r.total || 0);
+    const cur = resolveCurrency((r as any).currency, r.amountInWords);
+    const isExcluded = isExcludedActiveStatus(r.status);
+    const isApproved = isApprovedSpendStatus(r.status);
+    const isPending = isPendingApprovalStatus(r.status);
+    const disbursedAmt = getEffectiveDisbursedAmount(r);
 
-    const isExecuted = ["EXECUTED", "PARTIAL_PAID", "SETTLED"].includes(r.status);
-    const isApproved = ["APPROVED", "FORWARDED", "EXECUTED", "PARTIAL_PAID", "SETTLED"].includes(
-      r.status
-    );
-    const isPending = [
-      "SUBMITTED",
-      "PENDING_HEAD",
-      "PENDING_CHECKER",
-      "PENDING_ACCOUNTS",
-      "PENDING_DIRECTOR",
-      "PENDING_MD",
-    ].includes(r.status);
-    const isRejected = ["REJECTED", "RETURNED", "CANCELLED"].includes(r.status);
-
-    if (isExecuted) totalExecuted += amt;
-    if (isApproved) totalApproved += amt;
-    if (isPending) totalPending += amt;
-    if (isRejected) totalRejected += amt;
-
-    // Company breakdown
-    const coName = r.company.name;
-    if (!companyBreakdown[coName]) {
-      companyBreakdown[coName] = { name: coName, count: 0, total: 0 };
-    }
-    companyBreakdown[coName].count += 1;
-    companyBreakdown[coName].total += amt;
-
-    // Project breakdown
-    const projName = r.project.name;
-    if (!projectBreakdown[projName]) {
-      projectBreakdown[projName] = {
-        name: projName,
-        count: 0,
-        total: 0,
-        budget: Number(r.project.budget || 0),
-      };
-    }
-    projectBreakdown[projName].count += 1;
-    projectBreakdown[projName].total += amt;
-
-    // Category breakdown
-    const cat = r.category || "GENERAL";
-    if (!categoryBreakdown[cat]) {
-      categoryBreakdown[cat] = { count: 0, total: 0 };
-    }
-    categoryBreakdown[cat].count += 1;
-    categoryBreakdown[cat].total += amt;
-
-    // Status breakdown
+    // Status breakdown always records all matching rows
     const st = r.status;
     if (!statusBreakdown[st]) {
       statusBreakdown[st] = { count: 0, total: 0 };
     }
     statusBreakdown[st].count += 1;
-    statusBreakdown[st].total += amt;
+    statusBreakdown[st].total = round2(statusBreakdown[st].total + amt).toNumber();
 
-    // Month breakdown (YYYY-MM)
-    const d = new Date(r.date);
-    const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    if (!monthBreakdown[mKey]) {
-      monthBreakdown[mKey] = {
-        month: mKey,
-        count: 0,
-        requested: 0,
-        approved: 0,
-        executed: 0,
-      };
+    if (isExcluded) {
+      excludedCount += 1;
+      totalRejected = round2(totalRejected + amt).toNumber();
+      if (!explicitExcludedStatusFilter) {
+        continue;
+      }
+    } else {
+      activeCount += 1;
     }
-    monthBreakdown[mKey].count += 1;
-    monthBreakdown[mKey].requested += amt;
-    if (isApproved) monthBreakdown[mKey].approved += amt;
-    if (isExecuted) monthBreakdown[mKey].executed += amt;
+
+    // Track per-currency totals so non-BDT vouchers are explicitly surfaced
+    if (!currencyTotals[cur]) {
+      currencyTotals[cur] = { count: 0, total: 0 };
+    }
+    currencyTotals[cur].count += 1;
+    currencyTotals[cur].total = round2(currencyTotals[cur].total + amt).toNumber();
+
+    // BDT primary KPI totals (only sum BDT into Tk cards unless no BDT exists; flag foreign currencies separately)
+    if (cur === "BDT") {
+      totalRequested = round2(totalRequested + amt).toNumber();
+      if (isApproved) totalApproved = round2(totalApproved + amt).toNumber();
+      if (disbursedAmt > 0) totalExecuted = round2(totalExecuted + disbursedAmt).toNumber();
+      if (isPending) totalPending = round2(totalPending + amt).toNumber();
+    }
+
+    // Company breakdown (BDT)
+    if (cur === "BDT") {
+      const coName = r.company.name;
+      if (!companyBreakdown[coName]) {
+        companyBreakdown[coName] = { name: coName, count: 0, total: 0 };
+      }
+      companyBreakdown[coName].count += 1;
+      companyBreakdown[coName].total = round2(companyBreakdown[coName].total + amt).toNumber();
+
+      // Project breakdown (BDT)
+      const projName = r.project.name;
+      if (!projectBreakdown[projName]) {
+        projectBreakdown[projName] = {
+          name: projName,
+          count: 0,
+          total: 0,
+          budget: Number(r.project.budget || 0),
+        };
+      }
+      projectBreakdown[projName].count += 1;
+      projectBreakdown[projName].total = round2(projectBreakdown[projName].total + amt).toNumber();
+
+      // Category breakdown (BDT)
+      const cat = r.category || "GENERAL";
+      if (!categoryBreakdown[cat]) {
+        categoryBreakdown[cat] = { count: 0, total: 0 };
+      }
+      categoryBreakdown[cat].count += 1;
+      categoryBreakdown[cat].total = round2(categoryBreakdown[cat].total + amt).toNumber();
+
+      // Month breakdown (Service Month `forMonth` by default to match /finance, or `date` if selected)
+      const d = new Date(r.date);
+      const dateMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const mKey =
+        groupByMonth === "forMonth" && r.forMonth ? String(r.forMonth) : dateMonth;
+
+      if (!monthBreakdown[mKey]) {
+        monthBreakdown[mKey] = {
+          month: mKey,
+          count: 0,
+          requested: 0,
+          approved: 0,
+          executed: 0,
+        };
+      }
+      monthBreakdown[mKey].count += 1;
+      monthBreakdown[mKey].requested = round2(monthBreakdown[mKey].requested + amt).toNumber();
+      if (isApproved) {
+        monthBreakdown[mKey].approved = round2(monthBreakdown[mKey].approved + amt).toNumber();
+      }
+      if (disbursedAmt > 0) {
+        monthBreakdown[mKey].executed = round2(monthBreakdown[mKey].executed + disbursedAmt).toNumber();
+      }
+    }
   }
+
+  const foreignCurrencies = Object.entries(currencyTotals)
+    .filter(([code]) => code !== "BDT")
+    .map(([currency, info]) => ({ currency, ...info }));
 
   // Handle CSV Export
   if (exportFormat === "csv") {
     const headers = [
       "Requisition No",
       "Date",
+      "Service Month",
       "Company",
       "Project",
       "Department",
@@ -218,7 +260,9 @@ export async function GET(request: Request) {
       "Type Tag",
       "Maker Name",
       "Maker Designation",
-      "Amount (BDT)",
+      "Currency",
+      "Amount",
+      "Disbursed Amount",
       "Payment Mode",
       "Vendor",
       "Disburse On",
@@ -237,10 +281,15 @@ export async function GET(request: Request) {
     };
 
     const rows = requisitions.map((r) => {
-      const particulars = r.items.map((it) => `${it.sl}. ${it.particulars} (Qty: ${it.qty}, Tk ${it.amount})`).join(" | ");
+      const cur = resolveCurrency((r as any).currency, r.amountInWords);
+      const disbursed = getEffectiveDisbursedAmount(r);
+      const particulars = r.items
+        .map((it) => `${it.sl}. ${it.particulars} (Qty: ${it.qty}, ${cur} ${it.amount})`)
+        .join(" | ");
       return [
         escapeCsv(r.number || "DRAFT"),
         escapeCsv(new Date(r.date).toISOString().split("T")[0]),
+        escapeCsv(r.forMonth || "—"),
         escapeCsv(r.company.name),
         escapeCsv(r.project.name),
         escapeCsv(r.department?.name || "—"),
@@ -248,7 +297,9 @@ export async function GET(request: Request) {
         escapeCsv(r.type),
         escapeCsv(r.makerName),
         escapeCsv(r.makerDesignation),
+        escapeCsv(cur),
         escapeCsv(Number(r.total).toFixed(2)),
+        escapeCsv(disbursed.toFixed(2)),
         escapeCsv(r.paymentMode || "—"),
         escapeCsv(r.vendor || "—"),
         escapeCsv(r.disburseOn ? new Date(r.disburseOn).toISOString().split("T")[0] : "Immediate"),
@@ -261,20 +312,22 @@ export async function GET(request: Request) {
       ].join(",");
     });
 
-    // Add summary row at the bottom
     rows.push("");
     rows.push(
       [
-        escapeCsv("TOTAL SUMMARY"),
+        escapeCsv("ACTIVE BDT SUMMARY"),
         escapeCsv(""),
         escapeCsv(""),
         escapeCsv(""),
         escapeCsv(""),
         escapeCsv(""),
         escapeCsv(""),
-        escapeCsv(`Count: ${requisitions.length}`),
-        escapeCsv("Total Amount:"),
+        escapeCsv(""),
+        escapeCsv(`Active Count: ${activeCount}`),
+        escapeCsv("Active BDT Total:"),
+        escapeCsv("BDT"),
         escapeCsv(totalRequested.toFixed(2)),
+        escapeCsv(totalExecuted.toFixed(2)),
         escapeCsv(""),
         escapeCsv(""),
         escapeCsv(""),
@@ -301,12 +354,17 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     metrics: {
-      count: requisitions.length,
+      count: explicitExcludedStatusFilter ? requisitions.length : activeCount,
+      totalRowCount: requisitions.length,
+      excludedCount,
       totalRequested,
       totalApproved,
       totalExecuted,
       totalPending,
       totalRejected,
+      groupByMonth,
+      currencyTotals,
+      foreignCurrencies,
       companyBreakdown: Object.values(companyBreakdown),
       projectBreakdown: Object.values(projectBreakdown).sort((a, b) => b.total - a.total),
       categoryBreakdown: Object.entries(categoryBreakdown).map(([name, data]) => ({ name, ...data })),

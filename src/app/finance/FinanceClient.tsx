@@ -5,6 +5,30 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { calculateProfitSummary } from "@/lib/profitEngine";
 import {
+  PAYMENT_TOLERANCE_BDT,
+  buildMatrixForList,
+  buildMonthlyChartSeries,
+  computeCustomBillPreview,
+  computeProjectPeriodMetrics,
+  deriveBillStatus,
+} from "@/lib/financeMetrics";
+import {
+  BILLING_MODEL_LABELS,
+  ClientBillItem,
+  MONTH_NAMES,
+  PIE_COLORS,
+  ProjectFinanceItem,
+  RequisitionSummaryItem,
+  formatBDT,
+  formatCompactBDT,
+} from "./components/types";
+import PaymentBillModal from "./components/PaymentBillModal";
+import {
+  ForecastOverrideModal,
+  MonthCloseModal,
+} from "./components/MonthCloseAndForecastModals";
+import ReceivablesAgeingView from "./components/ReceivablesAgeingView";
+import {
   ResponsiveContainer,
   BarChart,
   Bar,
@@ -19,520 +43,6 @@ import {
   Pie,
   Cell,
 } from "recharts";
-
-function formatBDT(n: number) {
-  return Number(n || 0).toLocaleString("en-IN", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
-
-function formatCompactBDT(n: number) {
-  return Number(n || 0).toLocaleString("en-IN", {
-    minimumFractionDigits: 0,
-    maximumFractionDigits: 0,
-  });
-}
-
-const PAYMENT_TOLERANCE_BDT = 10; // §4.4: Treat |deviation| <= BDT 10 as fully paid
-
-type ClientBillItem = {
-  id: string;
-  projectId: string;
-  projectName: string;
-  projectCode: string;
-  kind: string;
-  forMonth: string;
-  billNumber: string;
-  poNumber: string;
-  status: string;
-  billableCost: number;
-  imsInvestment: number;
-  billExVat: number;
-  vatAmount: number;
-  billWithVat: number;
-  aitAmount: number;
-  expectedInflow: number;
-  receivedAmount: number;
-  accruedNetProfit: number;
-  realizedNetProfit: number;
-  submittedAt: string;
-  dueDate: string;
-  receivedAt: string;
-  poReceivedAt?: string;
-  grReceivedAt?: string;
-  deviationReason: string;
-  notes: string;
-  isOpeningBalance?: boolean;
-};
-
-type DirectExpenseRow = {
-  id: string;
-  forMonth: string;
-  paidOn: string;
-  costHead: string;
-  costTag: "BILLABLE" | "IMS_INVESTMENT";
-  amount: number;
-  paidVia: string;
-  note: string;
-  status: "PENDING" | "CONFIRMED" | "REJECTED";
-  createdBy: string;
-  createdAt: string;
-  confirmedBy?: string;
-  confirmedAt?: string;
-  rejectReason?: string;
-  batchId?: string;
-};
-
-type RequisitionLineItem = {
-  id: string;
-  sl: number;
-  particulars: string;
-  costHead: string;
-  costTag: string;
-  forMonth?: string;
-  lastMonthAmount?: number;
-  amount: number;
-};
-
-type RequisitionSummaryItem = {
-  id: string;
-  number: string;
-  forMonth: string;
-  date: string;
-  disburseOn?: string;
-  approvedAt?: string;
-  executedAt?: string;
-  makerName: string;
-  status: string;
-  billableCost: number;
-  imsInvestment: number;
-  total: number;
-  variancePct?: number | null;
-  changeReason?: string;
-  remarks?: string;
-  items?: RequisitionLineItem[];
-  divisionName?: string;
-};
-
-type ProjectFinanceItem = {
-  id: string;
-  code: string;
-  name: string;
-  companyName: string;
-  kind: string;
-  headName: string;
-  checkerName?: string;
-  directorName: string;
-  budget: number;
-  terms: {
-    billingProfile: any;
-    feeRate: number;
-    aitRate: number;
-    aitGrossupRate?: number;
-    reimbursementTaxDivisor?: number;
-    fixedKamRecovery?: number;
-    vatRate: number;
-    billCycleDays: number;
-    funding: any;
-    fixedMonthlyBill: number;
-    maintenanceBudget: number;
-    monthlyAmortization: number;
-  };
-  reqCount: number;
-  requisitionsList: RequisitionSummaryItem[];
-  totalBillableReq: number;
-  totalImsInvReq: number;
-  executedBillable: number;
-  executedImsInv: number;
-  overallCalc: any;
-  monthlyBreakdown: Array<{
-    forMonth: string;
-    billableCost: number;
-    imsInvestment: number;
-    executedBillable: number;
-    executedImsInv: number;
-    reqCount: number;
-  }>;
-  bills: ClientBillItem[];
-  totalReceivedFromBills: number;
-  totalExpectedFromBills: number;
-  totalBilledWithVat: number;
-  costHeads?: Array<{ id: string; name: string; tag: string; aliases?: string[]; fixedMonthlyAmount?: number }>;
-  closedMonths?: Record<
-    string,
-    { closedAt: string; closedBy: string; noBillReason?: string }
-  >;
-  manualForecasts?: Record<
-    string,
-    { amount: number; note: string; updatedBy: string; updatedAt: string }
-  >;
-  directExpenses?: DirectExpenseRow[];
-};
-
-const BILLING_MODEL_LABELS: Record<string, string> = {
-  COST_PLUS: "Cost + Service Fee",
-  COST_PLUS_GROSSUP: "Cost + Fee (AIT Gross-Up)",
-  COMMISSION: "Direct Commission",
-  FIXED_FEE: "Fixed Retainer",
-  FIXED_QUOTE: "Fixed Event Quote",
-};
-
-const PIE_COLORS = [
-  "#2563eb",
-  "#059669",
-  "#d97706",
-  "#7c3aed",
-  "#dc2626",
-  "#0891b2",
-  "#4f46e5",
-  "#ea580c",
-];
-
-const MONTH_NAMES = [
-  "Jan",
-  "Feb",
-  "Mar",
-  "Apr",
-  "May",
-  "Jun",
-  "Jul",
-  "Aug",
-  "Sep",
-  "Oct",
-  "Nov",
-  "Dec",
-];
-
-/**
- * §4.4 Derived Bill Status & Overdue Ageing Helper
- */
-function deriveBillStatus(bill: {
-  status: string;
-  expectedInflow: number;
-  receivedAmount: number;
-  submittedAt: string;
-  dueDate: string;
-}) {
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const expected = Number(bill.expectedInflow || 0);
-  const received = Number(bill.receivedAmount || 0);
-  const outstanding = Math.max(0, expected - received);
-
-  if (
-    (expected > 0 && received >= expected - PAYMENT_TOLERANCE_BDT) ||
-    bill.status === "PAID"
-  ) {
-    return {
-      code: "PAID",
-      label: "Paid",
-      cls: "bg-emerald-50 text-emerald-800 border-emerald-200",
-      daysOverdue: 0,
-      daysToDue: null as number | null,
-      ageingBucket: "PAID" as const,
-      outstanding: 0,
-    };
-  }
-
-  let daysOverdue = 0;
-  let daysToDue: number | null = null;
-  if (bill.dueDate) {
-    const dueMs = new Date(bill.dueDate + "T00:00:00").getTime();
-    const nowMs = new Date(todayStr + "T00:00:00").getTime();
-    const diffDays = Math.round((nowMs - dueMs) / (1000 * 60 * 60 * 24));
-    if (diffDays > 0) {
-      daysOverdue = diffDays;
-    } else {
-      daysToDue = Math.abs(diffDays);
-    }
-  }
-
-  let ageingBucket:
-    | "NOT_YET_DUE"
-    | "DUE_SOON"
-    | "OVERDUE_1_30"
-    | "OVERDUE_31_60"
-    | "OVERDUE_60_PLUS" = "NOT_YET_DUE";
-
-  if (daysOverdue > 60) {
-    ageingBucket = "OVERDUE_60_PLUS";
-  } else if (daysOverdue > 30) {
-    ageingBucket = "OVERDUE_31_60";
-  } else if (daysOverdue >= 1) {
-    ageingBucket = "OVERDUE_1_30";
-  } else if (daysToDue !== null && daysToDue <= 7) {
-    ageingBucket = "DUE_SOON";
-  }
-
-  if (received > 0 && received < expected - PAYMENT_TOLERANCE_BDT) {
-    return {
-      code: "PARTIAL_PAID",
-      label:
-        daysOverdue > 0
-          ? `Part-Paid (${daysOverdue}d Overdue)`
-          : "Part-Paid",
-      cls:
-        daysOverdue > 0
-          ? "bg-red-50 text-red-800 border-red-200"
-          : "bg-amber-50 text-amber-800 border-amber-200",
-      daysOverdue,
-      daysToDue,
-      ageingBucket,
-      outstanding,
-    };
-  }
-
-  if (daysOverdue > 0) {
-    return {
-      code: "OVERDUE",
-      label: `Overdue (${daysOverdue}d)`,
-      cls: "bg-red-50 text-red-800 border-red-200",
-      daysOverdue,
-      daysToDue,
-      ageingBucket,
-      outstanding,
-    };
-  }
-
-  if (daysToDue !== null && daysToDue <= 7) {
-    return {
-      code: "DUE_SOON",
-      label: daysToDue === 0 ? "Due Today" : `Due in ${daysToDue}d`,
-      cls: "bg-orange-50 text-orange-800 border-orange-200",
-      daysOverdue: 0,
-      daysToDue,
-      ageingBucket: "DUE_SOON" as const,
-      outstanding,
-    };
-  }
-
-  if (bill.submittedAt || bill.status === "SUBMITTED") {
-    return {
-      code: "SUBMITTED",
-      label: "Submitted",
-      cls: "bg-blue-50 text-blue-700 border-blue-200",
-      daysOverdue: 0,
-      daysToDue,
-      ageingBucket: "NOT_YET_DUE" as const,
-      outstanding,
-    };
-  }
-
-  return {
-    code: "DRAFT",
-    label: "Unbilled / Draft",
-    cls: "bg-gray-100 text-gray-700 border-gray-200",
-    daysOverdue: 0,
-    daysToDue,
-    ageingBucket: "NOT_YET_DUE" as const,
-    outstanding,
-  };
-}
-
-/**
- * Helper to compute 12-month & quarterly matrix for any list of projects/events/divisions
- */
-function buildMatrixForList(
-  list: ProjectFinanceItem[],
-  yearStr: string,
-  mode: "PROFIT" | "EXPENSE"
-) {
-  const currentYearMonth = new Date().toISOString().slice(0, 7);
-
-  const rows = list.map((p) => {
-    const monthMap: Record<
-      string,
-      { billable: number; ims: number; hasData: boolean }
-    > = {};
-
-    for (const m of p.monthlyBreakdown) {
-      if (m.forMonth && m.forMonth.startsWith(yearStr + "-")) {
-        monthMap[m.forMonth] = {
-          billable: m.billableCost,
-          ims: m.imsInvestment,
-          hasData: m.reqCount > 0 || m.billableCost > 0 || m.imsInvestment > 0,
-        };
-      }
-    }
-
-    const actualValuesInOrder: number[] = [];
-    const cells: Array<{
-      monthIndex: number;
-      monthKey: string;
-      netProfit: number; // In EXPENSE mode, this holds total expense for that month
-      billableCost: number;
-      imsInvestment: number;
-      billExVat: number;
-      expectedInflow: number;
-      isForecast: boolean;
-      isManualForecast: boolean;
-      manualForecastNote?: string;
-      hasActual: boolean;
-      isClosed: boolean;
-    }> = [];
-
-    for (let i = 0; i < 12; i++) {
-      const mKey = `${yearStr}-${String(i + 1).padStart(2, "0")}`;
-      const mData = monthMap[mKey];
-      const isClosed = Boolean(p.closedMonths && p.closedMonths[mKey]);
-      if (mData && mData.hasData) {
-        if (mode === "EXPENSE") {
-          const totalExp = mData.billable + mData.ims;
-          actualValuesInOrder.push(totalExp);
-          cells.push({
-            monthIndex: i,
-            monthKey: mKey,
-            netProfit: totalExp,
-            billableCost: mData.billable,
-            imsInvestment: mData.ims,
-            billExVat: 0,
-            expectedInflow: 0,
-            isForecast: false,
-            isManualForecast: false,
-            hasActual: true,
-            isClosed,
-          });
-        } else {
-          const c = calculateProfitSummary({
-            terms: p.terms,
-            billableCost: mData.billable,
-            imsInvestment: mData.ims,
-          });
-          actualValuesInOrder.push(c.netProfit);
-          cells.push({
-            monthIndex: i,
-            monthKey: mKey,
-            netProfit: c.netProfit,
-            billableCost: mData.billable,
-            imsInvestment: mData.ims,
-            billExVat: c.billExVat,
-            expectedInflow: c.expectedInflow,
-            isForecast: false,
-            isManualForecast: false,
-            hasActual: true,
-            isClosed,
-          });
-        }
-      } else {
-        cells.push({
-          monthIndex: i,
-          monthKey: mKey,
-          netProfit: 0,
-          billableCost: 0,
-          imsInvestment: 0,
-          billExVat: 0,
-          expectedInflow: 0,
-          isForecast: false,
-          isManualForecast: false,
-          hasActual: false,
-          isClosed,
-        });
-      }
-    }
-
-    let forecastMonthlyValue: number | null = null;
-    if (actualValuesInOrder.length > 0) {
-      if (mode === "PROFIT" && p.terms.billingProfile === "FIXED_FEE") {
-        forecastMonthlyValue =
-          actualValuesInOrder[actualValuesInOrder.length - 1];
-      } else {
-        const last3 = actualValuesInOrder.slice(-3);
-        const sum3 = last3.reduce((s, v) => s + v, 0);
-        forecastMonthlyValue = Number((sum3 / last3.length).toFixed(2));
-      }
-    }
-
-    for (const cell of cells) {
-      const manualEntry = p.manualForecasts?.[cell.monthKey];
-      if (!cell.hasActual && manualEntry !== undefined) {
-        cell.netProfit = Number(manualEntry.amount || 0);
-        cell.isForecast = true;
-        cell.isManualForecast = true;
-        cell.manualForecastNote = manualEntry.note;
-      } else if (
-        !cell.hasActual &&
-        cell.monthKey > currentYearMonth &&
-        forecastMonthlyValue !== null
-      ) {
-        cell.netProfit = forecastMonthlyValue;
-        cell.isForecast = true;
-        cell.isManualForecast = false;
-      }
-    }
-
-    const actualYtd = cells
-      .filter((c) => c.hasActual)
-      .reduce((s, c) => s + c.netProfit, 0);
-    const totalImsYtd = cells
-      .filter((c) => c.hasActual)
-      .reduce((s, c) => s + c.imsInvestment, 0);
-    const totalBillableYtd = cells
-      .filter((c) => c.hasActual)
-      .reduce((s, c) => s + c.billableCost, 0);
-
-    const q1 = cells[0].netProfit + cells[1].netProfit + cells[2].netProfit;
-    const q2 = cells[3].netProfit + cells[4].netProfit + cells[5].netProfit;
-    const q3 = cells[6].netProfit + cells[7].netProfit + cells[8].netProfit;
-    const q4 = cells[9].netProfit + cells[10].netProfit + cells[11].netProfit;
-    const h1 = q1 + q2;
-    const h2 = q3 + q4;
-    const fullYearTotal = h1 + h2;
-    const activeOrForecastMonths = cells.filter(
-      (c) => c.hasActual || c.isForecast
-    ).length;
-    const monthlyAvg =
-      activeOrForecastMonths > 0
-        ? fullYearTotal / activeOrForecastMonths
-        : 0;
-
-    return {
-      project: p,
-      cells,
-      actualYtd,
-      totalImsYtd,
-      totalBillableYtd,
-      q1,
-      q2,
-      q3,
-      q4,
-      h1,
-      h2,
-      fullYearTotal,
-      monthlyAvg,
-    };
-  });
-
-  rows.sort((a, b) => b.fullYearTotal - a.fullYearTotal);
-
-  const monthTotals = Array.from({ length: 12 }, (_, idx) =>
-    rows.reduce((sum, r) => sum + r.cells[idx].netProfit, 0)
-  );
-  const grandActualYtd = rows.reduce((s, r) => s + r.actualYtd, 0);
-  const grandImsYtd = rows.reduce((s, r) => s + r.totalImsYtd, 0);
-  const grandQ1 = rows.reduce((s, r) => s + r.q1, 0);
-  const grandQ2 = rows.reduce((s, r) => s + r.q2, 0);
-  const grandQ3 = rows.reduce((s, r) => s + r.q3, 0);
-  const grandQ4 = rows.reduce((s, r) => s + r.q4, 0);
-  const grandH1 = rows.reduce((s, r) => s + r.h1, 0);
-  const grandH2 = rows.reduce((s, r) => s + r.h2, 0);
-  const grandFullYear = rows.reduce((s, r) => s + r.fullYearTotal, 0);
-  const grandMonthlyAvg = grandFullYear / 12;
-
-  return {
-    rows,
-    monthTotals,
-    grandActualYtd,
-    grandImsYtd,
-    grandQ1,
-    grandQ2,
-    grandQ3,
-    grandQ4,
-    grandH1,
-    grandH2,
-    grandFullYear,
-    grandMonthlyAvg,
-  };
-}
 
 export default function FinanceClient({
   projects,
@@ -574,6 +84,7 @@ export default function FinanceClient({
         executedBillable: number;
         executedImsInv: number;
         reqCount: number;
+        approvedReqCount: number;
       }
     > = {};
 
@@ -604,6 +115,7 @@ export default function FinanceClient({
             executedBillable: 0,
             executedImsInv: 0,
             reqCount: 0,
+            approvedReqCount: 0,
           };
         }
         byMonth[m.forMonth].billableCost += m.billableCost;
@@ -611,6 +123,8 @@ export default function FinanceClient({
         byMonth[m.forMonth].executedBillable += m.executedBillable;
         byMonth[m.forMonth].executedImsInv += m.executedImsInv;
         byMonth[m.forMonth].reqCount += m.reqCount;
+        byMonth[m.forMonth].approvedReqCount =
+          (byMonth[m.forMonth].approvedReqCount || 0) + (m.approvedReqCount || 0);
       }
     }
 
@@ -662,9 +176,6 @@ export default function FinanceClient({
   >("SUMMARY_MATRIX");
 
   // Client Bill Entry state
-  const [newEntryCard, setNewEntryCard] = useState<
-    "REQUISITION" | "DIRECT_EXPENSE" | "BILL_TO_CLIENT" | "UPLOAD_EXCEL"
-  >("BILL_TO_CLIENT");
   const [inlineBillNo, setInlineBillNo] = useState("");
   const [inlinePoNo, setInlinePoNo] = useState("");
   const [inlineSubmittedOn, setInlineSubmittedOn] = useState(() =>
@@ -679,8 +190,7 @@ export default function FinanceClient({
   const [inlineBillExVatOverrideStr, setInlineBillExVatOverrideStr] =
     useState<string>("");
 
-  // Confirmations & Receivables ("Finance Today" + Selected Bill Timeline) state
-  const [selectedPendingKeys, setSelectedPendingKeys] = useState<string[]>([]);
+  // Receivables Quick-Pay & Timeline state
   const [quickPayBillId, setQuickPayBillId] = useState<string>("");
   const [quickPayDate, setQuickPayDate] = useState<string>(() =>
     new Date().toISOString().slice(0, 10)
@@ -822,33 +332,6 @@ export default function FinanceClient({
   const [forecastAmountStr, setForecastAmountStr] = useState("");
   const [forecastNoteStr, setForecastNoteStr] = useState("");
 
-  // Direct Expense & Excel/CSV Import Modal State (Priority 2B)
-  const [directExpModalOpen, setDirectExpModalOpen] = useState(false);
-  const [directExpTab, setDirectExpTab] = useState<"SINGLE" | "CSV">("SINGLE");
-  const [deMonth, setDeMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [dePaidOn, setDePaidOn] = useState(
-    new Date().toISOString().slice(0, 10)
-  );
-  const [deCostHead, setDeCostHead] = useState("");
-  const [deCostTag, setDeCostTag] = useState<"BILLABLE" | "IMS_INVESTMENT">(
-    "BILLABLE"
-  );
-  const [deAmount, setDeAmount] = useState("");
-  const [dePaidVia, setDePaidVia] = useState("Cash");
-  const [deNote, setDeNote] = useState("");
-  const [deAutoConfirm, setDeAutoConfirm] = useState(true);
-  const [csvPreviewRows, setCsvPreviewRows] = useState<
-    Array<{
-      forMonth: string;
-      paidOn: string;
-      costHead: string;
-      costTag: "BILLABLE" | "IMS_INVESTMENT";
-      amount: number;
-      paidVia: string;
-      note: string;
-    }>
-  >([]);
-
   const availableMonths = useMemo(() => {
     if (!selectedProject) return [];
     const set = new Set<string>();
@@ -931,152 +414,15 @@ export default function FinanceClient({
     };
   }, [permanentProjects, eventProjects, companyDivisions, matrixYear]);
 
-  // Filtered Requisitions, Direct Expenses & Payments for the selected project/event/division and month
+  // Filtered Requisitions & Payments for the selected project/event/division and month (unified engine)
   const activeStats = useMemo(() => {
     if (!selectedProject) return null;
-
-    const reqs =
-      selectedMonth === "ALL"
-        ? selectedProject.requisitionsList
-        : selectedProject.requisitionsList.filter(
-            (r) => r.forMonth === selectedMonth
-          );
-
-    const directExps = (selectedProject.directExpenses || []).filter(
-      (de) => selectedMonth === "ALL" || de.forMonth === selectedMonth
-    );
-    const confirmedDirectExps = directExps.filter(
-      (de) => de.status === "CONFIRMED"
-    );
-
-    const bills =
-      selectedMonth === "ALL"
-        ? selectedProject.bills
-        : selectedProject.bills.filter((b) => b.forMonth === selectedMonth);
-
-    // Exclude opening-balance bills from current P&L calculation (they belong to Receivables & Ageing only)
-    const pnlBills = bills.filter((b) => !b.isOpeningBalance);
-
-    const directBillable = confirmedDirectExps
-      .filter((de) => de.costTag !== "IMS_INVESTMENT")
-      .reduce((sum, de) => sum + de.amount, 0);
-    const directIms = confirmedDirectExps
-      .filter((de) => de.costTag === "IMS_INVESTMENT")
-      .reduce((sum, de) => sum + de.amount, 0);
-
-    const approvedReqs = reqs.filter(
-      (r) =>
-        r.status === "EXECUTED" ||
-        r.status === "SETTLED" ||
-        r.status === "PARTIAL_PAID" ||
-        r.status === "APPROVED" ||
-        r.status === "FORWARDED"
-    );
-    const pendingReqs = reqs.filter(
-      (r) =>
-        r.status !== "EXECUTED" &&
-        r.status !== "SETTLED" &&
-        r.status !== "PARTIAL_PAID" &&
-        r.status !== "APPROVED" &&
-        r.status !== "FORWARDED"
-    );
-
-    const billableSpend =
-      approvedReqs.reduce((sum, r) => sum + r.billableCost, 0) + directBillable;
-    const imsSpend =
-      approvedReqs.reduce((sum, r) => sum + r.imsInvestment, 0) + directIms;
-    const totalSpend = billableSpend + imsSpend;
-
-    const executedSpend = totalSpend;
-    const pendingSpend = pendingReqs.reduce((sum, r) => sum + r.total, 0);
-
-    const invoicedBills = pnlBills.filter((b) => b.billExVat > 0);
-    const activeMonthSet = new Set<string>([
-      ...reqs.map((r) => r.forMonth).filter(Boolean),
-      ...confirmedDirectExps.map((de) => de.forMonth).filter(Boolean),
-      ...invoicedBills
-        .map((b) => b.forMonth)
-        .filter((m) => m && m !== "ALL"),
-    ]);
-    const distinctMonths = Math.max(1, activeMonthSet.size);
-    const periodMonthCount = selectedMonth === "ALL" ? distinctMonths : 1;
-
-    const calc = calculateProfitSummary({
+    return computeProjectPeriodMetrics({
       terms: selectedProject.terms,
-      billableCost: billableSpend,
-      imsInvestment: imsSpend,
-      activeMonthCount: periodMonthCount,
+      requisitions: selectedProject.requisitionsList,
+      bills: selectedProject.bills,
+      selectedMonth,
     });
-
-    const billedExVat =
-      invoicedBills.length > 0
-        ? invoicedBills.reduce((sum, b) => sum + b.billExVat, 0)
-        : calc.billExVat;
-    const billedWithVat =
-      invoicedBills.length > 0
-        ? invoicedBills.reduce((sum, b) => sum + b.billWithVat, 0)
-        : calc.billWithVat;
-    const expectedInflow =
-      invoicedBills.length > 0
-        ? invoicedBills.reduce((sum, b) => sum + b.expectedInflow, 0)
-        : calc.expectedInflow;
-
-    const receivedAmount = pnlBills.reduce(
-      (sum, b) => sum + b.receivedAmount,
-      0
-    );
-    const rawDue = Math.max(0, expectedInflow - receivedAmount);
-    const remainingDue = rawDue <= PAYMENT_TOLERANCE_BDT ? 0 : rawDue;
-    const deviation = receivedAmount - expectedInflow;
-
-    const accruedProfit = calc.netProfit;
-    const realizedProfit =
-      receivedAmount -
-      totalSpend -
-      calc.amortizationCost -
-      calc.maintenanceCost;
-    const collectionPercent =
-      expectedInflow > 0
-        ? remainingDue === 0
-          ? 100
-          : Math.min(100, Math.round((receivedAmount / expectedInflow) * 100))
-        : 0;
-
-    const monthlyAvgSpend = totalSpend / distinctMonths;
-    const activeMonthCount = distinctMonths;
-    const reqWc2x = monthlyAvgSpend * 2;
-    const reqWc25x = monthlyAvgSpend * 2.5;
-    const annualizedNetProfit = (accruedProfit / activeMonthCount) * 12;
-    const roi2xPct = reqWc2x > 0 ? (annualizedNetProfit / reqWc2x) * 100 : 0;
-    const roi25xPct = reqWc25x > 0 ? (annualizedNetProfit / reqWc25x) * 100 : 0;
-
-    return {
-      reqs,
-      directExps,
-      bills,
-      billableSpend,
-      imsSpend,
-      totalSpend,
-      executedSpend,
-      pendingSpend,
-      monthlyAvgSpend,
-      activeMonthCount,
-      reqWc2x,
-      reqWc25x,
-      annualizedNetProfit,
-      roi2xPct,
-      roi25xPct,
-      calc,
-      billedExVat,
-      billedWithVat,
-      expectedInflow,
-      receivedAmount,
-      remainingDue,
-      deviation,
-      accruedProfit,
-      realizedProfit,
-      collectionPercent,
-    };
   }, [selectedProject, selectedMonth]);
 
   // Active matrix for the currently selected tab (`PERMANENT` | `EVENT` | `COMPANY`)
@@ -1159,6 +505,13 @@ export default function FinanceClient({
         ? allBillRows
         : ageingFilter === "PAID"
         ? allBillRows.filter((r) => r.derived.code === "PAID")
+        : ageingFilter === "NOT_YET_DUE"
+        ? allBillRows.filter(
+            (r) =>
+              r.derived.code !== "PAID" &&
+              (r.derived.ageingBucket === "NOT_YET_DUE" ||
+                r.derived.ageingBucket === "DUE_SOON")
+          )
         : allBillRows.filter(
             (r) =>
               r.derived.code !== "PAID" &&
@@ -1181,88 +534,22 @@ export default function FinanceClient({
     };
   }, [currentList, ageingFilter]);
 
-  // 1. Monthly Chart Data for Selected Project/Event/Division
+  // 1. Monthly Chart Data for Selected Project/Event/Division (Approved/Executed spend only, reconciled with ClientBills)
   const monthlyChartData = useMemo(() => {
     if (!selectedProject) return [];
-    const map: Record<
-      string,
-      {
-        month: string;
-        billableCost: number;
-        imsInvestment: number;
-        totalCost: number;
-        receivedAmount: number;
-      }
-    > = {};
-
-    for (const r of selectedProject.requisitionsList) {
-      const m = r.forMonth || "Overall";
-      if (!map[m]) {
-        map[m] = {
-          month: m,
-          billableCost: 0,
-          imsInvestment: 0,
-          totalCost: 0,
-          receivedAmount: 0,
-        };
-      }
-      map[m].billableCost += r.billableCost;
-      map[m].imsInvestment += r.imsInvestment;
-      map[m].totalCost += r.billableCost + r.imsInvestment;
-    }
-
-    for (const b of selectedProject.bills) {
-      const m = b.forMonth || "Overall";
-      if (!map[m]) {
-        map[m] = {
-          month: m,
-          billableCost: 0,
-          imsInvestment: 0,
-          totalCost: 0,
-          receivedAmount: 0,
-        };
-      }
-      map[m].receivedAmount += b.receivedAmount;
-    }
-
-    const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    const toShortMonth = (ym: string) => {
-      const m = ym.match(/^(\d{4})-(\d{2})$/);
-      if (!m) return ym;
-      return `${MONTH_NAMES[Number(m[2]) - 1] || m[2]} ${m[1].slice(2)}`;
-    };
-
-    return Object.values(map)
-      .sort((a, b) => a.month.localeCompare(b.month))
-      .map((row) => {
-        const shortMonth = toShortMonth(row.month);
-        if (selectedProject.kind === "COMPANY") {
-          return {
-            ...row,
-            shortMonth,
-            expectedInflow: 0,
-            accruedProfit: 0,
-          };
-        }
-        const c = calculateProfitSummary({
-          terms: selectedProject.terms,
-          billableCost: row.billableCost,
-          imsInvestment: row.imsInvestment,
-        });
-        return {
-          ...row,
-          shortMonth,
-          expectedInflow: Math.round(c.expectedInflow),
-          accruedProfit: Math.round(c.netProfit),
-        };
-      });
+    return buildMonthlyChartSeries({
+      requisitions: selectedProject.requisitionsList,
+      bills: selectedProject.bills,
+      terms: selectedProject.terms,
+      kind: selectedProject.kind,
+    });
   }, [selectedProject]);
 
-  // 2. Cost Head Breakdown Pie Data for Selected Project/Event/Division
+  // 2. Cost Head Breakdown Pie Data for Selected Project/Event/Division (Approved/Executed spend only)
   const costHeadPieData = useMemo(() => {
     if (!activeStats) return [];
     const map: Record<string, number> = {};
-    for (const r of activeStats.reqs) {
+    for (const r of activeStats.approvedReqs) {
       if (r.items && r.items.length > 0) {
         for (const it of r.items) {
           const head =
@@ -1284,10 +571,10 @@ export default function FinanceClient({
       .sort((a, b) => b.value - a.value);
   }, [activeStats]);
 
-  // 3. Requisition-by-Requisition Bar Data
+  // 3. Requisition-by-Requisition Bar Data (Approved/Executed spend only)
   const reqBarData = useMemo(() => {
     if (!activeStats) return [];
-    return activeStats.reqs
+    return activeStats.approvedReqs
       .slice()
       .reverse()
       .map((r) => ({
@@ -1347,14 +634,24 @@ export default function FinanceClient({
       setFormStatus("PARTIAL_PAID");
       setFormIsOpeningBalance(false);
 
-      const bSpend =
-        proj.id === selectedProject?.id && activeStats
-          ? activeStats.billableSpend
-          : proj.totalBillableReq;
-      const iSpend =
-        proj.id === selectedProject?.id && activeStats
-          ? activeStats.imsSpend
-          : proj.totalImsInvReq;
+      const monthRow =
+        m !== "EVENT-TOTAL"
+          ? proj.monthlyBreakdown.find((mb) => mb.forMonth === m)
+          : undefined;
+      const bSpend = monthRow
+        ? monthRow.billableCost
+        : selectedMonth !== "ALL" && proj.id === selectedProject?.id && activeStats
+        ? activeStats.billableSpend
+        : proj.kind === "EVENT"
+        ? proj.totalBillableReq
+        : 0;
+      const iSpend = monthRow
+        ? monthRow.imsInvestment
+        : selectedMonth !== "ALL" && proj.id === selectedProject?.id && activeStats
+        ? activeStats.imsSpend
+        : proj.kind === "EVENT"
+        ? proj.totalImsInvReq
+        : 0;
       const c = calculateProfitSummary({
         terms: proj.terms,
         billableCost: bSpend,
@@ -1493,164 +790,6 @@ export default function FinanceClient({
     } finally {
       setSaving(false);
     }
-  }
-
-  function handleCsvFileParse(file: File) {
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      const text = String(ev.target?.result || "");
-      const lines = text
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter(Boolean);
-      if (lines.length === 0) return;
-
-      const parsed: Array<{
-        forMonth: string;
-        paidOn: string;
-        costHead: string;
-        costTag: "BILLABLE" | "IMS_INVESTMENT";
-        amount: number;
-        paidVia: string;
-        note: string;
-      }> = [];
-
-      const startIdx =
-        lines[0].toLowerCase().includes("amount") ||
-        lines[0].toLowerCase().includes("cost")
-          ? 1
-          : 0;
-      const defaultM =
-        selectedMonth !== "ALL"
-          ? selectedMonth
-          : new Date().toISOString().slice(0, 7);
-      const todayStr = new Date().toISOString().slice(0, 10);
-
-      for (let i = startIdx; i < lines.length; i++) {
-        const cols = lines[i]
-          .split(/,|\t/)
-          .map((c) => c.replace(/^"|"$/g, "").trim());
-        if (cols.length < 2) continue;
-        // Support either: [CostHead, Amount, Note?, PaidVia?, Month?] OR [Month, CostHead, Amount, PaidVia?, Note?]
-        let rowMonth = defaultM;
-        let head = cols[0];
-        let amt = parseFloat(cols[1].replace(/,/g, "")) || 0;
-        let note = cols[2] || "Imported from CSV/Excel";
-        let paidVia = cols[3] || "Bank";
-
-        if (/^\d{4}-\d{2}$/.test(cols[0]) && cols.length >= 3) {
-          rowMonth = cols[0];
-          head = cols[1];
-          amt = parseFloat(cols[2].replace(/,/g, "")) || 0;
-          paidVia = cols[3] || "Bank";
-          note = cols[4] || "Imported from CSV/Excel";
-        }
-        if (amt <= 0) continue;
-
-        const matchedHead = (selectedProject?.costHeads || []).find(
-          (ch) =>
-            ch.name.toLowerCase() === head.toLowerCase() ||
-            (Array.isArray(ch.aliases) &&
-              ch.aliases.some((a) => a.toLowerCase() === head.toLowerCase()))
-        );
-        parsed.push({
-          forMonth: rowMonth,
-          paidOn: todayStr,
-          costHead: matchedHead ? matchedHead.name : head,
-          costTag:
-            matchedHead?.tag === "IMS_INVESTMENT"
-              ? "IMS_INVESTMENT"
-              : "BILLABLE",
-          amount: amt,
-          paidVia,
-          note,
-        });
-      }
-      setCsvPreviewRows(parsed);
-    };
-    reader.readAsText(file);
-  }
-
-  async function handleSaveDirectExpenses(e: React.FormEvent) {
-    e.preventDefault();
-    if (!selectedProject || selectedProject.id === "ALL_COMPANY") return;
-    setSaving(true);
-    try {
-      const payload =
-        directExpTab === "SINGLE"
-          ? {
-              actionType: "ADD_DIRECT_EXPENSE",
-              projectId: selectedProject.id,
-              forMonth: deMonth,
-              paidOn: dePaidOn,
-              costHead:
-                deCostHead ||
-                selectedProject.costHeads?.[0]?.name ||
-                "General Expense",
-              costTag: deCostTag,
-              amount: Number(deAmount || 0),
-              paidVia: dePaidVia,
-              note: deNote,
-              autoConfirm: deAutoConfirm,
-            }
-          : {
-              actionType: "IMPORT_DIRECT_EXPENSES",
-              projectId: selectedProject.id,
-              forMonth: deMonth,
-              rows: csvPreviewRows,
-              autoConfirm: deAutoConfirm,
-            };
-
-      const res = await fetch("/api/finance/bills", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        alert(data.error || "Failed to save direct expense(s)");
-        return;
-      }
-      setDirectExpModalOpen(false);
-      setDeAmount("");
-      setDeNote("");
-      setCsvPreviewRows([]);
-      router.refresh();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function handleReviewDirectExpense(
-    expenseId: string,
-    decision: "CONFIRMED" | "REJECTED" | "DELETE"
-  ) {
-    if (!selectedProject) return;
-    let rejectReason = "";
-    if (decision === "REJECTED") {
-      const r = window.prompt(
-        "Enter mandatory reason for rejecting this Direct Expense:"
-      );
-      if (!r || !r.trim()) return;
-      rejectReason = r.trim();
-    }
-    const res = await fetch("/api/finance/bills", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        actionType: "REVIEW_DIRECT_EXPENSE",
-        projectId: selectedProject.id,
-        expenseId,
-        decision,
-        rejectReason,
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      alert(data.error || "Action failed");
-      return;
-    }
-    router.refresh();
   }
 
   async function handleDeleteBill(id: string) {
@@ -1816,34 +955,6 @@ export default function FinanceClient({
     URL.revokeObjectURL(url);
   }
 
-  // Derived helper for all pending direct expenses across all projects
-  const allPendingExpenses = useMemo(() => {
-    const list: Array<{
-      project: ProjectFinanceItem;
-      expense: {
-        id: string;
-        forMonth: string;
-        paidOn: string;
-        costHead: string;
-        costTag: "BILLABLE" | "IMS_INVESTMENT";
-        amount: number;
-        paidVia?: string;
-        note?: string;
-        status: "PENDING" | "CONFIRMED" | "REJECTED";
-        createdByName?: string;
-        createdAt: string;
-      };
-    }> = [];
-    for (const p of currentList) {
-      for (const e of p.directExpenses || []) {
-        if (e.status === "PENDING") {
-          list.push({ project: p, expense: e });
-        }
-      }
-    }
-    return list;
-  }, [currentList]);
-
   // Derived helper for all requisitions waiting for disbursement
   const disburseWaitingReqs = useMemo(() => {
     const list: Array<{
@@ -1851,10 +962,12 @@ export default function FinanceClient({
       req: RequisitionSummaryItem;
     }> = [];
     for (const p of currentList) {
+      if (p.id === "ALL_COMPANY") continue;
       for (const r of p.requisitionsList) {
         if (
           r.status === "APPROVED" ||
-          (r.status === "EXECUTED" && r.total > 0)
+          r.status === "FORWARDED" ||
+          r.status === "PARTIAL_PAID"
         ) {
           list.push({ project: p, req: r });
         }
@@ -1872,12 +985,13 @@ export default function FinanceClient({
     let readyDisburseCount = 0;
 
     for (const p of currentList) {
+      if (p.id === "ALL_COMPANY") continue;
       for (const r of p.requisitionsList) {
-        if (r.status === "SUBMITTED") groupHeadCount++;
-        else if (r.status === "FORWARDED") deptHeadCount++;
-        else if (r.status === "VERIFIED") financeCount++;
-        else if (r.status === "CHECKED") mdCount++;
-        else if (r.status === "APPROVED") readyDisburseCount++;
+        if (r.status === "PENDING_HEAD" || r.status === "SUBMITTED") groupHeadCount++;
+        else if (r.status === "PENDING_CHECKER") deptHeadCount++;
+        else if (r.status === "PENDING_ACCOUNTS") financeCount++;
+        else if (r.status === "PENDING_DIRECTOR" || r.status === "PENDING_MD") mdCount++;
+        else if (r.status === "APPROVED" || r.status === "FORWARDED" || r.status === "PARTIAL_PAID") readyDisburseCount++;
       }
     }
     return {
@@ -1943,37 +1057,16 @@ export default function FinanceClient({
       inlineBillableCostStr.trim() !== ""
         ? Number(inlineBillableCostStr) || 0
         : monthRequisitionBillable;
-    const baseCalc = calculateProfitSummary({
-      terms: selectedProject.terms,
-      billableCost: bCost,
-      imsInvestment: monthRequisitionIms,
-    });
     const customExVat =
       inlineBillExVatOverrideStr.trim() !== ""
         ? Number(inlineBillExVatOverrideStr)
         : null;
-    if (customExVat !== null && !Number.isNaN(customExVat) && customExVat >= 0) {
-      const vatAmt = customExVat * (selectedProject.terms.vatRate ?? 0.15);
-      const aitAmt = customExVat * (selectedProject.terms.aitRate ?? 0);
-      return {
-        billableCost: bCost,
-        imsInvestment: monthRequisitionIms,
-        billExVat: customExVat,
-        vatAmount: vatAmt,
-        billWithVat: customExVat + vatAmt,
-        aitDeducted: aitAmt,
-        expectedInflow: customExVat - aitAmt,
-      };
-    }
-    return {
+    return computeCustomBillPreview({
+      terms: selectedProject.terms,
       billableCost: bCost,
       imsInvestment: monthRequisitionIms,
-      billExVat: baseCalc.billExVat,
-      vatAmount: baseCalc.vatAmount,
-      billWithVat: baseCalc.billWithVat,
-      aitDeducted: baseCalc.aitDeducted,
-      expectedInflow: baseCalc.expectedInflow,
-    };
+      customBillExVat: customExVat,
+    });
   }, [
     selectedProject,
     inlineBillableCostStr,
@@ -2061,32 +1154,7 @@ export default function FinanceClient({
     URL.revokeObjectURL(url);
   }
 
-  // Batch confirm all selected KAM direct expenses
-  async function handleBatchConfirmExpenses() {
-    if (!selectedPendingKeys.length) return;
-    setSaving(true);
-    try {
-      for (const key of selectedPendingKeys) {
-        const [projId, expId] = key.split("::");
-        await fetch("/api/finance/bills", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            actionType: "REVIEW_DIRECT_EXPENSE",
-            projectId: projId,
-            expenseId: expId,
-            decision: "CONFIRMED",
-          }),
-        });
-      }
-      setSelectedPendingKeys([]);
-      router.refresh();
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  // Record payment received directly from the side-by-side form in Receivables
+  // Record payment received directly from the side-by-side form in Receivables (accumulates onto prior partial payments)
   async function handleQuickRecordPayment(e: React.FormEvent) {
     e.preventDefault();
     if (!quickPayBillId) return;
@@ -2104,11 +1172,14 @@ export default function FinanceClient({
 
     setSaving(true);
     try {
-      const receivedNum = Number(quickPayAmountStr || 0);
+      const installmentNum = Number(quickPayAmountStr || 0);
+      const cumulativeReceived = Number(
+        ((matchedBill.receivedAmount || 0) + installmentNum).toFixed(2)
+      );
       const isPaidFull =
-        Math.abs(receivedNum - matchedBill.expectedInflow) <=
+        Math.abs(cumulativeReceived - matchedBill.expectedInflow) <=
           PAYMENT_TOLERANCE_BDT ||
-        receivedNum >= matchedBill.expectedInflow;
+        cumulativeReceived >= matchedBill.expectedInflow;
 
       const res = await fetch("/api/finance/bills", {
         method: "POST",
@@ -2125,7 +1196,7 @@ export default function FinanceClient({
           billExVat: matchedBill.billExVat,
           vatAmount: matchedBill.vatAmount,
           aitAmount: matchedBill.aitAmount,
-          receivedAmount: receivedNum,
+          receivedAmount: cumulativeReceived,
           submittedAt: matchedBill.submittedAt,
           dueDate: matchedBill.dueDate,
           receivedAt: quickPayDate || new Date().toISOString().slice(0, 10),
@@ -3389,227 +2460,22 @@ export default function FinanceClient({
           VIEW 3: RECEIVABLES & CONFIRMATIONS (§4.4, §7.6 + CLEAN v3 UI)
          ======================================================================== */}
       {viewMode === "AGEING" && (
-        <div className="space-y-6">
-          {/* Top 4 Ageing KPI Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <button
-              type="button"
-              onClick={() => setAgeingFilter(ageingFilter === "NOT_YET_DUE" ? "ALL" : "NOT_YET_DUE")}
-              className={`text-left p-4 rounded-xl border transition-all ${
-                ageingFilter === "NOT_YET_DUE"
-                  ? "ring-2 ring-blue-600 bg-blue-50 border-blue-300"
-                  : "bg-white border-gray-200 hover:bg-gray-50"
-              }`}
-            >
-              <div className="text-xs font-bold text-blue-700 uppercase">Not yet due</div>
-              <div className="text-xl font-bold text-gray-900 mt-1 font-mono">
-                Tk {formatBDT(receivablesAgeing.notYetDueTotal)}
-              </div>
-              <div className="text-[11px] text-gray-500 mt-0.5">
-                {receivablesAgeing.notYetDueCount} active bill(s)
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setAgeingFilter(ageingFilter === "OVERDUE_1_30" ? "ALL" : "OVERDUE_1_30")}
-              className={`text-left p-4 rounded-xl border transition-all ${
-                ageingFilter === "OVERDUE_1_30"
-                  ? "ring-2 ring-amber-600 bg-amber-50 border-amber-300"
-                  : "bg-white border-gray-200 hover:bg-gray-50"
-              }`}
-            >
-              <div className="text-xs font-bold text-amber-900 uppercase">1–30 days overdue</div>
-              <div className="text-xl font-bold text-amber-950 mt-1 font-mono">
-                Tk {formatBDT(receivablesAgeing.overdue1To30Total)}
-              </div>
-              <div className="text-[11px] text-amber-800 mt-0.5">
-                {receivablesAgeing.overdue1To30Count} bill(s) overdue
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setAgeingFilter(ageingFilter === "OVERDUE_31_60" ? "ALL" : "OVERDUE_31_60")}
-              className={`text-left p-4 rounded-xl border transition-all ${
-                ageingFilter === "OVERDUE_31_60"
-                  ? "ring-2 ring-orange-600 bg-orange-50 border-orange-300"
-                  : "bg-white border-gray-200 hover:bg-gray-50"
-              }`}
-            >
-              <div className="text-xs font-bold text-orange-900 uppercase">31–60 days overdue</div>
-              <div className="text-xl font-bold text-orange-950 mt-1 font-mono">
-                Tk {formatBDT(receivablesAgeing.overdue31To60Total)}
-              </div>
-              <div className="text-[11px] text-orange-800 mt-0.5">
-                {receivablesAgeing.overdue31To60Count} bill(s) overdue
-              </div>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setAgeingFilter(ageingFilter === "OVERDUE_60_PLUS" ? "ALL" : "OVERDUE_60_PLUS")}
-              className={`text-left p-4 rounded-xl border transition-all ${
-                ageingFilter === "OVERDUE_60_PLUS"
-                  ? "ring-2 ring-rose-700 bg-rose-50 border-rose-300"
-                  : "bg-white border-gray-200 hover:bg-gray-50"
-              }`}
-            >
-              <div className="text-xs font-bold text-rose-900 uppercase">Over 60 days</div>
-              <div className="text-xl font-bold text-rose-950 mt-1 font-mono">
-                Tk {formatBDT(receivablesAgeing.overdue60PlusTotal)}
-              </div>
-              <div className="text-[11px] text-rose-800 mt-0.5">
-                {receivablesAgeing.overdue60PlusCount} critical bill(s)
-              </div>
-            </button>
-          </div>
-
-          {/* 2-Column Split: Bills Awaiting Payment (Left 2/3) + Record Payment Received (Right 1/3) */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-            {/* Left 2/3: Bills awaiting payment */}
-            <div className="lg:col-span-2 bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-4">
-              <div className="flex items-center justify-between pb-2 border-b border-gray-100">
-                <h3 className="text-sm font-bold text-gray-900">
-                  Bills awaiting payment ({receivablesAgeing.filteredRows.filter((r) => r.derived.code !== "PAID").length})
-                </h3>
-                <span className="text-xs text-gray-500">
-                  Click any row to select for payment recording
-                </span>
-              </div>
-
-              <div className="border border-gray-200 rounded-lg overflow-hidden">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
-                    <tr>
-                      <th className="py-2.5 px-3">Project</th>
-                      <th className="py-2.5 px-3">Bill no.</th>
-                      <th className="py-2.5 px-3">Due date</th>
-                      <th className="py-2.5 px-3 text-right">Expected</th>
-                      <th className="py-2.5 px-3 text-right">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {receivablesAgeing.filteredRows
-                      .filter((r) => r.derived.code !== "PAID")
-                      .map(({ bill, project, derived }) => (
-                        <tr
-                          key={bill.id}
-                          onClick={() => {
-                            setQuickPayBillId(bill.id);
-                            setQuickPayAmountStr(String(derived.outstanding));
-                            setSelectedTimelineBillId(bill.id);
-                          }}
-                          className={`cursor-pointer hover:bg-blue-50/60 transition-colors ${
-                            quickPayBillId === bill.id ? "bg-blue-50 font-semibold" : ""
-                          }`}
-                        >
-                          <td className="py-2.5 px-3 font-semibold text-gray-900">{project.name}</td>
-                          <td className="py-2.5 px-3 font-mono text-gray-600">{bill.billNumber || "—"}</td>
-                          <td className="py-2.5 px-3 text-gray-700">{bill.dueDate || "—"}</td>
-                          <td className="py-2.5 px-3 text-right font-mono font-bold text-gray-900">
-                            Tk {formatBDT(derived.outstanding)}
-                          </td>
-                          <td className="py-2.5 px-3 text-right">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold border ${derived.cls}`}>
-                              {derived.label}
-                            </span>
-                          </td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            {/* Right 1/3: Record Payment Received Form */}
-            <div className="bg-white rounded-xl p-5 border border-gray-200 shadow-sm space-y-4">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900">Record payment received</h3>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  Select a bill from the left table or pick from dropdown.
-                </p>
-              </div>
-
-              <form onSubmit={handleQuickRecordPayment} className="space-y-3.5">
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">Bill</label>
-                  <select
-                    value={quickPayBillId}
-                    onChange={(e) => {
-                      const id = e.target.value;
-                      setQuickPayBillId(id);
-                      const b = receivablesAgeing.allBillRows.find((x) => x.bill.id === id);
-                      if (b) {
-                        setQuickPayAmountStr(String(b.derived.outstanding));
-                        setSelectedTimelineBillId(id);
-                      }
-                    }}
-                    className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
-                    required
-                  >
-                    <option value="">Select a bill to pay...</option>
-                    {receivablesAgeing.allBillRows
-                      .filter((r) => r.derived.code !== "PAID")
-                      .map(({ bill, project, derived }) => (
-                        <option key={bill.id} value={bill.id}>
-                          {project.name} • {bill.billNumber || bill.forMonth} (Tk {formatBDT(derived.outstanding)})
-                        </option>
-                      ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">Date received</label>
-                  <input
-                    type="date"
-                    value={quickPayDate}
-                    onChange={(e) => setQuickPayDate(e.target.value)}
-                    className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">Amount received (BDT)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={quickPayAmountStr}
-                    onChange={(e) => setQuickPayAmountStr(e.target.value)}
-                    className="w-full h-10 px-3 rounded-lg border border-gray-300 text-xs font-bold font-mono"
-                    required
-                  />
-                  <div className="mt-1 text-[11px] text-emerald-700 font-semibold">
-                    ✓ Matches the expected amount.
-                  </div>
-                </div>
-
-                <div>
-                  <label className="block text-xs font-bold text-gray-700 mb-1">
-                    Deviation reason (if different)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Optional note"
-                    value={quickPayDeviationReason}
-                    onChange={(e) => setQuickPayDeviationReason(e.target.value)}
-                    className="w-full h-9 px-3 rounded-lg border border-gray-300 text-xs"
-                  />
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={saving || !quickPayBillId}
-                  className="w-full py-2.5 rounded-lg bg-blue-700 text-white text-xs font-bold hover:bg-blue-800 disabled:opacity-50 shadow-sm"
-                >
-                  {saving ? "Saving..." : "Save payment"}
-                </button>
-              </form>
-            </div>
-          </div>
-        </div>
+        <ReceivablesAgeingView
+          receivablesAgeing={receivablesAgeing}
+          ageingFilter={ageingFilter}
+          setAgeingFilter={setAgeingFilter}
+          quickPayBillId={quickPayBillId}
+          setQuickPayBillId={setQuickPayBillId}
+          quickPayDate={quickPayDate}
+          setQuickPayDate={setQuickPayDate}
+          quickPayAmountStr={quickPayAmountStr}
+          setQuickPayAmountStr={setQuickPayAmountStr}
+          quickPayDeviationReason={quickPayDeviationReason}
+          setQuickPayDeviationReason={setQuickPayDeviationReason}
+          setSelectedTimelineBillId={setSelectedTimelineBillId}
+          saving={saving}
+          onQuickRecordPayment={handleQuickRecordPayment}
+        />
       )}
 
       {/* ========================================================================
@@ -5138,159 +4004,6 @@ export default function FinanceClient({
                   </>
                 )}
               </div>
-
-              {/* DIRECT EXPENSES & EXCEL IMPORT QUEUE (Priority 2B) */}
-              {activeStats.directExps && activeStats.directExps.length > 0 && (
-                <div className="bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden">
-                  <div className="px-5 py-3.5 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2 bg-indigo-50/40">
-                    <div>
-                      <h3 className="text-sm font-bold text-gray-900">
-                        📤 Direct Expenses &amp; Excel/CSV Imported Costs (
-                        {activeStats.directExps.length})
-                      </h3>
-                      <p className="text-xs text-gray-500">
-                        Confirmed items are included in Billable / IMS Investment spend. Pending items require Finance confirmation.
-                      </p>
-                    </div>
-                    {canEditFinance && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDeMonth(
-                            selectedMonth !== "ALL"
-                              ? selectedMonth
-                              : new Date().toISOString().slice(0, 7)
-                          );
-                          setDirectExpModalOpen(true);
-                        }}
-                        className="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 cursor-pointer"
-                      >
-                        + Add / Import Direct Expense
-                      </button>
-                    )}
-                  </div>
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs text-left">
-                      <thead className="bg-gray-50 text-gray-600 uppercase border-b border-gray-200">
-                        <tr>
-                          <th className="py-2 px-3">Month / Paid On</th>
-                          <th className="py-2 px-3">Cost Head &amp; Note</th>
-                          <th className="py-2 px-3 text-center">Tag</th>
-                          <th className="py-2 px-3">Status</th>
-                          <th className="py-2 px-3 text-right">Amount (Tk)</th>
-                          {canCloseMonth && (
-                            <th className="py-2 px-3 text-right">
-                              Finance Action
-                            </th>
-                          )}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100">
-                        {activeStats.directExps.map((de) => (
-                          <tr key={de.id} className="hover:bg-gray-50">
-                            <td className="py-2.5 px-3">
-                              <div className="font-mono font-bold text-gray-800">
-                                {de.forMonth}
-                              </div>
-                              <div className="text-[10px] text-gray-400">
-                                {de.paidOn} • {de.paidVia}
-                              </div>
-                            </td>
-                            <td className="py-2.5 px-3">
-                              <div className="font-semibold text-gray-900">
-                                {de.costHead}
-                              </div>
-                              {de.note && (
-                                <div className="text-[10px] text-gray-500">
-                                  {de.note}
-                                </div>
-                              )}
-                              {de.rejectReason && (
-                                <div className="text-[10px] text-red-600 font-semibold">
-                                  Rejected: {de.rejectReason}
-                                </div>
-                              )}
-                            </td>
-                            <td className="py-2.5 px-3 text-center">
-                              <span
-                                className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                  de.costTag === "IMS_INVESTMENT"
-                                    ? "bg-amber-50 text-amber-800 border border-amber-200"
-                                    : "bg-blue-50 text-blue-800 border border-blue-200"
-                                }`}
-                              >
-                                {de.costTag}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3">
-                              <span
-                                className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                  de.status === "CONFIRMED"
-                                    ? "bg-emerald-100 text-emerald-800"
-                                    : de.status === "REJECTED"
-                                    ? "bg-red-100 text-red-800"
-                                    : "bg-amber-100 text-amber-900"
-                                }`}
-                              >
-                                {de.status === "PENDING"
-                                  ? "⏳ Pending (Unplanned)"
-                                  : de.status === "CONFIRMED"
-                                  ? "✓ Confirmed"
-                                  : "✕ Rejected"}
-                              </span>
-                            </td>
-                            <td className="py-2.5 px-3 text-right font-mono font-bold text-gray-900">
-                              Tk {formatBDT(de.amount)}
-                            </td>
-                            {canCloseMonth && (
-                              <td className="py-2.5 px-3 text-right whitespace-nowrap space-x-1">
-                                {de.status === "PENDING" && (
-                                  <>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleReviewDirectExpense(
-                                          de.id,
-                                          "CONFIRMED"
-                                        )
-                                      }
-                                      className="px-2 py-1 rounded bg-emerald-600 text-white text-[10px] font-bold hover:bg-emerald-700 cursor-pointer"
-                                    >
-                                      ✓ Confirm
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() =>
-                                        handleReviewDirectExpense(
-                                          de.id,
-                                          "REJECTED"
-                                        )
-                                      }
-                                      className="px-2 py-1 rounded bg-red-50 text-red-700 border border-red-200 text-[10px] font-bold hover:bg-red-100 cursor-pointer"
-                                    >
-                                      ✕ Reject
-                                    </button>
-                                  </>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    handleReviewDirectExpense(de.id, "DELETE")
-                                  }
-                                  className="px-2 py-1 rounded bg-gray-100 text-gray-600 text-[10px] font-semibold hover:bg-gray-200 cursor-pointer"
-                                  title="Delete Direct Expense"
-                                >
-                                  🗑️
-                                </button>
-                              </td>
-                            )}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
             </>
           )}
 
@@ -5667,806 +4380,75 @@ export default function FinanceClient({
         </>
       )}
 
-      {/* MODAL: RECORD / UPDATE PARTIAL OR FULL PAYMENT */}
-      {modalOpen && (modalProject || selectedProject) && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-2 sm:p-4">
-          <div className="bg-white rounded-2xl max-w-2xl w-full max-h-[90vh] flex flex-col shadow-xl border border-gray-200 overflow-hidden">
-            {(() => {
-              const proj = (modalProject || selectedProject)!;
-              return (
-                <>
-                  <div className="shrink-0 flex items-start justify-between border-b border-gray-200 px-5 py-3 bg-white">
-                    <div>
-                      <h2 className="text-sm sm:text-base font-bold text-gray-900">
-                        {editingBillId
-                          ? "✏️ Edit Payment / Client Bill Record"
-                          : "💰 Record Partial or Full Client Payment"}
-                      </h2>
-                      <p className="text-[11px] text-gray-500 mt-0.5">
-                        {proj.kind === "EVENT" ? "🎪 Event: " : "📁 Project: "}
-                        <strong>{proj.name}</strong> ({proj.code}) • Cycle:{" "}
-                        <strong>{proj.terms.billCycleDays} Days</strong>
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setModalOpen(false)}
-                      className="text-gray-400 hover:text-gray-700 text-lg font-bold leading-none p-1 cursor-pointer"
-                      aria-label="Close modal"
-                    >
-                      ✕
-                    </button>
-                  </div>
+      <PaymentBillModal
+        open={modalOpen}
+        project={modalProject || selectedProject}
+        editingBillId={editingBillId}
+        formMonth={formMonth}
+        setFormMonth={setFormMonth}
+        formStatus={formStatus}
+        setFormStatus={setFormStatus}
+        formBillNo={formBillNo}
+        setFormBillNo={setFormBillNo}
+        formPoNo={formPoNo}
+        setFormPoNo={setFormPoNo}
+        formSubmittedAt={formSubmittedAt}
+        setFormSubmittedAt={setFormSubmittedAt}
+        formDueDate={formDueDate}
+        setFormDueDate={setFormDueDate}
+        formBillableCost={formBillableCost}
+        formImsInv={formImsInv}
+        formBillExVat={formBillExVat}
+        setFormBillExVat={setFormBillExVat}
+        formVatAmt={formVatAmt}
+        setFormVatAmt={setFormVatAmt}
+        formAitAmt={formAitAmt}
+        setFormAitAmt={setFormAitAmt}
+        formReceivedAmt={formReceivedAmt}
+        setFormReceivedAmt={setFormReceivedAmt}
+        formReceivedAt={formReceivedAt}
+        setFormReceivedAt={setFormReceivedAt}
+        formNotes={formNotes}
+        setFormNotes={setFormNotes}
+        formIsOpeningBalance={formIsOpeningBalance}
+        setFormIsOpeningBalance={setFormIsOpeningBalance}
+        liveBillWithVat={liveBillWithVat}
+        liveExpectedInflow={liveExpectedInflow}
+        liveDeviation={liveDeviation}
+        saving={saving}
+        computeDueDateStr={computeDueDateStr}
+        onAutoRecalculate={handleAutoRecalculate}
+        onClose={() => setModalOpen(false)}
+        onSubmit={handleSaveBill}
+      />
 
-                  <form
-                    onSubmit={handleSaveBill}
-                    className="flex flex-col flex-1 min-h-0 text-xs"
-                  >
-                    <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2.5">
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                      <div>
-                        <label className="block font-semibold text-gray-700 mb-0.5">
-                          Service Month
-                        </label>
-                        <input
-                          type="text"
-                          required
-                          value={formMonth}
-                          onChange={(e) => setFormMonth(e.target.value)}
-                          placeholder="e.g. 2026-10"
-                          className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5"
-                        />
-                      </div>
-                      <div>
-                        <label className="block font-semibold text-gray-700 mb-0.5">
-                          Payment Status
-                        </label>
-                        <select
-                          value={formStatus}
-                          onChange={(e) => setFormStatus(e.target.value)}
-                          className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5 font-semibold"
-                        >
-                          <option value="PARTIAL_PAID">
-                            Partial Payment
-                          </option>
-                          <option value="PAID">Full / Final Payment</option>
-                          <option value="SUBMITTED">
-                            Bill Submitted (Unpaid)
-                          </option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block font-semibold text-gray-700 mb-0.5">
-                          Invoice / Bill #
-                        </label>
-                        <input
-                          type="text"
-                          value={formBillNo}
-                          onChange={(e) => setFormBillNo(e.target.value)}
-                          placeholder="e.g. INV-2026-042"
-                          className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5"
-                        />
-                      </div>
-                      <div>
-                        <label className="block font-semibold text-gray-700 mb-0.5">
-                          PO Number
-                        </label>
-                        <input
-                          type="text"
-                          value={formPoNo}
-                          onChange={(e) => setFormPoNo(e.target.value)}
-                          placeholder="e.g. PO-8821"
-                          className="w-full rounded-lg border border-gray-300 px-2.5 py-1.5"
-                        />
-                      </div>
-                    </div>
+      <MonthCloseModal
+        open={closeMonthModalOpen}
+        project={selectedProject}
+        mode={closeMonthMode}
+        targetMonth={closeMonthTarget}
+        reason={closeMonthReason}
+        saving={saving}
+        setTargetMonth={setCloseMonthTarget}
+        setMode={setCloseMonthMode}
+        setReason={setCloseMonthReason}
+        onClose={() => setCloseMonthModalOpen(false)}
+        onSubmit={handleMonthCloseOrReopen}
+      />
 
-                    {/* Bill Submission Date & Auto-Calculated Due Date (§4.4) */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 bg-blue-50/40 border border-blue-100 rounded-xl p-2.5">
-                      <div>
-                        <label className="block font-semibold text-gray-700 mb-0.5">
-                          Bill Submitted Date
-                        </label>
-                        <input
-                          type="date"
-                          value={formSubmittedAt}
-                          onChange={(e) => {
-                            const sub = e.target.value;
-                            setFormSubmittedAt(sub);
-                            if (sub) {
-                              setFormDueDate(
-                                computeDueDateStr(
-                                  sub,
-                                  proj.terms.billCycleDays
-                                )
-                              );
-                            }
-                          }}
-                          className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1"
-                        />
-                      </div>
-                      <div>
-                        <label className="block font-semibold text-gray-700 mb-0.5">
-                          Maturity / Due Date (+{proj.terms.billCycleDays}d
-                          auto)
-                        </label>
-                        <input
-                          type="date"
-                          value={formDueDate}
-                          onChange={(e) => setFormDueDate(e.target.value)}
-                          className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1"
-                        />
-                      </div>
-                    </div>
+      <ForecastOverrideModal
+        open={forecastModalOpen}
+        project={forecastTargetProject}
+        targetMonth={forecastTargetMonth}
+        amountStr={forecastAmountStr}
+        noteStr={forecastNoteStr}
+        saving={saving}
+        setAmountStr={setForecastAmountStr}
+        setNoteStr={setForecastNoteStr}
+        onClose={() => setForecastModalOpen(false)}
+        onSave={handleSaveManualForecast}
+      />
 
-                    <div className="bg-gray-50 border border-gray-200 rounded-xl p-2.5 space-y-2">
-                      <div className="font-bold text-gray-800">
-                        1. Requisition Cost &amp; Expected Client Bill Snapshot (Tk)
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <div>
-                          <label className="block text-gray-600 mb-0.5">
-                            Billable Requisition Cost (Tk)
-                          </label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={formBillableCost}
-                            onChange={(e) =>
-                              handleAutoRecalculate(e.target.value, formImsInv)
-                            }
-                            className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1 font-mono"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-gray-600 mb-0.5">
-                            IMS Own Investment Cost (Tk)
-                          </label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={formImsInv}
-                            onChange={(e) =>
-                              handleAutoRecalculate(
-                                formBillableCost,
-                                e.target.value
-                              )
-                            }
-                            className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1 font-mono"
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
-                        <div>
-                          <label className="block text-blue-800 mb-0.5">
-                            Client Bill Ex-VAT (Tk)
-                          </label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={formBillExVat}
-                            onChange={(e) => setFormBillExVat(e.target.value)}
-                            className="w-full rounded-lg border border-blue-300 bg-white px-2.5 py-1 font-mono"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-blue-800 mb-0.5">
-                            15% VAT Amount (Tk)
-                          </label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={formVatAmt}
-                            onChange={(e) => setFormVatAmt(e.target.value)}
-                            className="w-full rounded-lg border border-blue-300 bg-white px-2.5 py-1 font-mono"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-blue-800 mb-0.5">
-                            AIT Deducted by Client (Tk)
-                          </label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            value={formAitAmt}
-                            onChange={(e) => setFormAitAmt(e.target.value)}
-                            className="w-full rounded-lg border border-blue-300 bg-white px-2.5 py-1 font-mono"
-                          />
-                        </div>
-                      </div>
-                      <div className="text-[11px] text-blue-900">
-                        Bill With VAT:{" "}
-                        <strong>Tk {formatBDT(liveBillWithVat)}</strong> •
-                        Expected Net Inflow (Bill Ex-VAT − AIT):{" "}
-                        <strong>Tk {formatBDT(liveExpectedInflow)}</strong>
-                      </div>
-                    </div>
-
-                    {/* Partial / Full Payment Amount */}
-                    <div className="bg-emerald-50/70 border border-emerald-200 rounded-xl p-2.5 space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-1">
-                        <span className="font-bold text-emerald-950">
-                          2. Payment Received in This Installment
-                        </span>
-                        {formReceivedAmt !== "" && (
-                          <span
-                            className={`text-[11px] font-bold px-2 py-0.5 rounded ${
-                              Math.abs(liveDeviation) <= PAYMENT_TOLERANCE_BDT
-                                ? "bg-emerald-100 text-emerald-900"
-                                : "bg-amber-100 text-amber-900"
-                            }`}
-                          >
-                            Deviation: {liveDeviation >= 0 ? "+" : ""}Tk{" "}
-                            {formatBDT(liveDeviation)}
-                            {Math.abs(liveDeviation) <= PAYMENT_TOLERANCE_BDT
-                              ? " (Within ±10 BDT Tolerance → Fully Paid)"
-                              : ""}
-                          </span>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                        <div>
-                          <label className="block font-bold text-emerald-900 mb-0.5">
-                            Received Payment Amount (Tk) *
-                          </label>
-                          <input
-                            type="number"
-                            step="0.01"
-                            required
-                            value={formReceivedAmt}
-                            onChange={(e) => setFormReceivedAmt(e.target.value)}
-                            placeholder="Enter amount received (0 if only submitting bill)"
-                            className="w-full rounded-lg border-2 border-emerald-500 bg-white px-2.5 py-1.5 font-mono font-bold text-sm text-emerald-950"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-emerald-900 font-semibold mb-0.5">
-                            Payment Received Date
-                          </label>
-                          <input
-                            type="date"
-                            value={formReceivedAt}
-                            onChange={(e) => setFormReceivedAt(e.target.value)}
-                            className="w-full rounded-lg border border-emerald-300 bg-white px-2.5 py-1.5"
-                          />
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-gray-700 font-semibold mb-0.5">
-                          Installment Description / Bank Reference / Deviation Reason
-                        </label>
-                        <input
-                          type="text"
-                          value={formNotes}
-                          onChange={(e) => setFormNotes(e.target.value)}
-                          placeholder="e.g. 1st Partial Payment (40% Advance via Bank Transfer)"
-                          className="w-full rounded-lg border border-gray-300 bg-white px-2.5 py-1"
-                        />
-                      </div>
-
-                      {/* Priority 1C: Opening Balance Bill Toggle */}
-                      <label className="flex items-start gap-2 pt-0.5 cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          checked={formIsOpeningBalance}
-                          onChange={(e) =>
-                            setFormIsOpeningBalance(e.target.checked)
-                          }
-                          className="mt-0.5 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
-                        />
-                        <span className="text-[11px] text-gray-800">
-                          <strong>
-                            Opening Balance Bill (Receivables &amp; Overdue Ageing Only)
-                          </strong>{" "}
-                          — Prior-period invoice carried forward; counts in Receivables &amp; Overdue Ageing, excluded from current-year P&amp;L.
-                        </span>
-                      </label>
-                    </div>
-                    </div>
-
-                    <div className="shrink-0 flex items-center justify-end gap-2 px-5 py-3 border-t border-gray-200 bg-gray-50/70">
-                      <button
-                        type="button"
-                        onClick={() => setModalOpen(false)}
-                        className="px-4 py-1.5 rounded-lg border border-gray-300 bg-white text-gray-700 font-semibold hover:bg-gray-100 cursor-pointer"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={saving}
-                        className="px-5 py-1.5 rounded-lg bg-gray-900 text-white font-bold hover:bg-gray-800 disabled:opacity-50 cursor-pointer"
-                      >
-                        {saving ? "Saving..." : "Save Record"}
-                      </button>
-                    </div>
-                  </form>
-                </>
-              );
-            })()}
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 2: CLOSE OR REOPEN MONTH (Priority 1B) */}
-      {closeMonthModalOpen && selectedProject && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-gray-200">
-            <div className="flex items-center justify-between border-b border-gray-200 pb-3">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900">
-                  {closeMonthMode === "CLOSE"
-                    ? "🔒 Close & Lock Project Month"
-                    : "🔓 Reopen Closed Project Month"}
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {selectedProject.name} ({selectedProject.code})
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCloseMonthModalOpen(false)}
-                className="text-gray-400 hover:text-gray-700 font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            <form
-              onSubmit={handleMonthCloseOrReopen}
-              className="mt-4 space-y-3 text-xs"
-            >
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">
-                  Target Service Month (YYYY-MM)
-                </label>
-                <input
-                  type="text"
-                  required
-                  value={closeMonthTarget}
-                  onChange={(e) => {
-                    const m = e.target.value;
-                    setCloseMonthTarget(m);
-                    setCloseMonthMode(
-                      selectedProject.closedMonths?.[m] ? "REOPEN" : "CLOSE"
-                    );
-                  }}
-                  placeholder="e.g. 2026-10"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-2 font-mono font-bold"
-                />
-              </div>
-
-              {closeMonthMode === "CLOSE" ? (
-                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-2 text-[11px] text-gray-700">
-                  <div className="font-bold text-slate-900">
-                    Month-Close Readiness Checks:
-                  </div>
-                  <ul className="list-disc pl-4 space-y-1">
-                    <li>
-                      No pending Direct Expenses in{" "}
-                      <strong>{closeMonthTarget}</strong>
-                    </li>
-                    <li>
-                      No open/unexecuted Requisitions in{" "}
-                      <strong>{closeMonthTarget}</strong>
-                    </li>
-                    <li>
-                      Client Bill exists for{" "}
-                      <strong>{closeMonthTarget}</strong> OR a No-Bill Reason is provided below
-                    </li>
-                  </ul>
-                  <div className="pt-1">
-                    <label className="block font-semibold text-gray-700 mb-1">
-                      No-Bill Reason (Only required if no Client Bill is recorded for {closeMonthTarget})
-                    </label>
-                    <input
-                      type="text"
-                      value={closeMonthReason}
-                      onChange={(e) => setCloseMonthReason(e.target.value)}
-                      placeholder="Optional if bill exists (e.g. Pre-launch setup month)"
-                      className="w-full rounded-lg border border-gray-300 bg-white px-3 py-1.5"
-                    />
-                  </div>
-                </div>
-              ) : (
-                <div>
-                  <label className="block font-semibold text-gray-700 mb-1">
-                    Mandatory Audit Reason to Reopen {closeMonthTarget} *
-                  </label>
-                  <textarea
-                    rows={2}
-                    required
-                    value={closeMonthReason}
-                    onChange={(e) => setCloseMonthReason(e.target.value)}
-                    placeholder="Enter reason for reopening this locked month..."
-                    className="w-full rounded-lg border border-gray-300 px-3 py-1.5"
-                  />
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-gray-200">
-                <button
-                  type="button"
-                  onClick={() => setCloseMonthModalOpen(false)}
-                  className="px-3.5 py-1.5 rounded-lg border border-gray-300 text-gray-700 font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={saving}
-                  className={`px-4 py-1.5 rounded-lg text-white font-bold cursor-pointer disabled:opacity-50 ${
-                    closeMonthMode === "CLOSE"
-                      ? "bg-slate-900 hover:bg-slate-800"
-                      : "bg-amber-600 hover:bg-amber-700"
-                  }`}
-                >
-                  {saving
-                    ? "Processing..."
-                    : closeMonthMode === "CLOSE"
-                    ? "🔒 Confirm & Lock Month"
-                    : "🔓 Reopen Month"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 3: MANUAL FORECAST OVERRIDE (Priority 1C) */}
-      {forecastModalOpen && forecastTargetProject && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border border-gray-200">
-            <div className="flex items-center justify-between border-b border-gray-200 pb-3">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900">
-                  🔮 Manual Forecast Override — {forecastTargetMonth}
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {forecastTargetProject.name} ({forecastTargetProject.code})
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setForecastModalOpen(false)}
-                className="text-gray-400 hover:text-gray-700 font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-3 text-xs">
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">
-                  Forecast Net Profit for {forecastTargetMonth} (BDT)
-                </label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={forecastAmountStr}
-                  onChange={(e) => setForecastAmountStr(e.target.value)}
-                  className="w-full rounded-lg border-2 border-purple-500 px-3 py-2 font-mono font-bold text-sm"
-                />
-              </div>
-              <div>
-                <label className="block font-semibold text-gray-700 mb-1">
-                  Forecast Note / Assumption
-                </label>
-                <input
-                  type="text"
-                  value={forecastNoteStr}
-                  onChange={(e) => setForecastNoteStr(e.target.value)}
-                  placeholder="e.g. Expected seasonal ramp-up / new headcount"
-                  className="w-full rounded-lg border border-gray-300 px-3 py-1.5"
-                />
-              </div>
-
-              <div className="flex items-center justify-between pt-3 border-t border-gray-200">
-                <button
-                  type="button"
-                  disabled={saving}
-                  onClick={() => handleSaveManualForecast(true)}
-                  className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 border border-amber-200 font-bold hover:bg-amber-100 cursor-pointer"
-                >
-                  ↺ Revert to Auto (3M Avg)
-                </button>
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setForecastModalOpen(false)}
-                    className="px-3 py-1.5 rounded-lg border border-gray-300 text-gray-700 font-semibold"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="button"
-                    disabled={saving}
-                    onClick={() => handleSaveManualForecast(false)}
-                    className="px-4 py-1.5 rounded-lg bg-purple-700 text-white font-bold hover:bg-purple-800 cursor-pointer disabled:opacity-50"
-                  >
-                    Save Manual Forecast
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL 4: DIRECT EXPENSE & EXCEL/CSV IMPORT (Priority 2B) */}
-      {directExpModalOpen && selectedProject && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-2 sm:p-4">
-          <div className="bg-white rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-5 sm:p-6 shadow-xl border border-gray-200">
-            <div className="flex items-center justify-between border-b border-gray-200 pb-3">
-              <div>
-                <h3 className="text-sm font-bold text-gray-900">
-                  📤 Direct Expense &amp; Excel/CSV Bulk Import
-                </h3>
-                <p className="text-xs text-gray-500 mt-0.5">
-                  {selectedProject.name} ({selectedProject.code}) — Record off-requisition petty cash or upload a monthly expense sheet
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setDirectExpModalOpen(false)}
-                className="text-gray-400 hover:text-gray-700 font-bold"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="mt-3 inline-flex rounded-lg bg-gray-100 p-1 border border-gray-200">
-              <button
-                type="button"
-                onClick={() => setDirectExpTab("SINGLE")}
-                className={`px-3 py-1 rounded-md text-xs font-bold cursor-pointer ${
-                  directExpTab === "SINGLE"
-                    ? "bg-white text-gray-900 shadow-xs"
-                    : "text-gray-600"
-                }`}
-              >
-                ➕ Single Direct Expense
-              </button>
-              <button
-                type="button"
-                onClick={() => setDirectExpTab("CSV")}
-                className={`px-3 py-1 rounded-md text-xs font-bold cursor-pointer ${
-                  directExpTab === "CSV"
-                    ? "bg-white text-indigo-700 shadow-xs"
-                    : "text-gray-600"
-                }`}
-              >
-                📄 Upload CSV / Excel Sheet
-              </button>
-            </div>
-
-            <form
-              onSubmit={handleSaveDirectExpenses}
-              className="mt-4 space-y-3 text-xs"
-            >
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block font-semibold text-gray-700 mb-1">
-                    Service Month (YYYY-MM)
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    value={deMonth}
-                    onChange={(e) => setDeMonth(e.target.value)}
-                    placeholder="2026-10"
-                    className="w-full rounded-lg border border-gray-300 px-3 py-1.5 font-mono font-bold"
-                  />
-                </div>
-                {canCloseMonth && (
-                  <div className="flex items-end pb-1">
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={deAutoConfirm}
-                        onChange={(e) => setDeAutoConfirm(e.target.checked)}
-                        className="rounded border-gray-300 text-indigo-600"
-                      />
-                      <span className="text-[11px] font-semibold text-gray-800">
-                        Immediately mark as CONFIRMED by Finance
-                      </span>
-                    </label>
-                  </div>
-                )}
-              </div>
-
-              {directExpTab === "SINGLE" ? (
-                <>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block font-semibold text-gray-700 mb-1">
-                        Cost Head
-                      </label>
-                      <select
-                        value={deCostHead}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setDeCostHead(val);
-                          const matched = selectedProject.costHeads?.find(
-                            (ch) => ch.name === val
-                          );
-                          if (matched) {
-                            setDeCostTag(
-                              matched.tag === "IMS_INVESTMENT"
-                                ? "IMS_INVESTMENT"
-                                : "BILLABLE"
-                            );
-                          }
-                        }}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 font-semibold"
-                      >
-                        {(selectedProject.costHeads || []).map((ch) => (
-                          <option key={ch.id} value={ch.name}>
-                            {ch.name} ({ch.tag})
-                          </option>
-                        ))}
-                        <option value="General Direct Expense">
-                          General Direct Expense
-                        </option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block font-semibold text-gray-700 mb-1">
-                        Cost Classification Tag
-                      </label>
-                      <select
-                        value={deCostTag}
-                        onChange={(e) =>
-                          setDeCostTag(
-                            e.target.value as "BILLABLE" | "IMS_INVESTMENT"
-                          )
-                        }
-                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 font-bold"
-                      >
-                        <option value="BILLABLE">
-                          BILLABLE (Client Billable)
-                        </option>
-                        <option value="IMS_INVESTMENT">
-                          IMS_INVESTMENT (IMS Own Cost)
-                        </option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                    <div>
-                      <label className="block font-semibold text-gray-700 mb-1">
-                        Amount (BDT) *
-                      </label>
-                      <input
-                        type="number"
-                        step="0.01"
-                        required
-                        value={deAmount}
-                        onChange={(e) => setDeAmount(e.target.value)}
-                        placeholder="e.g. 15000"
-                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5 font-mono font-bold"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-semibold text-gray-700 mb-1">
-                        Paid On
-                      </label>
-                      <input
-                        type="date"
-                        value={dePaidOn}
-                        onChange={(e) => setDePaidOn(e.target.value)}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5"
-                      />
-                    </div>
-                    <div>
-                      <label className="block font-semibold text-gray-700 mb-1">
-                        Paid Via
-                      </label>
-                      <select
-                        value={dePaidVia}
-                        onChange={(e) => setDePaidVia(e.target.value)}
-                        className="w-full rounded-lg border border-gray-300 px-3 py-1.5"
-                      >
-                        <option value="Cash">Cash / Petty Cash</option>
-                        <option value="Bank">Bank Transfer</option>
-                        <option value="MFS">bKash / Nagad (MFS)</option>
-                        <option value="Cheque">Cheque</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block font-semibold text-gray-700 mb-1">
-                      Description / Note
-                    </label>
-                    <input
-                      type="text"
-                      value={deNote}
-                      onChange={(e) => setDeNote(e.target.value)}
-                      placeholder="e.g. Emergency field conveyance reimbursement"
-                      className="w-full rounded-lg border border-gray-300 px-3 py-1.5"
-                    />
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-3">
-                  <div className="p-3 rounded-lg bg-indigo-50/50 border border-indigo-200 text-[11px] text-gray-700">
-                    Upload a <strong>.csv</strong> or tab-separated expense file with columns:{" "}
-                    <code>CostHead, Amount, Note, PaidVia</code> (or{" "}
-                    <code>YYYY-MM, CostHead, Amount, PaidVia, Note</code>). Cost heads are automatically matched by name or configured aliases!
-                  </div>
-                  <input
-                    type="file"
-                    accept=".csv,.txt,.tsv"
-                    onChange={(e) => {
-                      const f = e.target.files?.[0];
-                      if (f) handleCsvFileParse(f);
-                    }}
-                    className="block w-full text-xs text-gray-700 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:font-bold file:bg-indigo-600 file:text-white hover:file:bg-indigo-700"
-                  />
-
-                  {csvPreviewRows.length > 0 && (
-                    <div className="max-h-44 overflow-y-auto border border-gray-200 rounded-lg">
-                      <table className="w-full text-[11px] text-left">
-                        <thead className="bg-gray-50 border-b border-gray-200">
-                          <tr>
-                            <th className="py-1.5 px-2">Month</th>
-                            <th className="py-1.5 px-2">Matched Cost Head</th>
-                            <th className="py-1.5 px-2">Tag</th>
-                            <th className="py-1.5 px-2 text-right">Amount</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-gray-100">
-                          {csvPreviewRows.map((r, i) => (
-                            <tr key={i}>
-                              <td className="py-1 px-2 font-mono">
-                                {r.forMonth}
-                              </td>
-                              <td className="py-1 px-2 font-semibold">
-                                {r.costHead}
-                              </td>
-                              <td className="py-1 px-2">{r.costTag}</td>
-                              <td className="py-1 px-2 text-right font-mono font-bold">
-                                Tk {formatBDT(r.amount)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-3 border-t border-gray-200">
-                <button
-                  type="button"
-                  onClick={() => setDirectExpModalOpen(false)}
-                  className="px-3.5 py-1.5 rounded-lg border border-gray-300 text-gray-700 font-semibold"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={
-                    saving ||
-                    (directExpTab === "CSV" && csvPreviewRows.length === 0)
-                  }
-                  className="px-4 py-1.5 rounded-lg bg-indigo-600 text-white font-bold hover:bg-indigo-700 cursor-pointer disabled:opacity-50"
-                >
-                  {saving
-                    ? "Saving..."
-                    : directExpTab === "SINGLE"
-                    ? "Save Direct Expense"
-                    : `Import ${csvPreviewRows.length} Expense Row(s)`}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -86,24 +86,32 @@ describe("stateAfter", () => {
 
 describe("allowedActions", () => {
   const req = { status: "PENDING_HEAD", makerId: "exec", currentAssigneeId: "pm", executorId: null, mdStatus: "PENDING" };
-  it("only the assigned head can sign", () => {
-    expect(allowedActions({ id: "pm", permissions: ["req.approve"] }, req)).toEqual(["APPROVE", "RETURN", "REJECT"]);
-    expect(allowedActions({ id: "other", permissions: ["req.approve"] }, req)).toEqual([]);
+  it("assigned head can approve or route to accounts/director, return, or reject", () => {
+    const actions = allowedActions({ id: "pm", permissions: ["req.approve"] }, req);
+    expect(actions).toEqual(
+      expect.arrayContaining(["APPROVE", "APPROVE_TO_ACCOUNTS", "APPROVE_TO_DIRECTOR", "RETURN", "REJECT"])
+    );
+    expect(allowedActions({ id: "exec", permissions: ["req.approve"] }, req)).toEqual([]);
   });
-  it("any accounts manager can do the accounts check", () => {
+  it("accounts manager can route to director/MD, forward, execute, return, or reject at PENDING_ACCOUNTS", () => {
     const r = { ...req, status: "PENDING_ACCOUNTS", currentAssigneeId: null };
-    expect(allowedActions({ id: "harun", permissions: ["req.accounts.check"] }, r)).toContain("APPROVE");
-    expect(allowedActions({ id: "sumon", permissions: ["req.execute"] }, r)).toEqual([]);
+    const actions = allowedActions({ id: "harun", permissions: ["req.accounts.check"] }, r);
+    expect(actions).toEqual(
+      expect.arrayContaining(["APPROVE_TO_DIRECTOR", "APPROVE_TO_MD", "FORWARD", "EXECUTE", "RETURN", "REJECT"])
+    );
+    expect(allowedActions({ id: "sumon", permissions: ["req.execute"] }, r)).toContain("EXECUTE");
   });
-  it("maker cannot approve own requisition", () => {
+  it("maker cannot approve, return, or reject own requisition", () => {
     const r = { ...req, status: "PENDING_MD", makerId: "md" };
-    expect(allowedActions({ id: "md", permissions: ["req.md"] }, r)).not.toContain("APPROVE");
+    expect(allowedActions({ id: "md", permissions: ["req.md"] }, r)).toEqual([]);
+    const rDir = { ...req, status: "PENDING_DIRECTOR", makerId: "dir" };
+    expect(allowedActions({ id: "dir", permissions: ["req.director"] }, rDir)).toEqual([]);
   });
-  it("forward and execute", () => {
+  it("forward, execute, and settle", () => {
     expect(allowedActions({ id: "harun", permissions: ["req.forward"] }, { ...req, status: "APPROVED" })).toContain("FORWARD");
     const f = { ...req, status: "FORWARDED", executorId: "tanni" };
-    expect(allowedActions({ id: "tanni", permissions: ["req.execute"] }, f)).toEqual(["EXECUTE"]);
-    expect(allowedActions({ id: "sumon", permissions: ["req.execute"] }, f)).toEqual([]);
+    expect(allowedActions({ id: "tanni", permissions: ["req.execute"] }, f)).toEqual(["EXECUTE", "SETTLE"]);
+    expect(allowedActions({ id: "exec", permissions: ["req.create"] }, f)).toEqual([]);
   });
   it("MD can batch-sign released requisitions", () => {
     const r = { ...req, status: "EXECUTED", mdStatus: "PENDING_BATCH" };

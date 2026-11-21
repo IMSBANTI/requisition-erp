@@ -173,6 +173,7 @@ export function allowedActions(user: Actor, req: ReqSnapshot): Action[] {
   const out = new Set<Action>();
 
   const isClosed = ["EXECUTED", "SETTLED", "REJECTED", "CANCELLED", "DRAFT"].includes(req.status);
+  const isMaker = req.makerId === user.id;
   const isPendingStage = [
     "PENDING_HEAD",
     "PENDING_CHECKER",
@@ -182,16 +183,16 @@ export function allowedActions(user: Actor, req: ReqSnapshot): Action[] {
   ].includes(req.status);
 
   if (!isClosed) {
-    // 1. Director actions (Iftekhar, Nazmus, Shible, etc.)
-    if (has(PERMISSIONS.REQ_DIRECTOR) && isPendingStage) {
+    // 1. Director actions (Iftekhar, Nazmus, Shible, etc.) — never self-approve own requisition
+    if (has(PERMISSIONS.REQ_DIRECTOR) && isPendingStage && !isMaker) {
       out.add("APPROVE_TO_ACCOUNTS");
       out.add("APPROVE_TO_MD");
       out.add("RETURN");
       out.add("REJECT");
     }
 
-    // 2. Managing Director actions (Sami Hasan, Syed Sarwar Morshed Azam)
-    if (has(PERMISSIONS.REQ_MD) && (isPendingStage || req.mdStatus === "PENDING_BATCH")) {
+    // 2. Managing Director actions (Sami Hasan, Syed Sarwar Morshed Azam) — never self-approve
+    if (has(PERMISSIONS.REQ_MD) && (isPendingStage || req.mdStatus === "PENDING_BATCH") && !isMaker) {
       out.add("APPROVE_TO_ACCOUNTS");
       out.add("RETURN");
       out.add("REJECT");
@@ -199,7 +200,7 @@ export function allowedActions(user: Actor, req: ReqSnapshot): Action[] {
 
     // 3. Accounts Manager actions (Harun Ur-Rashid, etc.)
     if (has(PERMISSIONS.REQ_ACCOUNTS_CHECK) || has(PERMISSIONS.REQ_FORWARD)) {
-      if (isPendingStage) {
+      if (isPendingStage && !isMaker) {
         out.add("APPROVE_TO_DIRECTOR");
         out.add("APPROVE_TO_MD");
         out.add("FORWARD");
@@ -207,7 +208,7 @@ export function allowedActions(user: Actor, req: ReqSnapshot): Action[] {
         out.add("RETURN");
         out.add("REJECT");
       } else if (req.status === "APPROVED" || req.status === "FORWARDED" || req.status === "PARTIAL_PAID") {
-        out.add("APPROVE_TO_MD");
+        if (!isMaker) out.add("APPROVE_TO_MD");
         out.add("FORWARD");
         out.add("EXECUTE");
         if (req.status === "PARTIAL_PAID" || req.status === "APPROVED" || req.status === "FORWARDED") {
@@ -231,7 +232,7 @@ export function allowedActions(user: Actor, req: ReqSnapshot): Action[] {
       }
     }
 
-    // 5. Manager / Department Head / Project Head / IT Checker actions
+    // 5. Manager / Department Head / Project Head / IT Checker actions — never self-approve
     const isHeadOrCheckerStage =
       req.status === "PENDING_HEAD" || req.status === "PENDING_CHECKER";
     const canSignHeadOrChecker =
@@ -239,7 +240,7 @@ export function allowedActions(user: Actor, req: ReqSnapshot): Action[] {
       has(PERMISSIONS.REQ_APPROVE) ||
       has(PERMISSIONS.REQ_APPROVE_IT);
 
-    if (isHeadOrCheckerStage && canSignHeadOrChecker && !has(PERMISSIONS.REQ_DIRECTOR)) {
+    if (isHeadOrCheckerStage && canSignHeadOrChecker && !has(PERMISSIONS.REQ_DIRECTOR) && !isMaker) {
       out.add("APPROVE");
       out.add("APPROVE_TO_ACCOUNTS");
       out.add("APPROVE_TO_DIRECTOR");

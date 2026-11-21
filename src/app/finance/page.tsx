@@ -7,11 +7,16 @@ import {
   hasFullReportAccess,
 } from "@/lib/rbac";
 import {
-  calculateProfitSummary,
-  getDefaultProjectTermsByCode,
   extractProjectMeta,
   resolveCostHeadsForKind,
 } from "@/lib/profitEngine";
+import {
+  OPENING_BILL_PREFIX,
+  computeProjectPeriodMetrics,
+  getEffectiveDisbursedAmount,
+  isApprovedSpendStatus,
+  resolveEffectiveProjectTerms,
+} from "@/lib/financeMetrics";
 import { ensureUploadedKitProjectsSynced } from "@/lib/projectSync";
 import AppShell from "@/components/AppShell";
 import FinanceClient from "./FinanceClient";
@@ -60,6 +65,10 @@ export default async function FinancePnlPage() {
         },
         include: {
           items: true,
+          approvals: {
+            where: { step: "EXECUTION" },
+            select: { action: true, comment: true },
+          },
         },
         orderBy: { createdAt: "desc" },
       },
@@ -83,20 +92,19 @@ export default async function FinancePnlPage() {
       : isEvent
       ? "EVENT"
       : "PERMANENT";
-    const fallbackTerms = getDefaultProjectTermsByCode(p.code, p.kind);
+
     const meta = extractProjectMeta(p.costHeads);
     const configuredCostHeads = resolveCostHeadsForKind(p.costHeads, isEvent, p.code);
-    const directExpenses: any[] = [];
     const closedMonths = meta.closedMonths || {};
     const manualForecasts = meta.manualForecasts || {};
+    const terms = resolveEffectiveProjectTerms(p);
 
-    // Aggregate requisition costs (All Active/Approved vs Disbursed/Executed) + Confirmed Direct Expenses
+    // Aggregate requisition costs (Approved / Executed only) grouped by service month
     let totalBillableReq = 0;
     let totalImsInvReq = 0;
     let executedBillable = 0;
     let executedImsInv = 0;
 
-    // Also group by service month (YYYY-MM) for monthly P&L view
     const byMonth: Record<
       string,
       {
@@ -106,10 +114,11 @@ export default async function FinancePnlPage() {
         executedBillable: number;
         executedImsInv: number;
         reqCount: number;
+        approvedReqCount: number;
       }
     > = {};
 
-    for (const r of p.requisitions || []) {
+    const requisitionsList = (p.requisitions || []).map((r: any) => {
       const mKey =
         r.forMonth ||
         new Date(r.date || r.createdAt).toISOString().slice(0, 7);
@@ -122,6 +131,7 @@ export default async function FinancePnlPage() {
           executedBillable: 0,
           executedImsInv: 0,
           reqCount: 0,
+          approvedReqCount: 0,
         };
       }
       byMonth[mKey].reqCount += 1;
@@ -142,133 +152,69 @@ export default async function FinancePnlPage() {
         reqIms = Number(r.imsInvestmentTotal || 0);
       }
 
-      const isApprovedOrExecuted =
-        r.status === "EXECUTED" ||
-        r.status === "SETTLED" ||
-        r.status === "PARTIAL_PAID" ||
-        r.status === "APPROVED" ||
-        r.status === "FORWARDED";
+      const disbursedAmount = getEffectiveDisbursedAmount(r);
+      const isApproved = isApprovedSpendStatus(r.status);
 
-      if (isApprovedOrExecuted) {
+      if (isApproved) {
         totalBillableReq += reqBillable;
         totalImsInvReq += reqIms;
-        executedBillable += reqBillable;
-        executedImsInv += reqIms;
         byMonth[mKey].billableCost += reqBillable;
         byMonth[mKey].imsInvestment += reqIms;
-        byMonth[mKey].executedBillable += reqBillable;
-        byMonth[mKey].executedImsInv += reqIms;
+        byMonth[mKey].approvedReqCount += 1;
+
+        if (disbursedAmount > 0) {
+          const reqSum = reqBillable + reqIms;
+          const ratio = reqSum > 0 ? Math.min(1, disbursedAmount / reqSum) : 1;
+          const dBill = reqBillable * ratio;
+          const dIms = reqIms * ratio;
+          executedBillable += dBill;
+          executedImsInv += dIms;
+          byMonth[mKey].executedBillable += dBill;
+          byMonth[mKey].executedImsInv += dIms;
+        }
       }
-    }
 
-    // Include CONFIRMED Direct Expenses in project & monthly costs
-    for (const de of directExpenses) {
-      if (de.status !== "CONFIRMED") continue;
-      const mKey = de.forMonth || new Date().toISOString().slice(0, 7);
-      if (!byMonth[mKey]) {
-        byMonth[mKey] = {
-          forMonth: mKey,
-          billableCost: 0,
-          imsInvestment: 0,
-          executedBillable: 0,
-          executedImsInv: 0,
-          reqCount: 0,
-        };
-      }
-      const amt = Number(de.amount || 0);
-      if (de.costTag === "IMS_INVESTMENT") {
-        totalImsInvReq += amt;
-        executedImsInv += amt;
-        byMonth[mKey].imsInvestment += amt;
-        byMonth[mKey].executedImsInv += amt;
-      } else {
-        totalBillableReq += amt;
-        executedBillable += amt;
-        byMonth[mKey].billableCost += amt;
-        byMonth[mKey].executedBillable += amt;
-      }
-    }
-
-    const effectiveFixedBill =
-      p.fixedMonthlyBill && Number(p.fixedMonthlyBill) > 0
-        ? Number(p.fixedMonthlyBill)
-        : (p.billingProfile || fallbackTerms.billingProfile) === "FIXED_QUOTE" && p.budget
-        ? Number(p.budget)
-        : Number(fallbackTerms.fixedMonthlyBill || 0);
-
-    const terms = {
-      billingProfile: p.billingProfile || fallbackTerms.billingProfile,
-      feeRate:
-        p.feeRate !== undefined && p.feeRate !== null
-          ? Number(p.feeRate)
-          : Number(fallbackTerms.feeRate),
-      aitRate:
-        p.aitRate !== undefined && p.aitRate !== null
-          ? Number(p.aitRate)
-          : Number(fallbackTerms.aitRate),
-      aitGrossupRate:
-        meta.aitGrossupRate !== undefined && meta.aitGrossupRate !== null
-          ? Number(meta.aitGrossupRate)
-          : fallbackTerms.aitGrossupRate !== undefined
-          ? Number(fallbackTerms.aitGrossupRate)
-          : undefined,
-      reimbursementTaxDivisor:
-        meta.reimbursementTaxDivisor !== undefined &&
-        meta.reimbursementTaxDivisor !== null
-          ? Number(meta.reimbursementTaxDivisor)
-          : fallbackTerms.reimbursementTaxDivisor !== undefined
-          ? Number(fallbackTerms.reimbursementTaxDivisor)
-          : undefined,
-      fixedKamRecovery:
-        meta.fixedKamRecovery !== undefined && meta.fixedKamRecovery !== null
-          ? Number(meta.fixedKamRecovery)
-          : fallbackTerms.fixedKamRecovery !== undefined
-          ? Number(fallbackTerms.fixedKamRecovery)
-          : undefined,
-      vatRate:
-        p.vatRate !== undefined && p.vatRate !== null
-          ? Number(p.vatRate)
-          : Number(fallbackTerms.vatRate ?? 0.15),
-      billCycleDays: p.billCycleDays ?? fallbackTerms.billCycleDays ?? 30,
-      funding: p.funding || fallbackTerms.funding || "POSTPAID",
-      fixedMonthlyBill: effectiveFixedBill,
-      maintenanceBudget:
-        p.maintenanceBudget !== undefined && p.maintenanceBudget !== null
-          ? Number(p.maintenanceBudget)
-          : Number(fallbackTerms.maintenanceBudget ?? 0),
-      monthlyAmortization:
-        p.monthlyAmortization !== undefined && p.monthlyAmortization !== null
-          ? Number(p.monthlyAmortization)
-          : Number(fallbackTerms.monthlyAmortization ?? 0),
-    };
-
-    const overallActiveMonths = Math.max(
-      1,
-      new Set([
-        ...Object.keys(byMonth),
-        ...(p.clientBills || [])
-          .filter(
-            (b: any) =>
-              !String(b.notes || "").startsWith("[OPENING_BALANCE]") &&
-              Number(b.billExVat || 0) > 0 &&
-              b.forMonth &&
-              b.forMonth !== "ALL"
-          )
-          .map((b: any) => String(b.forMonth)),
-      ]).size
-    );
-
-    const overallCalc = calculateProfitSummary({
-      terms,
-      billableCost: totalBillableReq,
-      imsInvestment: totalImsInvReq,
-      activeMonthCount: overallActiveMonths,
+      return {
+        id: r.id,
+        number: r.number || "Voucher",
+        forMonth: mKey,
+        date: new Date(r.date || r.createdAt).toISOString().slice(0, 10),
+        disburseOn: r.disburseOn ? new Date(r.disburseOn).toISOString().slice(0, 10) : "",
+        approvedAt: r.approvedAt ? new Date(r.approvedAt).toISOString().slice(0, 10) : "",
+        executedAt: r.executedAt ? new Date(r.executedAt).toISOString().slice(0, 10) : "",
+        makerName: r.makerName,
+        status: r.status,
+        currency: r.currency || "BDT",
+        billableCost: reqBillable,
+        imsInvestment: reqIms,
+        total: Number(r.total || 0),
+        disbursedAmount,
+        variancePct:
+          r.variancePct !== null && r.variancePct !== undefined
+            ? Number(r.variancePct)
+            : null,
+        changeReason: r.changeReason || "",
+        remarks: r.comments || r.remarks || "",
+        items: (r.items || []).map((it: any) => ({
+          id: it.id,
+          sl: it.sl,
+          particulars: it.particulars,
+          costHead: it.costHead || "Uncategorized",
+          costTag: it.costTag || "BILLABLE",
+          forMonth: it.forMonth || mKey,
+          lastMonthAmount:
+            it.lastMonthAmount !== null && it.lastMonthAmount !== undefined
+              ? Number(it.lastMonthAmount)
+              : 0,
+          amount: Number(it.amount || 0),
+        })),
+      };
     });
 
     const bills = (p.clientBills || []).map((b: any) => {
       const rawNotes = b.notes || "";
-      const isOpeningBalance = rawNotes.startsWith("[OPENING_BALANCE]");
-      const cleanNotes = rawNotes.replace("[OPENING_BALANCE]", "").trim();
+      const isOpeningBalance = rawNotes.startsWith(OPENING_BILL_PREFIX);
+      const cleanNotes = rawNotes.replace(OPENING_BILL_PREFIX, "").trim();
       return {
         id: b.id,
         projectId: b.projectId,
@@ -300,65 +246,32 @@ export default async function FinancePnlPage() {
       };
     });
 
-    const totalReceivedFromBills = bills.reduce(
-      (sum: number, b: any) => sum + b.receivedAmount,
-      0
-    );
-    const totalExpectedFromBills = bills.reduce(
-      (sum: number, b: any) => sum + b.expectedInflow,
-      0
-    );
-    const totalBilledWithVat = bills.reduce(
-      (sum: number, b: any) => sum + b.billWithVat,
-      0
-    );
-
-    const requisitionsList = (p.requisitions || []).map((r: any) => {
-      let reqBillable = 0;
-      let reqIms = 0;
-      if (Array.isArray(r.items) && r.items.length > 0) {
-        for (const it of r.items) {
-          const amt = Number(it.amount || 0);
-          if (it.costTag === "IMS_INVESTMENT") {
-            reqIms += amt;
-          } else {
-            reqBillable += amt;
-          }
-        }
-      } else {
-        reqBillable = Number(r.billableTotal || r.total || 0);
-        reqIms = Number(r.imsInvestmentTotal || 0);
-      }
-      const mKey =
-        r.forMonth || new Date(r.date || r.createdAt).toISOString().slice(0, 7);
-      return {
-        id: r.id,
-        number: r.number || "Voucher",
-        forMonth: mKey,
-        date: new Date(r.date || r.createdAt).toISOString().slice(0, 10),
-        disburseOn: r.disburseOn ? new Date(r.disburseOn).toISOString().slice(0, 10) : "",
-        approvedAt: r.approvedAt ? new Date(r.approvedAt).toISOString().slice(0, 10) : "",
-        executedAt: r.executedAt ? new Date(r.executedAt).toISOString().slice(0, 10) : "",
-        makerName: r.makerName,
-        status: r.status,
-        billableCost: reqBillable,
-        imsInvestment: reqIms,
-        total: Number(r.total || 0),
-        variancePct: r.variancePct !== null && r.variancePct !== undefined ? Number(r.variancePct) : null,
-        changeReason: r.changeReason || "",
-        remarks: r.comments || r.remarks || "",
-        items: (r.items || []).map((it: any) => ({
-          id: it.id,
-          sl: it.sl,
-          particulars: it.particulars,
-          costHead: it.costHead || "Uncategorized",
-          costTag: it.costTag || "BILLABLE",
-          forMonth: it.forMonth || mKey,
-          lastMonthAmount: it.lastMonthAmount !== null && it.lastMonthAmount !== undefined ? Number(it.lastMonthAmount) : 0,
-          amount: Number(it.amount || 0),
-        })),
-      };
+    const overallMetrics = computeProjectPeriodMetrics({
+      terms,
+      requisitions: requisitionsList,
+      bills,
+      selectedMonth: "ALL",
     });
+
+    const overallCalc = {
+      ...overallMetrics.calc,
+      billExVat: overallMetrics.billedExVat,
+      billWithVat: overallMetrics.billedWithVat,
+      aitDeducted: overallMetrics.aitDeducted,
+      expectedInflow: overallMetrics.expectedInflow,
+      netProfit: overallMetrics.accruedProfit,
+      netMarginPct: overallMetrics.netMarginPct,
+    };
+
+    const totalReceivedFromBills = bills
+      .filter((b: any) => !b.isOpeningBalance)
+      .reduce((sum: number, b: any) => sum + b.receivedAmount, 0);
+    const totalExpectedFromBills = bills
+      .filter((b: any) => !b.isOpeningBalance)
+      .reduce((sum: number, b: any) => sum + b.expectedInflow, 0);
+    const totalBilledWithVat = bills
+      .filter((b: any) => !b.isOpeningBalance)
+      .reduce((sum: number, b: any) => sum + b.billWithVat, 0);
 
     return {
       id: p.id,
@@ -371,7 +284,7 @@ export default async function FinancePnlPage() {
       directorName: p.director?.name || "—",
       budget: p.budget ? Number(p.budget) : 0,
       terms,
-      reqCount: (p.requisitions || []).length,
+      reqCount: requisitionsList.length,
       requisitionsList,
       totalBillableReq,
       totalImsInvReq,
@@ -388,7 +301,6 @@ export default async function FinancePnlPage() {
       costHeads: configuredCostHeads,
       closedMonths,
       manualForecasts,
-      directExpenses,
     };
   });
 
