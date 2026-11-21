@@ -238,3 +238,149 @@ export function financialReportRequisitionScope(user: ScopeUser): Prisma.Requisi
     project: financialReportProjectScope(user),
   };
 }
+
+export interface ProjectAdminUser extends ScopeUser {
+  designation?: string | null;
+  levelLabel?: string | null;
+  role?: { key?: string; name?: string; isManager?: boolean } | null;
+}
+
+/**
+ * Identifies a KAM (Key Account Manager) — KAMs raise requisitions and view their assigned
+ * projects' financial reports, but NEVER have Administration / Project Setup access.
+ */
+export function isKamUser(user: ProjectAdminUser): boolean {
+  const level = String(user.levelLabel || "").trim().toUpperCase();
+  if (level === "KAM") return true;
+  const desig = String(user.designation || "");
+  return /\bkam\b|key account manager/i.test(desig);
+}
+
+export interface ProjectAdminAccess {
+  /** Super Admin (P5 or admin.users): full create/edit/delete across all projects */
+  isSystemAdmin: boolean;
+  /** Allowed to see Administration -> Projects & Workflows and open /admin/projects */
+  canAccessProjectsAdmin: boolean;
+  /** Allowed to create new projects/events */
+  canCreateProject: boolean;
+  /** Allowed to permanently delete projects/events (System Admin only) */
+  canDeleteProject: boolean;
+  accessMode: "ADMIN" | "GROUP_HEAD" | "PROJECT_MANAGER" | "READ_ONLY" | "NONE";
+}
+
+/**
+ * Strict RBAC for Administration -> Projects & Workflows (/admin/projects & /api/admin/projects).
+ * - Super Admin (P5 / admin.users): Full access (all projects, Create, Edit, Delete)
+ * - KAMs & Executives: NO Administration access (cannot view, edit, or create projects)
+ * - Directors / MD: Access + Create + Edit assigned/scoped projects
+ * - Group Project Head (sr_manager or assigned project headId): Access + Create + Edit assigned projects (others read-only)
+ * - Project Manager (manager role, non-KAM, or assigned checkerId): Access + Edit assigned projects / Read-Only others (cannot create)
+ * - HR (admin.readonly): Read-Only access
+ */
+export function getProjectAdminAccess(
+  user: ProjectAdminUser,
+  opts?: { isAssignedProjectHead?: boolean; isAssignedProjectChecker?: boolean }
+): ProjectAdminAccess {
+  const p = user.permissions;
+  const isSystemAdmin =
+    (user.priorityLevel ?? 2) >= 5 || p.includes(PERMISSIONS.ADMIN_USERS);
+
+  if (isSystemAdmin) {
+    return {
+      isSystemAdmin: true,
+      canAccessProjectsAdmin: true,
+      canCreateProject: true,
+      canDeleteProject: true,
+      accessMode: "ADMIN",
+    };
+  }
+
+  // KAMs never get Administration / Project Setup access even if accidentally given manager role or extra flags
+  if (isKamUser(user)) {
+    return {
+      isSystemAdmin: false,
+      canAccessProjectsAdmin: false,
+      canCreateProject: false,
+      canDeleteProject: false,
+      accessMode: "NONE",
+    };
+  }
+
+  const isDirectorOrMd =
+    p.includes(PERMISSIONS.REQ_DIRECTOR) || p.includes(PERMISSIONS.REQ_MD);
+  const roleKey = String(user.role?.key || "").toLowerCase();
+  const isGroupProjectHead =
+    roleKey === "sr_manager" || Boolean(opts?.isAssignedProjectHead);
+
+  if (isDirectorOrMd || isGroupProjectHead) {
+    return {
+      isSystemAdmin: false,
+      canAccessProjectsAdmin: true,
+      canCreateProject: true,
+      canDeleteProject: false,
+      accessMode: "GROUP_HEAD",
+    };
+  }
+
+  const isProjectManager =
+    roleKey === "manager" || Boolean(opts?.isAssignedProjectChecker);
+
+  if (isProjectManager) {
+    return {
+      isSystemAdmin: false,
+      canAccessProjectsAdmin: true,
+      canCreateProject: false,
+      canDeleteProject: false,
+      accessMode: "PROJECT_MANAGER",
+    };
+  }
+
+  if (p.includes(PERMISSIONS.ADMIN_READONLY)) {
+    return {
+      isSystemAdmin: false,
+      canAccessProjectsAdmin: true,
+      canCreateProject: false,
+      canDeleteProject: false,
+      accessMode: "READ_ONLY",
+    };
+  }
+
+  return {
+    isSystemAdmin: false,
+    canAccessProjectsAdmin: false,
+    canCreateProject: false,
+    canDeleteProject: false,
+    accessMode: "NONE",
+  };
+}
+
+export function canEditSingleProject(
+  user: ProjectAdminUser,
+  project: {
+    headId?: string | null;
+    checkerId?: string | null;
+    directorId?: string | null;
+    createdById?: string | null;
+  }
+): boolean {
+  const access = getProjectAdminAccess(user, {
+    isAssignedProjectHead: project.headId === user.id,
+    isAssignedProjectChecker: project.checkerId === user.id,
+  });
+  if (!access.canAccessProjectsAdmin) return false;
+  if (access.isSystemAdmin) return true;
+  if (access.accessMode === "READ_ONLY") return false;
+
+  const p = user.permissions;
+  if (p.includes(PERMISSIONS.REQ_MD) && hasFullReportAccess(user)) {
+    return true;
+  }
+  if (p.includes(PERMISSIONS.REQ_DIRECTOR) && project.directorId === user.id) {
+    return true;
+  }
+  return (
+    project.headId === user.id ||
+    project.checkerId === user.id ||
+    project.createdById === user.id
+  );
+}

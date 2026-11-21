@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
-import { financialReportProjectScope } from "@/lib/rbac";
+import {
+  canEditSingleProject,
+  financialReportProjectScope,
+  getProjectAdminAccess,
+} from "@/lib/rbac";
 import {
   resolveCostHeadsForKind,
   getDefaultProjectTermsByCode,
@@ -18,9 +22,21 @@ export default async function AdminProjectsPage() {
   const user = await requireUser();
   await ensureUploadedKitProjectsSynced();
 
-  const isSuperAdmin =
-    user.permissions.includes("project.manage") ||
-    user.permissions.includes("admin.users");
+  const [assignedHeadCount, assignedCheckerCount] = await Promise.all([
+    prisma.project.count({ where: { active: true, headId: user.id } }),
+    prisma.project.count({ where: { active: true, checkerId: user.id } }),
+  ]);
+
+  const access = getProjectAdminAccess(user, {
+    isAssignedProjectHead: assignedHeadCount > 0,
+    isAssignedProjectChecker: assignedCheckerCount > 0,
+  });
+
+  if (!access.canAccessProjectsAdmin) {
+    redirect("/?denied=1");
+  }
+
+  const isSuperAdmin = access.isSystemAdmin;
 
   const [projects, companies, users] = await Promise.all([
     prisma.project.findMany({
@@ -41,9 +57,7 @@ export default async function AdminProjectsPage() {
     }),
   ]);
 
-  const isGroupHead =
-    Boolean(user.role.isManager) ||
-    projects.some((p: any) => p.headId === user.id);
+  const hasAnyEditableProject = projects.some((p: any) => canEditSingleProject(user, p));
 
   return (
     <AppShell>
@@ -58,13 +72,17 @@ export default async function AdminProjectsPage() {
             </p>
           </div>
           <div className="text-xs">
-            {isSuperAdmin ? (
+            {access.accessMode === "ADMIN" ? (
               <span className="px-2.5 py-1 rounded-full bg-red-50 text-[#E42528] border border-red-200 font-bold">
                 🔑 Admin — Full Access (All Projects)
               </span>
-            ) : isGroupHead ? (
+            ) : access.accessMode === "GROUP_HEAD" ? (
               <span className="px-2.5 py-1 rounded-full bg-blue-50 text-blue-800 border border-blue-200 font-bold">
-                👤 Group Head — Edit Your Assigned Projects (Others Read-Only)
+                👤 Group Project Head — Edit Assigned Projects (Others Read-Only)
+              </span>
+            ) : access.accessMode === "PROJECT_MANAGER" && hasAnyEditableProject ? (
+              <span className="px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-800 border border-indigo-200 font-bold">
+                👤 Project Manager — Edit Assigned Projects (Read-Only Others)
               </span>
             ) : (
               <span className="px-2.5 py-1 rounded-full bg-gray-100 text-gray-700 border border-gray-200 font-semibold">
@@ -131,14 +149,15 @@ export default async function AdminProjectsPage() {
               varianceThresholdPct: p.varianceThresholdPct ? Number(p.varianceThresholdPct) : 10,
               costHeads: resolveCostHeadsForKind(p.costHeads, isEvent, p.code),
               stepThresholds: meta.stepThresholds || {},
+              canEdit: canEditSingleProject(user, p),
             };
           })}
           companies={companies}
           users={users}
           currentUserId={user.id}
-          isSuperAdmin={isSuperAdmin}
-          canCreateProject={isSuperAdmin || isGroupHead}
-          isReadOnly={!isSuperAdmin && !isGroupHead}
+          isSuperAdmin={access.isSystemAdmin}
+          canCreateProject={access.canCreateProject}
+          isReadOnly={!access.canCreateProject && !hasAnyEditableProject}
         />
       </div>
     </AppShell>

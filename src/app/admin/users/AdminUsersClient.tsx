@@ -356,12 +356,13 @@ export default function AdminUsersClient({
       newLevel === "KAM" && newPriority < 3 ? 3 : newPriority;
     setPriorityLevel(effectivePriority);
     setLevelLabel(newLevel);
-    // Auto-select matching role if creating user
+    // Auto-select matching role (KAM stays executive — not Manager/Admin — with assigned-only financial reports)
     let targetKey = "executive";
     if (effectivePriority === 5) targetKey = "super_admin";
     else if (newLevel === "MD") targetKey = "md";
     else if (newLevel === "Director") targetKey = "director";
-    else if (newLevel === "Manager" || newLevel === "KAM" || effectivePriority >= 3)
+    else if (newLevel === "KAM") targetKey = "executive";
+    else if (newLevel === "Manager" || effectivePriority >= 3)
       targetKey = "manager";
     const foundRole = roles.find((r) => r.key === targetKey);
     if (foundRole) setRoleId(foundRole.id);

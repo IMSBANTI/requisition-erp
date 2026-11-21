@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { canEditSingleProject, getProjectAdminAccess } from "@/lib/rbac";
 import {
   extractProjectMeta,
   packCostHeadsWithMeta,
@@ -11,17 +12,20 @@ export async function POST(request: Request) {
   try {
     const user = await requireUser();
 
-    const isSuperAdmin =
-      user.permissions.includes("project.manage") ||
-      user.permissions.includes("admin.users");
-    const isGroupHead = Boolean(user.role.isManager);
+    const assignedHeadCount = await prisma.project.count({
+      where: { active: true, headId: user.id },
+    });
+    const access = getProjectAdminAccess(user, {
+      isAssignedProjectHead: assignedHeadCount > 0,
+    });
 
-    if (!isSuperAdmin && !isGroupHead) {
+    if (!access.canCreateProject) {
       return NextResponse.json(
-        { error: "Only Admin or a Group Head can create a new project" },
+        { error: "Only System Admin, Directors/MD, or a Group Project Head can create a new project." },
         { status: 403 }
       );
     }
+    const isSuperAdmin = access.isSystemAdmin;
 
     const {
       code,
@@ -188,16 +192,11 @@ export async function PATCH(request: Request) {
       return NextResponse.json({ error: "Project not found" }, { status: 404 });
     }
 
-    const isSuperAdmin =
-      user.permissions.includes("project.manage") ||
-      user.permissions.includes("admin.users");
-    const isProjectGroupHead = existingProject.headId === user.id;
-
-    if (!isSuperAdmin && !isProjectGroupHead) {
+    if (!canEditSingleProject(user, existingProject)) {
       return NextResponse.json(
         {
           error:
-            "Unauthorized: Only Admin or this project's assigned Group Head can edit Project Setup.",
+            "Unauthorized: Only System Admin or this project's assigned Group Project Head / Project Manager can edit Project Setup.",
         },
         { status: 403 }
       );
@@ -315,9 +314,13 @@ export async function PATCH(request: Request) {
 export async function DELETE(request: Request) {
   try {
     const user = await requireUser();
+    const access = getProjectAdminAccess(user);
 
-    if (!user.permissions.includes("project.manage")) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
+    if (!access.canDeleteProject) {
+      return NextResponse.json(
+        { error: "Unauthorized: Only System Admin can permanently delete projects." },
+        { status: 403 }
+      );
     }
 
     const { searchParams } = new URL(request.url);

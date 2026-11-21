@@ -27,9 +27,15 @@ interface SidebarProps {
   };
   pendingCount?: number;
   batchCount?: number;
+  canAccessProjectsAdmin?: boolean;
 }
 
-export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: SidebarProps) {
+export default function Sidebar({
+  user,
+  pendingCount = 0,
+  batchCount = 0,
+  canAccessProjectsAdmin = false,
+}: SidebarProps) {
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = useState(false);
   const perms = user.permissions;
@@ -111,7 +117,8 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
     : [];
 
   const isAdmin = perms.includes("admin.users") || perms.includes("admin.readonly");
-  const canManageProjects = true; // All roles can access Projects & Workflows (Group Heads edit their own, others view read-only)
+  const canManageProjects = Boolean(canAccessProjectsAdmin);
+  const canViewAudit = perms.includes("audit.view");
 
   const sidebarContent = (
     <>
@@ -209,7 +216,7 @@ export default function Sidebar({ user, pendingCount = 0, batchCount = 0 }: Side
           </>
         )}
 
-        {(isAdmin || canManageProjects) && (
+        {(isAdmin || canManageProjects || canViewAudit) && (
           <>
             <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider px-3 mt-6 mb-1">
               Administration

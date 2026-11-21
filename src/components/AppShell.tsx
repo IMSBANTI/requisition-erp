@@ -1,5 +1,6 @@
 import { requireUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getProjectAdminAccess } from "@/lib/rbac";
 import Sidebar, { MobileMenuTrigger } from "./Sidebar";
 import NotificationBell from "./NotificationBell";
 import Link from "next/link";
@@ -10,6 +11,15 @@ export default async function AppShell({ children }: { children: React.ReactNode
   // Calculate pending signatures count for this user
   let pendingCount = 0;
   let batchCount = 0;
+
+  const [assignedHeadCount, assignedCheckerCount] = await Promise.all([
+    prisma.project.count({ where: { active: true, headId: user.id } }),
+    prisma.project.count({ where: { active: true, checkerId: user.id } }),
+  ]);
+  const projectAdminAccess = getProjectAdminAccess(user, {
+    isAssignedProjectHead: assignedHeadCount > 0,
+    isAssignedProjectChecker: assignedCheckerCount > 0,
+  });
 
   if (user.permissions.includes("req.approve") || user.permissions.includes("req.director")) {
     pendingCount += await prisma.requisition.count({
@@ -33,7 +43,12 @@ export default async function AppShell({ children }: { children: React.ReactNode
   return (
     <div className="flex min-h-screen bg-[#F8F9FA]">
       <div className="no-print">
-        <Sidebar user={user} pendingCount={pendingCount} batchCount={batchCount} />
+        <Sidebar
+          user={user}
+          pendingCount={pendingCount}
+          batchCount={batchCount}
+          canAccessProjectsAdmin={projectAdminAccess.canAccessProjectsAdmin}
+        />
       </div>
       <main className="flex-1 min-w-0 overflow-x-hidden min-h-screen flex flex-col pb-20 md:pb-0">
         {/* Global Top Bar */}

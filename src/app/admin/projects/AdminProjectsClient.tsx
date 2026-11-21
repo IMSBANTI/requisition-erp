@@ -45,6 +45,7 @@ interface ProjectItem {
   monthlyAmortization?: number;
   varianceThresholdPct?: number;
   costHeads?: CostHeadConfig[];
+  canEdit?: boolean;
   stepThresholds?: {
     HEAD?: number;
     CHECKER?: number;
@@ -92,8 +93,9 @@ export default function AdminProjectsClient({
 
   function canEditProjectItem(p: ProjectItem | null): boolean {
     if (!p) return false;
+    if (typeof p.canEdit === "boolean") return p.canEdit;
     if (isSuperAdmin) return true;
-    if (currentUserId && p.headId === currentUserId) return true;
+    if (currentUserId && (p.headId === currentUserId || p.checkerId === currentUserId)) return true;
     return false;
   }
 
