@@ -103,7 +103,7 @@ export default async function AdminSecurityPage() {
               Security Controls, Office IP Lock &amp; Two-Factor Authentication
             </h1>
             <p className="text-xs text-gray-500 mt-0.5">
-              Protect sensitive financial &amp; approval data with Office IP Allowlisting, Mobile Access Lock, and mandatory Authenticator 2FA for MD, Directors, Accounts &amp; Super Admin.
+              Protect sensitive financial &amp; approval data with Office IP Allowlisting, Mobile Access Lock, and mandatory Authenticator 2FA for MD, Directors, Accounts, Super Admin &amp; all Financial Report users.
             </p>
           </div>
           <span className="px-2.5 py-1 rounded-full bg-slate-900 text-white text-xs font-bold">

@@ -128,11 +128,14 @@ describe("Role-Based Security Policy & Rate Limiting", () => {
     allowSuperAdminBypass: true,
   };
 
-  it("requires 2FA for Super Admin, MD, Directors, and Accounts, but not regular staff unless flagged", () => {
+  it("requires 2FA for Super Admin, MD, Directors, Accounts, and all Financial Report users (e.g. Polok, Rakib, scoped KAMs)", () => {
     const superAdmin = { id: "1", priorityLevel: 5, role: { key: "super_admin", permissions: ["admin.users"] } };
     const md = { id: "2", priorityLevel: 4, role: { key: "md", permissions: ["req.md"] } };
     const director = { id: "3", priorityLevel: 4, role: { key: "director", permissions: ["req.director"] } };
     const accounts = { id: "4", priorityLevel: 3, role: { key: "accounts_executive", permissions: ["req.execute"] } };
+    const srManager = { id: "6", priorityLevel: 4, role: { key: "sr_manager", isManager: true, permissions: ["req.approve"] } };
+    const kamWithReports = { id: "7", priorityLevel: 3, role: { key: "executive", permissions: ["req.create"] }, extraPermissions: ["report.view"] };
+    const managerNoReports = { id: "8", priorityLevel: 3, role: { key: "manager", isManager: true, permissions: ["req.approve"] }, extraPermissions: ["report.none"] };
     const staff = { id: "5", priorityLevel: 2, role: { key: "executive", permissions: ["req.create"] } };
     const flaggedStaff = { ...staff, extraPermissions: [SECURITY_PERMISSIONS.REQUIRE_2FA] };
 
@@ -140,6 +143,9 @@ describe("Role-Based Security Policy & Rate Limiting", () => {
     expect(is2FARequiredForUser(md, strictPolicy)).toBe(true);
     expect(is2FARequiredForUser(director, strictPolicy)).toBe(true);
     expect(is2FARequiredForUser(accounts, strictPolicy)).toBe(true);
+    expect(is2FARequiredForUser(srManager, strictPolicy)).toBe(true);
+    expect(is2FARequiredForUser(kamWithReports, strictPolicy)).toBe(true);
+    expect(is2FARequiredForUser(managerNoReports, strictPolicy)).toBe(false);
     expect(is2FARequiredForUser(staff, strictPolicy)).toBe(false);
     expect(is2FARequiredForUser(flaggedStaff, strictPolicy)).toBe(true);
   });

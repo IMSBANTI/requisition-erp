@@ -39,7 +39,7 @@ export interface SecurityUserLike {
   id: string;
   priorityLevel?: number | null;
   levelLabel?: string | null;
-  role?: { key: string; permissions?: string[] } | null;
+  role?: { key: string; permissions?: string[]; isManager?: boolean } | null;
   roleKey?: string | null;
   permissions?: string[];
   extraPermissions?: string[];
@@ -91,9 +91,31 @@ export function isAccountsUser(user: SecurityUserLike): boolean {
   );
 }
 
-/** MD, Directors, Accounts, and Super Admin handle sensitive financial/approval data. */
+export function hasFinancialReportAccess(user: SecurityUserLike): boolean {
+  const roleKey = user.role?.key || user.roleKey || "";
+  const perms = getAllUserPerms(user);
+  if (isSuperAdminUser(user)) return true;
+  if (perms.includes("report.none")) return false;
+  return (
+    perms.includes("report.view") ||
+    perms.includes("report.view.all") ||
+    perms.includes("admin.readonly") ||
+    perms.includes("req.director") ||
+    perms.includes("req.md") ||
+    perms.includes("req.accounts.check") ||
+    perms.includes("req.execute") ||
+    Boolean(user.role?.isManager) ||
+    roleKey.includes("manager")
+  );
+}
+
+/** MD, Directors, Accounts, Super Admin, and any user with Financial Reports / P&L access. */
 export function isSensitiveRoleFor2FA(user: SecurityUserLike): boolean {
-  return isExecutiveOrDirectorUser(user) || isAccountsUser(user);
+  return (
+    isExecutiveOrDirectorUser(user) ||
+    isAccountsUser(user) ||
+    hasFinancialReportAccess(user)
+  );
 }
 
 /** Whether 2FA enrollment/verification is mandatory for this user under the active policy. */

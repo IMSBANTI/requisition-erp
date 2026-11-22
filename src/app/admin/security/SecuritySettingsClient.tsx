@@ -260,7 +260,7 @@ export default function SecuritySettingsClient({
             <span className="text-xs text-gray-500">enrolled</span>
           </div>
           <div className="text-[11px] text-gray-400 mt-1">
-            MD, Directors, Accounts &amp; Super Admin
+            MD, Directors, Accounts, Admin &amp; Report Users
           </div>
         </div>
       </div>
@@ -406,7 +406,7 @@ export default function SecuritySettingsClient({
                   <p className="text-gray-500 mt-0.5">
                     Requires Google Authenticator / Microsoft Authenticator (6-digit TOTP) for{" "}
                     <span className="font-semibold text-gray-800">
-                      Super Admin, Managing Directors, Directors, and Accounts
+                      Super Admin, Managing Directors, Directors, Accounts, and all Financial Report / P&amp;L users
                     </span>
                     . Unenrolled users are guided through QR setup automatically on next sign-in.
                   </p>
@@ -477,7 +477,7 @@ export default function SecuritySettingsClient({
               Account 2FA &amp; Access Status ({displayedUsers.length})
             </h2>
             <p className="text-xs text-gray-500">
-              Monitor 2FA enrollment across MD, Directors, Accounts &amp; Super Admin, or reset 2FA if someone loses their phone.
+              Monitor 2FA enrollment across MD, Directors, Accounts, Super Admin &amp; Financial Report users, or reset 2FA if someone loses their phone.
             </p>
           </div>
           <button

@@ -145,7 +145,7 @@ export async function POST(request: Request) {
         return NextResponse.json(
           {
             error:
-              "2FA is mandatory for your role (Super Admin / MD / Director / Accounts) and cannot be disabled. Contact Super Admin if you lost your authenticator device.",
+              "2FA is mandatory for your role (Super Admin / MD / Director / Accounts / Financial Report access) and cannot be disabled. Contact Super Admin if you lost your authenticator device.",
           },
           { status: 403 }
         );
