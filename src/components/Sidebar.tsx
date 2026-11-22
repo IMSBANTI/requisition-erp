@@ -9,6 +9,7 @@ import {
   IconDashboard,
   IconFinance,
   IconKey,
+  IconLock,
   IconMenu,
   IconPlusCircle,
   IconProjects,
@@ -264,6 +265,20 @@ export default function Sidebar({
               >
                 <span className="mr-2.5"><IconProjects className="w-4 h-4 shrink-0" /></span>
                 Projects & Workflows
+              </Link>
+            )}
+            {isSystemAdmin && (
+              <Link
+                href="/admin/security"
+                onClick={() => setMobileOpen(false)}
+                className={`flex items-center px-3 py-2.5 md:py-2 text-xs font-medium rounded-md transition-colors ${
+                  pathname.startsWith("/admin/security")
+                    ? "bg-red-50 text-[#E42528] font-semibold"
+                    : "text-gray-700 hover:bg-gray-100 hover:text-gray-900"
+                }`}
+              >
+                <span className="mr-2.5"><IconLock className="w-4 h-4 shrink-0" /></span>
+                Security &amp; 2FA
               </Link>
             )}
             {canViewAudit && (

@@ -23,7 +23,18 @@ const DEFAULT_DEMO_ACCOUNTS: DemoAccountItem[] = [
   { label: "HR Manager — Moushumi Tamanna (1014)", email: "moushumi@ims.com.bd", role: "Priority 4 • HR Admin" },
 ];
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ blocked?: string }>;
+}) {
+  const sp = await searchParams;
+  const blockedReason =
+    sp.blocked === "ip"
+      ? "ip"
+      : sp.blocked === "mobile"
+      ? "mobile"
+      : null;
   let accounts = DEFAULT_DEMO_ACCOUNTS;
 
   try {
@@ -65,5 +76,5 @@ export default async function LoginPage() {
     // Keep safe static defaults if DB is unreachable
   }
 
-  return <LoginClient demoAccounts={accounts} />;
+  return <LoginClient demoAccounts={accounts} blockedReason={blockedReason} />;
 }

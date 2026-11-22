@@ -133,6 +133,10 @@ model User {
   extraPermissions     String[]      @default([]) // e.g. req.view.all granted by Director/MD
   active               Boolean       @default(true)
   mustChangePassword   Boolean       @default(true)
+  twoFactorEnabled     Boolean       @default(false)
+  twoFactorSecretEnc   String?       // AES-256-GCM encrypted base32 TOTP secret
+  twoFactorBackupCodes String[]      @default([]) // bcrypt hashes of single-use recovery codes
+  twoFactorEnrolledAt  DateTime?
   createdAt            DateTime      @default(now())
   updatedAt            DateTime      @updatedAt
 
@@ -297,6 +301,19 @@ model AuditLog {
 model Counter {
   key   String @id
   value Int    @default(0)
+}
+
+/// Global security policy managed by Super Admin (IP Lock, Mobile Lock, Mandatory 2FA)
+model SecurityPolicy {
+  id                    String   @id @default("default")
+  ipLockEnabled         Boolean  @default(false)
+  allowedIps            String[] @default([])
+  mobileLockEnabled     Boolean  @default(false)
+  enforce2faSensitive   Boolean  @default(true)
+  trustedDeviceDays     Int      @default(14)
+  allowSuperAdminBypass Boolean  @default(true)
+  updatedById           String?
+  updatedAt             DateTime @updatedAt
 }
 
 /// Client Billing, Payment Collection & Realized Profit/Loss Tracker per Project (Monthly) or Event

@@ -1,4 +1,5 @@
 import "server-only";
+import crypto from "crypto";
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -6,9 +7,14 @@ import { SignJWT, jwtVerify } from "jose";
 import bcrypt from "bcryptjs";
 import { prisma } from "./db";
 import { syncDesignationWithLevel } from "./userDisplay";
+import { evaluateAccessPolicy, normalizeIp } from "./security";
+import { getRequestSecurityContext, getSecurityPolicy } from "./securityServer";
 
 const COOKIE = "ims_session";
+const PENDING_2FA_COOKIE = "ims_2fa_pending";
+const TRUSTED_DEVICE_COOKIE = "ims_trusted_device";
 const MAX_AGE = 60 * 60 * 12; // 12 hours
+const PENDING_2FA_MAX_AGE = 60 * 10; // 10 minutes
 
 function secret() {
   const s = process.env.SESSION_SECRET;
@@ -41,7 +47,113 @@ export async function createSession(userId: string) {
 }
 
 export async function destroySession() {
-  (await cookies()).delete(COOKIE);
+  const c = await cookies();
+  c.delete(COOKIE);
+  c.delete(PENDING_2FA_COOKIE);
+}
+
+export interface Pending2faPayload {
+  sub: string;
+  stage: "VERIFY" | "ENROLL";
+  setupSecretEnc?: string;
+}
+
+export async function createPending2faCookie(payload: Pending2faPayload) {
+  const token = await new SignJWT({
+    sub: payload.sub,
+    stage: payload.stage,
+    setupSecretEnc: payload.setupSecretEnc || null,
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(`${PENDING_2FA_MAX_AGE}s`)
+    .sign(secret());
+
+  (await cookies()).set(PENDING_2FA_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge: PENDING_2FA_MAX_AGE,
+  });
+}
+
+export async function readPending2faCookie(): Promise<Pending2faPayload | null> {
+  const token = (await cookies()).get(PENDING_2FA_COOKIE)?.value;
+  if (!token) return null;
+  try {
+    const { payload } = await jwtVerify(token, secret());
+    if (
+      typeof payload.sub !== "string" ||
+      (payload.stage !== "VERIFY" && payload.stage !== "ENROLL")
+    ) {
+      return null;
+    }
+    return {
+      sub: payload.sub,
+      stage: payload.stage,
+      setupSecretEnc:
+        typeof payload.setupSecretEnc === "string" ? payload.setupSecretEnc : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function clearPending2faCookie() {
+  (await cookies()).delete(PENDING_2FA_COOKIE);
+}
+
+function deviceUaFingerprint(userAgent: string): string {
+  return crypto.createHash("sha256").update(userAgent || "unknown").digest("hex").slice(0, 24);
+}
+
+export async function createTrustedDeviceCookie(
+  userId: string,
+  userAgent: string,
+  days: number
+) {
+  if (days <= 0) return;
+  const maxAge = days * 24 * 60 * 60;
+  const token = await new SignJWT({
+    sub: userId,
+    fp: deviceUaFingerprint(userAgent),
+  })
+    .setProtectedHeader({ alg: "HS256" })
+    .setIssuedAt()
+    .setExpirationTime(`${maxAge}s`)
+    .sign(secret());
+
+  (await cookies()).set(TRUSTED_DEVICE_COOKIE, token, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge,
+  });
+}
+
+export async function hasValidTrustedDevice(
+  userId: string,
+  userAgent: string,
+  trustedDeviceDays: number
+): Promise<boolean> {
+  if (trustedDeviceDays <= 0) return false;
+  const token = (await cookies()).get(TRUSTED_DEVICE_COOKIE)?.value;
+  if (!token) return false;
+  try {
+    const { payload } = await jwtVerify(token, secret());
+    return (
+      payload.sub === userId &&
+      payload.fp === deviceUaFingerprint(userAgent)
+    );
+  } catch {
+    return false;
+  }
+}
+
+export async function clearTrustedDeviceCookie() {
+  (await cookies()).delete(TRUSTED_DEVICE_COOKIE);
 }
 
 async function sessionUserId(): Promise<string | null> {
@@ -126,6 +238,25 @@ export const getCurrentUser = cache(async () => {
 export async function requireUser() {
   const user = await getCurrentUser();
   if (!user) redirect("/login");
+
+  const policy = await getSecurityPolicy();
+  if (policy.ipLockEnabled || policy.mobileLockEnabled) {
+    const reqCtx = await getRequestSecurityContext(false);
+    const decision = evaluateAccessPolicy({
+      user,
+      policy,
+      ip: reqCtx.ip,
+      isMobile: reqCtx.isMobile,
+    });
+    if (!decision.allowed) {
+      redirect(
+        decision.code === "MOBILE_BLOCKED"
+          ? "/login?blocked=mobile"
+          : "/login?blocked=ip"
+      );
+    }
+  }
+
   return user;
 }
 
@@ -141,5 +272,10 @@ export async function requirePermission(...perms: string[]) {
 
 export async function clientIp() {
   const h = await headers();
-  return h.get("x-forwarded-for")?.split(",")[0]?.trim() || h.get("x-real-ip") || null;
+  const raw =
+    h.get("cf-connecting-ip") ||
+    h.get("x-forwarded-for") ||
+    h.get("x-real-ip") ||
+    "";
+  return normalizeIp(raw) || null;
 }

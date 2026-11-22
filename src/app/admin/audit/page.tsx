@@ -58,7 +58,17 @@ export default async function AdminAuditPage() {
                       {new Date(log.createdAt).toLocaleString("en-GB")}
                     </td>
                     <td className="py-3 px-4">
-                      <span className="inline-block px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-gray-100 text-gray-800 border border-gray-200">
+                      <span
+                        className={`inline-block px-2 py-0.5 rounded font-mono text-[10px] font-bold border ${
+                          log.action.includes("BLOCKED") || log.action.includes("FAILED")
+                            ? "bg-red-50 text-red-700 border-red-200"
+                            : log.action.includes("2FA_ENABLED") || log.action === "LOGIN_SUCCESS"
+                            ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                            : log.action.includes("SECURITY_") || log.action.includes("2FA")
+                            ? "bg-amber-50 text-amber-800 border-amber-200"
+                            : "bg-gray-100 text-gray-800 border-gray-200"
+                        }`}
+                      >
                         {log.action}
                       </span>
                     </td>

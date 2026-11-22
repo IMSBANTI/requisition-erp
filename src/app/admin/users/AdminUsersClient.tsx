@@ -9,6 +9,7 @@ import {
   backupApproverPermissionTag,
   extractBackupApproverId,
 } from "@/lib/workflow";
+import { SECURITY_PERMISSIONS } from "@/lib/security";
 import { useToast } from "@/components/ToastProvider";
 
 interface Props {
@@ -501,6 +502,27 @@ export default function AdminUsersClient({
     }
   }
 
+  async function handleResetUser2fa(u: any) {
+    const confirmed = await confirmDialog({
+      title: "Reset Two-Factor Authentication",
+      message: `Reset 2FA for "${u.name}" (${u.email})? They will scan a fresh QR code on next sign-in.`,
+      confirmLabel: "Reset 2FA",
+      tone: "danger",
+    });
+    if (!confirmed) return;
+    try {
+      const res = await fetch(`/api/admin/users/${u.id}/reset-2fa`, {
+        method: "POST",
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to reset 2FA");
+      toast.success(data.message || `2FA reset for ${u.name}.`);
+      router.refresh();
+    } catch (err: any) {
+      toast.error(err.message || "Error resetting 2FA");
+    }
+  }
+
   async function handleDeleteUser(u: any) {
     const confirmed = await confirmDialog({
       title: "Delete or Deactivate User",
@@ -909,6 +931,16 @@ export default function AdminUsersClient({
                           >
                             PW
                           </button>
+                          {u.twoFactorEnabled && (
+                            <button
+                              type="button"
+                              onClick={() => handleResetUser2fa(u)}
+                              className="px-2 py-1 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-800 hover:bg-amber-50 hover:text-amber-800 border border-emerald-200 hover:border-amber-300 cursor-pointer"
+                              title="2FA Active — Click to Reset User's 2FA"
+                            >
+                              2FA
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => handleDeleteUser(u)}
@@ -1937,6 +1969,56 @@ export default function AdminUsersClient({
                       }
                     )}
                   </div>
+                </div>
+              </div>
+
+              {/* Row 8: Security Access Overrides (Office IP / Mobile / 2FA) */}
+              <div className="border border-slate-200 bg-slate-50/70 rounded-lg p-3.5">
+                <div className="mb-2">
+                  <label className="font-bold text-gray-900 block">
+                    Security Overrides (Office IP Lock, Mobile Access &amp; 2FA)
+                  </label>
+                  <p className="text-[10px] text-gray-500">
+                    Super Admin, MD &amp; Directors already bypass Office IP &amp; Mobile locks by default and have mandatory 2FA (along with Accounts). Use these overrides for individual staff exceptions.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {[
+                    {
+                      key: SECURITY_PERMISSIONS.ALLOW_REMOTE_IP,
+                      label: "Allow Remote IP (Outside Office Network)",
+                    },
+                    {
+                      key: SECURITY_PERMISSIONS.ALLOW_MOBILE,
+                      label: "Allow Mobile / Tablet Browser Access",
+                    },
+                    {
+                      key: SECURITY_PERMISSIONS.REQUIRE_2FA,
+                      label: "Require 2FA (Authenticator App)",
+                    },
+                    {
+                      key: SECURITY_PERMISSIONS.EXEMPT_2FA,
+                      label: "Temporarily Exempt from Mandatory 2FA",
+                    },
+                  ].map((opt) => (
+                    <label
+                      key={opt.key}
+                      className={`flex items-center gap-2 p-2 rounded border text-[11px] cursor-pointer ${
+                        extraPermissions.includes(opt.key)
+                          ? "bg-red-50 border-red-300 font-bold text-gray-900"
+                          : "bg-white border-gray-200 text-gray-700"
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={extraPermissions.includes(opt.key)}
+                        onChange={() =>
+                          toggleArrayItem(extraPermissions, opt.key, setExtraPermissions)
+                        }
+                      />
+                      <span>{opt.label}</span>
+                    </label>
+                  ))}
                 </div>
               </div>
                 </div>

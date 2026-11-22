@@ -106,6 +106,7 @@ export default async function AdminUsersPage() {
             active: u.active,
             hasSignature: !!u.signature,
             hasPin: !!u.pinHash,
+            twoFactorEnabled: u.twoFactorEnabled,
             };
           })}
           roles={roles.map((r) => ({

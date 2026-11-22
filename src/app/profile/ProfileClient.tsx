@@ -12,6 +12,9 @@ interface ProfileClientProps {
     signature: string | null;
     hasPin: boolean;
     mustChangePassword?: boolean;
+    twoFactorEnabled?: boolean;
+    twoFactorRequired?: boolean;
+    backupCodesRemaining?: number;
     companyName?: string;
     roleName: string;
   };
@@ -39,6 +42,20 @@ export default function ProfileClient({ user }: ProfileClientProps) {
   const [pwError, setPwError] = useState(false);
   const [loadingPw, setLoadingPw] = useState(false);
   const [isDefaultPw, setIsDefaultPw] = useState(user.mustChangePassword ?? true);
+
+  // Two-Factor Authentication (2FA) State
+  const [twoFaEnabled, setTwoFaEnabled] = useState(Boolean(user.twoFactorEnabled));
+  const [backupLeft, setBackupLeft] = useState(user.backupCodesRemaining ?? 0);
+  const [setupQr, setSetupQr] = useState("");
+  const [setupManualKey, setSetupManualKey] = useState("");
+  const [setupToken, setSetupToken] = useState("");
+  const [twoFaCode, setTwoFaCode] = useState("");
+  const [twoFaPassword, setTwoFaPassword] = useState("");
+  const [twoFaMode, setTwoFaMode] = useState<"IDLE" | "SETUP" | "REGEN" | "DISABLE">("IDLE");
+  const [newBackupCodes, setNewBackupCodes] = useState<string[]>([]);
+  const [twoFaMsg, setTwoFaMsg] = useState("");
+  const [twoFaErr, setTwoFaErr] = useState(false);
+  const [loading2fa, setLoading2fa] = useState(false);
 
   useEffect(() => {
     if (canvasRef.current) {
@@ -178,6 +195,104 @@ export default function ProfileClient({ user }: ProfileClientProps) {
       setPwMsg(err.message || "Error updating password");
     } finally {
       setLoadingPw(false);
+    }
+  }
+
+  async function handleStart2faSetup() {
+    setLoading2fa(true);
+    setTwoFaMsg("");
+    setTwoFaErr(false);
+    setNewBackupCodes([]);
+    try {
+      const res = await fetch("/api/user/2fa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "START_SETUP" }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to initialize 2FA");
+      setSetupQr(data.qrDataUrl || "");
+      setSetupManualKey(data.manualKey || "");
+      setSetupToken(data.setupToken || "");
+      setTwoFaCode("");
+      setTwoFaMode("SETUP");
+    } catch (err: any) {
+      setTwoFaErr(true);
+      setTwoFaMsg(err.message || "Error initializing 2FA");
+    } finally {
+      setLoading2fa(false);
+    }
+  }
+
+  async function handleConfirm2faSetup(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading2fa(true);
+    setTwoFaMsg("");
+    setTwoFaErr(false);
+    try {
+      const res = await fetch("/api/user/2fa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "CONFIRM_SETUP",
+          setupToken,
+          code: twoFaCode.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Invalid verification code");
+      setTwoFaEnabled(true);
+      setTwoFaMode("IDLE");
+      setTwoFaCode("");
+      setSetupQr("");
+      setSetupToken("");
+      setNewBackupCodes(data.backupCodes || []);
+      setBackupLeft((data.backupCodes || []).length);
+      setTwoFaMsg("Two-Factor Authentication enabled! Save your 8 backup recovery codes below.");
+    } catch (err: any) {
+      setTwoFaErr(true);
+      setTwoFaMsg(err.message || "Verification failed");
+    } finally {
+      setLoading2fa(false);
+    }
+  }
+
+  async function handleManage2faAction(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading2fa(true);
+    setTwoFaMsg("");
+    setTwoFaErr(false);
+    try {
+      const action = twoFaMode === "REGEN" ? "REGENERATE_BACKUP_CODES" : "DISABLE";
+      const res = await fetch("/api/user/2fa", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          password: twoFaPassword,
+          code: twoFaCode.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to update 2FA");
+      setTwoFaPassword("");
+      setTwoFaCode("");
+      setTwoFaMode("IDLE");
+      if (action === "REGENERATE_BACKUP_CODES") {
+        setNewBackupCodes(data.backupCodes || []);
+        setBackupLeft((data.backupCodes || []).length);
+        setTwoFaMsg("New backup recovery codes generated. Save them safely.");
+      } else {
+        setTwoFaEnabled(false);
+        setBackupLeft(0);
+        setNewBackupCodes([]);
+        setTwoFaMsg("Two-Factor Authentication disabled.");
+      }
+    } catch (err: any) {
+      setTwoFaErr(true);
+      setTwoFaMsg(err.message || "Error updating 2FA");
+    } finally {
+      setLoading2fa(false);
     }
   }
 
@@ -453,6 +568,216 @@ export default function ProfileClient({ user }: ProfileClientProps) {
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Two-Factor Authentication (Authenticator App) Card */}
+      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-gray-100">
+          <div>
+            <h2 className="text-sm font-bold text-gray-900">
+              Two-Factor Authentication (Authenticator App)
+            </h2>
+            <p className="text-xs text-gray-500 mt-0.5">
+              Protects your account with a 6-digit code from Google Authenticator or Microsoft Authenticator.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {user.twoFactorRequired && (
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                Mandatory for Your Role
+              </span>
+            )}
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-[11px] font-bold border ${
+                twoFaEnabled
+                  ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                  : "bg-gray-100 text-gray-600 border-gray-200"
+              }`}
+            >
+              {twoFaEnabled ? `Active (${backupLeft} backup codes)` : "Not Configured"}
+            </span>
+          </div>
+        </div>
+
+        {twoFaMsg && (
+          <div
+            className={`p-2.5 rounded-lg text-xs font-semibold border ${
+              twoFaErr
+                ? "bg-red-50 text-red-700 border-red-200"
+                : "bg-emerald-50 text-emerald-800 border-emerald-200"
+            }`}
+          >
+            {twoFaMsg}
+          </div>
+        )}
+
+        {newBackupCodes.length > 0 && (
+          <div className="p-3.5 bg-amber-50/70 border border-amber-200 rounded-lg space-y-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-xs font-bold text-amber-950">
+                Save Your 8 One-Time Backup Recovery Codes (Shown Once)
+              </p>
+              <button
+                type="button"
+                onClick={() => navigator.clipboard?.writeText(newBackupCodes.join("\n"))}
+                className="px-2.5 py-1 rounded text-[11px] font-bold bg-white border border-amber-300 text-amber-900 hover:bg-amber-100 cursor-pointer"
+              >
+                Copy Codes
+              </button>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {newBackupCodes.map((c) => (
+                <div
+                  key={c}
+                  className="font-mono text-xs font-bold text-gray-900 bg-white border border-amber-200 rounded px-2 py-1 text-center select-all"
+                >
+                  {c}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {twoFaMode === "IDLE" && (
+          <div className="flex flex-wrap items-center gap-2">
+            {!twoFaEnabled ? (
+              <button
+                type="button"
+                disabled={loading2fa}
+                onClick={handleStart2faSetup}
+                className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-gray-900 hover:bg-gray-800 cursor-pointer disabled:opacity-50"
+              >
+                {loading2fa ? "Preparing QR Code..." : "Set Up Authenticator 2FA"}
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTwoFaMode("REGEN");
+                    setTwoFaCode("");
+                    setTwoFaPassword("");
+                    setTwoFaMsg("");
+                  }}
+                  className="px-3.5 py-2 rounded-lg text-xs font-bold text-gray-800 bg-gray-100 hover:bg-gray-200 border border-gray-200 cursor-pointer"
+                >
+                  Regenerate Backup Codes
+                </button>
+                {!user.twoFactorRequired && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTwoFaMode("DISABLE");
+                      setTwoFaCode("");
+                      setTwoFaPassword("");
+                      setTwoFaMsg("");
+                    }}
+                    className="px-3.5 py-2 rounded-lg text-xs font-bold text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 cursor-pointer"
+                  >
+                    Disable 2FA
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        )}
+
+        {twoFaMode === "SETUP" && (
+          <form onSubmit={handleConfirm2faSetup} className="grid grid-cols-1 md:grid-cols-2 gap-5 items-center bg-gray-50 p-4 rounded-lg border border-gray-200">
+            <div className="flex flex-col items-center">
+              {setupQr && (
+                <img
+                  src={setupQr}
+                  alt="2FA QR Code"
+                  className="w-40 h-40 bg-white p-1 rounded border border-gray-200"
+                />
+              )}
+              <p className="mt-2 text-[10px] text-gray-500 uppercase font-semibold">
+                Manual Key
+              </p>
+              <p className="font-mono text-xs font-bold text-gray-800 bg-white px-2 py-1 rounded border border-gray-200 select-all break-all">
+                {setupManualKey}
+              </p>
+            </div>
+            <div className="space-y-3 text-xs">
+              <p className="text-gray-700">
+                1. Scan the QR code with <span className="font-semibold">Google Authenticator</span> or <span className="font-semibold">Microsoft Authenticator</span>.
+                <br />
+                2. Enter the 6-digit code below to activate.
+              </p>
+              <input
+                type="text"
+                inputMode="numeric"
+                required
+                maxLength={6}
+                value={twoFaCode}
+                onChange={(e) => setTwoFaCode(e.target.value)}
+                placeholder="6-digit code"
+                className="w-full px-3 py-2 font-mono text-base tracking-[0.2em] text-center border border-gray-300 rounded-md bg-white"
+              />
+              <div className="flex gap-2">
+                <button
+                  type="submit"
+                  disabled={loading2fa}
+                  className="flex-1 py-2 px-3 rounded-md bg-[#E42528] hover:bg-[#B81D20] text-white font-bold cursor-pointer disabled:opacity-50"
+                >
+                  {loading2fa ? "Verifying..." : "Activate 2FA"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTwoFaMode("IDLE")}
+                  className="py-2 px-3 rounded-md bg-white border border-gray-300 text-gray-700 font-semibold cursor-pointer"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+
+        {(twoFaMode === "REGEN" || twoFaMode === "DISABLE") && (
+          <form onSubmit={handleManage2faAction} className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-3 max-w-md text-xs">
+            <p className="font-bold text-gray-900">
+              {twoFaMode === "REGEN"
+                ? "Confirm identity to generate 8 fresh backup codes (old codes stop working):"
+                : "Confirm identity to disable Two-Factor Authentication:"}
+            </p>
+            <input
+              type="password"
+              required
+              value={twoFaPassword}
+              onChange={(e) => setTwoFaPassword(e.target.value)}
+              placeholder="Current login password"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md bg-white"
+            />
+            <input
+              type="text"
+              inputMode="numeric"
+              required
+              maxLength={6}
+              value={twoFaCode}
+              onChange={(e) => setTwoFaCode(e.target.value)}
+              placeholder="Current 6-digit authenticator code"
+              className="w-full px-3 py-2 font-mono tracking-widest border border-gray-300 rounded-md bg-white"
+            />
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={loading2fa}
+                className="px-4 py-2 rounded-md bg-[#E42528] hover:bg-[#B81D20] text-white font-bold cursor-pointer disabled:opacity-50"
+              >
+                {loading2fa ? "Processing..." : twoFaMode === "REGEN" ? "Generate New Codes" : "Confirm Disable"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setTwoFaMode("IDLE")}
+                className="px-3 py-2 rounded-md bg-white border border-gray-300 text-gray-700 font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );
