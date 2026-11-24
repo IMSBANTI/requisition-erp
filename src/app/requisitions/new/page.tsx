@@ -223,6 +223,28 @@ export default async function NewRequisitionPage() {
               (sum: number, r: any) => sum + Number(r.total || 0),
               0
             );
+            const monthlySpendByMonth: Record<
+              string,
+              { billable: number; ims: number; total: number }
+            > = {};
+            for (const r of recentReqs) {
+              const ym =
+                r.forMonth ||
+                (r.date ? new Date(r.date).toISOString().slice(0, 7) : "");
+              if (!ym) continue;
+              if (!monthlySpendByMonth[ym]) {
+                monthlySpendByMonth[ym] = { billable: 0, ims: 0, total: 0 };
+              }
+              const rTotal = Number(r.total || 0);
+              const rIms = Number(r.imsInvestmentTotal || 0);
+              const rBill =
+                Number(r.billableTotal || 0) > 0
+                  ? Number(r.billableTotal || 0)
+                  : Math.max(0, rTotal - rIms);
+              monthlySpendByMonth[ym].billable += rBill;
+              monthlySpendByMonth[ym].ims += rIms;
+              monthlySpendByMonth[ym].total += rTotal;
+            }
 
             return {
               id: p.id,
@@ -306,6 +328,7 @@ export default async function NewRequisitionPage() {
                   }
                 : null,
               cumulativeSpend,
+              monthlySpendByMonth,
             };
           })}
         />

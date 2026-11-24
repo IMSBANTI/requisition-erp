@@ -443,6 +443,7 @@ export default function RequisitionForm({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitAction, setSubmitAction] = useState<"SUBMIT" | "DRAFT">("SUBMIT");
   const [error, setError] = useState("");
+  const [showBillingBreakdown, setShowBillingBreakdown] = useState(false);
 
   // Pre-fill lines from Last Month Requisition or Configured Cost Heads
   function handlePrefillCostHeads() {
@@ -670,6 +671,19 @@ export default function RequisitionForm({
   }, [items]);
 
   // Live Project / Event Profit & Billing Calculation
+  const priorMonthSpend = useMemo(() => {
+    if (!selectedProject?.monthlySpendByMonth || !forMonth) {
+      return { billable: 0, ims: 0, total: 0 };
+    }
+    return (
+      selectedProject.monthlySpendByMonth[forMonth] || {
+        billable: 0,
+        ims: 0,
+        total: 0,
+      }
+    );
+  }, [selectedProject, forMonth]);
+
   const profitSummary = useMemo(() => {
     if (requisitionMode === "COMPANY" || !selectedProject) return null;
 
@@ -680,6 +694,14 @@ export default function RequisitionForm({
         : selectedProject.billingProfile === "FIXED_QUOTE" && selectedProject.budget > 0
         ? selectedProject.budget
         : 0;
+
+    const isFixedFee = selectedProject.billingProfile === "FIXED_FEE";
+    const effectiveBillable = isFixedFee
+      ? priorMonthSpend.billable + billableTotal
+      : billableTotal;
+    const effectiveIms = isFixedFee
+      ? priorMonthSpend.ims + imsInvestmentTotal
+      : imsInvestmentTotal;
 
     return calculateProfitSummary({
       terms: {
@@ -698,10 +720,16 @@ export default function RequisitionForm({
         monthlyAmortization: selectedProject.monthlyAmortization ?? 0,
         varianceThresholdPct: selectedProject.varianceThresholdPct ?? 10,
       },
-      billableCost: billableTotal,
-      imsInvestment: imsInvestmentTotal,
+      billableCost: effectiveBillable,
+      imsInvestment: effectiveIms,
     });
-  }, [requisitionMode, selectedProject, billableTotal, imsInvestmentTotal]);
+  }, [
+    requisitionMode,
+    selectedProject,
+    billableTotal,
+    imsInvestmentTotal,
+    priorMonthSpend,
+  ]);
 
   // Variance Calculation:
   // - For PROJECT mode: compares against Last Month Requisition Total (or sum of lastMonthAmount)
@@ -1519,98 +1547,178 @@ export default function RequisitionForm({
           </div>
         )}
 
+        {/* Compact Billing / Budget Summary Bar */}
         {requisitionMode !== "COMPANY" &&
           canSeeFinancialPreview &&
           profitSummary &&
-          (billableTotal > 0 || imsInvestmentTotal > 0) && (
-            <div className="mt-4 bg-slate-50 border border-slate-200 rounded-xl p-3.5 sm:p-4 no-print">
-              <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-slate-200">
-                <div>
-                  <div className="text-[11px] font-bold text-slate-600 uppercase tracking-wide">
-                    Live Billing &amp; Net Profit Preview ({selectedProject?.name} · {forMonth})
-                  </div>
-                  <div className="text-[11px] text-slate-500 mt-0.5">
-                    Model:{" "}
-                    <span className="font-mono font-bold text-slate-800">
-                      {profitSummary.billingProfile}
-                    </span>
-                    {" · "}Fee {profitSummary.feeRatePct}% · AIT Deducted {profitSummary.aitRatePct}%
-                    {selectedProject?.aitGrossupRate !== undefined
-                      ? ` · AIT Gross-Up ${(Number(selectedProject.aitGrossupRate) * 100).toFixed(1)}%`
-                      : ""}
-                    {" · "}VAT {profitSummary.vatRatePct}%
-                  </div>
-                </div>
-                <span
-                  className={`px-2.5 py-1 rounded-full text-xs font-extrabold font-mono border ${
-                    profitSummary.netProfit >= 0
-                      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                      : "bg-red-50 text-red-800 border-red-200"
-                  }`}
-                >
-                  Net Profit: {profitSummary.netProfit >= 0 ? "+" : ""}Tk{" "}
-                  {profitSummary.netProfit.toLocaleString("en-IN", {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}{" "}
-                  ({profitSummary.netMarginPct}%)
-                </span>
-              </div>
+          (billableTotal > 0 || imsInvestmentTotal > 0) && (() => {
+            const isFixedFee = profitSummary.billingProfile === "FIXED_FEE";
+            const thisReqTotal = billableTotal + imsInvestmentTotal;
+            const fixedDeductions =
+              profitSummary.maintenanceCost + profitSummary.amortizationCost;
+            const fixedCeiling = Math.max(
+              0,
+              profitSummary.expectedInflow - fixedDeductions
+            );
+            const monthToDateSpend = priorMonthSpend.total + thisReqTotal;
+            const overCeiling = isFixedFee && monthToDateSpend > fixedCeiling;
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mt-3 text-xs">
-                <div className="bg-white rounded-lg p-2.5 border border-slate-200">
-                  <div className="text-[10px] font-bold text-gray-500 uppercase">Billable Cost</div>
-                  <div className="font-mono font-bold text-gray-900 mt-0.5">
-                    Tk {profitSummary.billableCost.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            return (
+              <div className="mt-4 bg-slate-50 border border-slate-200 rounded-xl p-3 no-print">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                    <span className="font-bold text-slate-700">
+                      {isFixedFee
+                        ? `Fixed Monthly Project (${forMonth})`
+                        : `Billing Preview (${forMonth})`}
+                    </span>
+                    <span className="text-slate-600">
+                      This Requisition:{" "}
+                      <strong className="font-mono text-gray-900">
+                        Tk {formatTaka(thisReqTotal)}
+                      </strong>
+                    </span>
+                    {isFixedFee ? (
+                      <>
+                        {priorMonthSpend.total > 0 && (
+                          <span className="text-slate-600">
+                            Prior {forMonth}:{" "}
+                            <strong className="font-mono text-gray-900">
+                              Tk {formatTaka(priorMonthSpend.total)}
+                            </strong>
+                          </span>
+                        )}
+                        <span className="text-slate-600">
+                          Month Total:{" "}
+                          <strong
+                            className={`font-mono ${
+                              overCeiling ? "text-red-700" : "text-gray-900"
+                            }`}
+                          >
+                            Tk {formatTaka(monthToDateSpend)}
+                          </strong>
+                        </span>
+                        <span className="text-slate-500">
+                          Fixed Monthly Ceiling:{" "}
+                          <strong className="font-mono text-slate-800">
+                            Tk {formatTaka(fixedCeiling)}
+                          </strong>
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="text-slate-600">
+                          Client Bill:{" "}
+                          <strong className="font-mono text-gray-900">
+                            Tk {formatTaka(profitSummary.billExVat)}
+                          </strong>
+                        </span>
+                        <span className="text-slate-600">
+                          Expected Inflow:{" "}
+                          <strong className="font-mono text-emerald-800">
+                            Tk {formatTaka(profitSummary.expectedInflow)}
+                          </strong>
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {overCeiling && (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-red-50 text-red-700 border border-red-200">
+                        Over Monthly Ceiling by Tk{" "}
+                        {formatTaka(monthToDateSpend - fixedCeiling)}
+                      </span>
+                    )}
+                    {!isFixedFee && (
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[11px] font-bold font-mono border ${
+                          profitSummary.netProfit >= 0
+                            ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                            : "bg-red-50 text-red-800 border-red-200"
+                        }`}
+                      >
+                        Est. Net: {profitSummary.netProfit >= 0 ? "+" : ""}Tk{" "}
+                        {formatTaka(profitSummary.netProfit)} ({profitSummary.netMarginPct}%)
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setShowBillingBreakdown((v) => !v)}
+                      className="text-[11px] font-semibold text-slate-600 hover:text-slate-900 px-2 py-0.5 rounded bg-white border border-slate-200 cursor-pointer"
+                    >
+                      {showBillingBreakdown ? "Hide Details ▴" : "Details ▾"}
+                    </button>
                   </div>
                 </div>
-                <div className="bg-white rounded-lg p-2.5 border border-amber-200">
-                  <div className="text-[10px] font-bold text-amber-800 uppercase">IMS Investment</div>
-                  <div className="font-mono font-bold text-amber-950 mt-0.5">
-                    Tk {profitSummary.imsInvestment.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+
+                {showBillingBreakdown && (
+                  <div className="mt-2.5 pt-2.5 border-t border-slate-200 space-y-2">
+                    {isFixedFee && (
+                      <p className="text-[11px] text-slate-500">
+                        Fixed monthly fee project — client is billed a fixed{" "}
+                        <span className="font-mono font-semibold text-slate-700">
+                          Tk {formatTaka(profitSummary.billExVat)}
+                        </span>{" "}
+                        for the entire month. Full monthly P&amp;L is tracked across all requisitions in Finance &amp; P&amp;L.
+                      </p>
+                    )}
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <div className="bg-white rounded-lg p-2 border border-slate-200">
+                        <div className="text-[10px] font-bold text-gray-500 uppercase">
+                          Client Bill (Ex-VAT)
+                        </div>
+                        <div className="font-mono font-bold text-gray-900 mt-0.5">
+                          Tk {formatTaka(profitSummary.billExVat)}
+                        </div>
+                      </div>
+                      <div className="bg-white rounded-lg p-2 border border-slate-200">
+                        <div className="text-[10px] font-bold text-gray-500 uppercase">
+                          Bill With VAT ({profitSummary.vatRatePct}%)
+                        </div>
+                        <div className="font-mono font-bold text-gray-900 mt-0.5">
+                          Tk {formatTaka(profitSummary.billWithVat)}
+                        </div>
+                      </div>
+                      <div className="bg-white rounded-lg p-2 border border-slate-200">
+                        <div className="text-[10px] font-bold text-gray-500 uppercase">
+                          AIT Deducted ({profitSummary.aitRatePct}%)
+                        </div>
+                        <div className="font-mono font-bold text-rose-700 mt-0.5">
+                          −Tk {formatTaka(profitSummary.aitDeducted)}
+                        </div>
+                      </div>
+                      {isFixedFee ? (
+                        <div className="bg-white rounded-lg p-2 border border-slate-200">
+                          <div className="text-[10px] font-bold text-gray-500 uppercase">
+                            Fixed EMI + Maint
+                          </div>
+                          <div className="font-mono font-bold text-gray-900 mt-0.5">
+                            −Tk {formatTaka(fixedDeductions)}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="bg-white rounded-lg p-2 border border-slate-200">
+                          <div className="text-[10px] font-bold text-gray-500 uppercase">
+                            Fee{" "}
+                            {profitSummary.aitGrossupAmount > 0
+                              ? "+ Gross-Up"
+                              : `(${profitSummary.feeRatePct}%)`}
+                          </div>
+                          <div className="font-mono font-bold text-blue-900 mt-0.5">
+                            Tk{" "}
+                            {formatTaka(
+                              profitSummary.feeAmount + profitSummary.aitGrossupAmount
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="bg-white rounded-lg p-2.5 border border-slate-200">
-                  <div className="text-[10px] font-bold text-gray-500 uppercase">
-                    Fee {profitSummary.aitGrossupAmount > 0 ? "+ Gross-Up AIT" : ""}
-                  </div>
-                  <div className="font-mono font-bold text-blue-900 mt-0.5">
-                    Tk {(profitSummary.feeAmount + profitSummary.aitGrossupAmount).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="bg-white rounded-lg p-2.5 border border-slate-200">
-                  <div className="text-[10px] font-bold text-gray-500 uppercase">Client Bill (Ex-VAT)</div>
-                  <div className="font-mono font-bold text-gray-900 mt-0.5">
-                    Tk {profitSummary.billExVat.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="bg-white rounded-lg p-2.5 border border-slate-200">
-                  <div className="text-[10px] font-bold text-gray-500 uppercase">VAT ({profitSummary.vatRatePct}%)</div>
-                  <div className="font-mono font-bold text-gray-900 mt-0.5">
-                    Tk {profitSummary.vatAmount.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="bg-white rounded-lg p-2.5 border border-slate-200">
-                  <div className="text-[10px] font-bold text-gray-500 uppercase">Bill With VAT</div>
-                  <div className="font-mono font-bold text-gray-900 mt-0.5">
-                    Tk {profitSummary.billWithVat.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="bg-white rounded-lg p-2.5 border border-slate-200">
-                  <div className="text-[10px] font-bold text-gray-500 uppercase">AIT Deducted ({profitSummary.aitRatePct}%)</div>
-                  <div className="font-mono font-bold text-rose-700 mt-0.5">
-                    −Tk {profitSummary.aitDeducted.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
-                <div className="bg-emerald-50 rounded-lg p-2.5 border border-emerald-200">
-                  <div className="text-[10px] font-bold text-emerald-800 uppercase">Expected Received</div>
-                  <div className="font-mono font-bold text-emerald-950 mt-0.5">
-                    Tk {profitSummary.expectedInflow.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </div>
-                </div>
+                )}
               </div>
-            </div>
-          )}
+            );
+          })()}
 
         {/* Comments Box */}
         <div className="mt-4">
