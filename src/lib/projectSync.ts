@@ -193,7 +193,9 @@ export async function ensureUploadedKitProjectsSynced(): Promise<void> {
         (rp) => extractProjectMeta(rp.costHeads).hist2026ImportedV1 !== true
       ) ||
       Boolean(
-        existingDbh && extractProjectMeta(existingDbh.costHeads).hist2026ImportedV1 !== true
+        existingDbh &&
+          (extractProjectMeta(existingDbh.costHeads).hist2026ImportedV1 !== true ||
+            extractProjectMeta(existingDbh.costHeads).dbhHistAitSyncedV2 !== true)
       ) ||
       Boolean(
         existingSalesOfficer &&

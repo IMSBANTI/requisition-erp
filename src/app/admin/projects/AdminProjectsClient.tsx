@@ -1137,6 +1137,34 @@ export default function AdminProjectsClient({
                           className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
                         />
                       </div>
+                      {editKind !== "EVENT" && editBillingProfile === "FIXED_FEE" && (
+                        <>
+                          <div>
+                            <label className="block text-xs font-semibold text-gray-700">
+                              Monthly Maintenance Reserve (BDT)
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={editMaintenanceBudget}
+                              onChange={(e) => setEditMaintenanceBudget(e.target.value)}
+                              className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
+                            />
+                          </div>
+                          <div className="sm:col-span-2">
+                            <label className="block text-xs font-semibold text-gray-700">
+                              Monthly Setup EMI / Amortization (BDT)
+                            </label>
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={editMonthlyAmortization}
+                              onChange={(e) => setEditMonthlyAmortization(e.target.value)}
+                              className="mt-1 block w-full px-3 py-1.5 border border-gray-300 rounded-md text-xs font-mono bg-white"
+                            />
+                          </div>
+                        </>
+                      )}
                     </div>
                   ) : (
                     <div
@@ -1261,7 +1289,7 @@ export default function AdminProjectsClient({
 
                     {showAdvancedBilling && (
                       <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                        {editKind !== "EVENT" && (
+                        {editKind !== "EVENT" && editBillingProfile !== "FIXED_FEE" && (
                           <>
                             <div>
                               <label className="block text-xs font-semibold text-gray-700">
@@ -1377,7 +1405,7 @@ export default function AdminProjectsClient({
                         </label>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs pt-1 border-t border-gray-200">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs pt-1.5 border-t border-gray-200">
                       <div>
                         <span className="text-gray-500 block text-[10px]">Bill without VAT</span>
                         <span className="font-mono font-bold text-gray-900">
@@ -1395,6 +1423,28 @@ export default function AdminProjectsClient({
                         <span className="font-mono font-semibold text-amber-700">
                           -Tk {formatTaka(editPreview.aitDeducted)}
                         </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 block text-[10px]">Expected Inflow</span>
+                        <span className="font-mono font-bold text-blue-800">
+                          Tk {formatTaka(editPreview.expectedInflow)}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="text-gray-500 block text-[10px]">Fixed Deductions</span>
+                        <span className="font-mono font-semibold text-gray-700">
+                          {editPreview.maintenanceCost + editPreview.amortizationCost > 0
+                            ? `-Tk ${formatTaka(
+                                editPreview.maintenanceCost + editPreview.amortizationCost
+                              )}`
+                            : "Tk 0.00"}
+                        </span>
+                        {editPreview.maintenanceCost + editPreview.amortizationCost > 0 && (
+                          <span className="block text-[9px] text-gray-400">
+                            Maint {formatTaka(editPreview.maintenanceCost)} + EMI{" "}
+                            {formatTaka(editPreview.amortizationCost)}
+                          </span>
+                        )}
                       </div>
                       <div>
                         <span className="text-gray-500 block text-[10px]">Net Profit</span>

@@ -332,38 +332,46 @@ const DBH_MONTH_INFO: Array<{
   { ym: "2026-10", billNo: "2026/10/636/Management Service for Serviced Facility/October/DBH-1", paid: false, recAmt: 0, subDate: "2026-10-26", dueDate: "2026-11-15" },
 ];
 
-const DBH_OFFICE_2026_HISTORY: HistoricalMonthEntry[] = DBH_MONTH_INFO.map((m) => ({
-  forMonth: m.ym,
-  voucherNumber: `IMS-HIST-DBH-2026-${m.ym.slice(5)}`,
-  poNumber: "As Per Agreement",
-  comments: `Historical Jan–Oct 2026 import from DBH Office Set-up 4 Regional Offices (${m.ym})`,
-  items: [
-    { costHead: "House Rent (Branch Office)", costTag: "BILLABLE", particulars: "House Rent (Tongi 22,500 + Savar 21,000 + Basila 18,000 + Matuail 20,000)", amount: 81500 },
-    { costHead: "Utility (Electricity / Water / Gas)", costTag: "BILLABLE", particulars: "Utilities across 4 Branch Offices", amount: 18750 },
-    { costHead: "Internet Connection", costTag: "BILLABLE", particulars: "Internet across 4 Branch Offices", amount: 6500 },
-    { costHead: "Refreshment & Drinking Water", costTag: "BILLABLE", particulars: "Refreshment & Water (4 Offices × 2,500)", amount: 10000 },
-    { costHead: "Hygienic Item & Cleaning Materials", costTag: "BILLABLE", particulars: "Hygienic & Cleaning Supplies (4 Offices × 2,500)", amount: 10000 },
-    { costHead: "Peon / Office Support Service", costTag: "BILLABLE", particulars: "Peon Support Service (4 Offices × 14,000)", amount: 56000 },
-  ],
-  bills: [
-    {
-      forMonth: m.ym,
-      billNumber: m.billNo,
-      poNumber: "As Per Agreement",
-      status: m.paid ? "PAID" : "BILL_SUBMITTED",
-      billExVat: 278685.16,
-      vatAmount: 41802.77,
-      billWithVat: 320487.94,
-      aitAmount: 4180.28,
-      expectedInflow: 274504.88,
-      receivedAmount: m.recAmt,
-      submittedAt: m.subDate,
-      dueDate: m.dueDate,
-      receivedAt: m.recDate,
-      notes: "Includes Tk 43,514.84 setup amortization + Tk 7,200 monthly maintenance reserve",
-    },
-  ],
-}));
+const DBH_OFFICE_2026_HISTORY: HistoricalMonthEntry[] = DBH_MONTH_INFO.map((m) => {
+  // Jan–Jun 2026: DBH deducted 10% AIT on 8% SC (Tk 2,064.16 -> Net Received Tk 276,621.00)
+  // Jul–Oct 2026: DBH switched to 1.0% AIT on Ex-VAT bill (Tk 2,786.85 -> Net Received Tk 275,898.31)
+  const isJulOrLater = m.ym >= "2026-07";
+  const aitAmount = isJulOrLater ? 2786.85 : 2064.16;
+  const expectedInflow = isJulOrLater ? 275898.31 : 276621.0;
+
+  return {
+    forMonth: m.ym,
+    voucherNumber: `IMS-HIST-DBH-2026-${m.ym.slice(5)}`,
+    poNumber: "As Per Agreement",
+    comments: `Historical Jan–Oct 2026 import from DBH Office Set-up 4 Regional Offices (${m.ym})`,
+    items: [
+      { costHead: "House Rent (Branch Office)", costTag: "BILLABLE", particulars: "House Rent (Tongi 22,500 + Savar 21,000 + Basila 18,000 + Matuail 20,000)", amount: 81500 },
+      { costHead: "Utility (Electricity / Water / Gas)", costTag: "BILLABLE", particulars: "Utilities across 4 Branch Offices", amount: 18750 },
+      { costHead: "Internet Connection", costTag: "BILLABLE", particulars: "Internet across 4 Branch Offices", amount: 6500 },
+      { costHead: "Refreshment & Drinking Water", costTag: "BILLABLE", particulars: "Refreshment & Water (4 Offices × 2,500)", amount: 10000 },
+      { costHead: "Hygienic Item & Cleaning Materials", costTag: "BILLABLE", particulars: "Hygienic & Cleaning Supplies (4 Offices × 2,500)", amount: 10000 },
+      { costHead: "Peon / Office Support Service", costTag: "BILLABLE", particulars: "Peon Support Service (4 Offices × 14,000)", amount: 56000 },
+    ],
+    bills: [
+      {
+        forMonth: m.ym,
+        billNumber: m.billNo,
+        poNumber: "As Per Agreement",
+        status: m.paid ? "PAID" : "BILL_SUBMITTED",
+        billExVat: 278685.16,
+        vatAmount: 41802.77,
+        billWithVat: 320487.94,
+        aitAmount,
+        expectedInflow,
+        receivedAmount: m.recAmt,
+        submittedAt: m.subDate,
+        dueDate: m.dueDate,
+        receivedAt: m.recDate,
+        notes: "Includes Tk 43,514.84 setup amortization + Tk 7,200 monthly maintenance reserve",
+      },
+    ],
+  };
+});
 
 // Verified exact figures from "01._DBH_Finance_Sales_Officer_(Daily_Expenditure+_Profit_Calculation)_Year_2026.xlsx"
 const SO_RAW: Array<{
@@ -639,30 +647,82 @@ export async function ensureHistorical2026DataImported(): Promise<void> {
     targets.push({ proj: dbhSo, data: DBH_SO_2026_HISTORY });
   }
 
-  if (targets.length === 0) return;
+  if (targets.length > 0) {
+    const makerUser =
+      (await prisma.user.findFirst({
+        where: { employeeId: "1074", active: true },
+        select: { id: true, name: true, designation: true },
+      })) ||
+      (await prisma.user.findFirst({
+        where: { active: true },
+        orderBy: { priorityLevel: "desc" },
+        select: { id: true, name: true, designation: true },
+      }));
 
-  const makerUser =
-    (await prisma.user.findFirst({
-      where: { employeeId: "1074", active: true },
-      select: { id: true, name: true, designation: true },
-    })) ||
-    (await prisma.user.findFirst({
-      where: { active: true },
-      orderBy: { priorityLevel: "desc" },
-      select: { id: true, name: true, designation: true },
-    }));
+    if (makerUser) {
+      for (const t of targets) {
+        await seedProjectHistory({
+          project: t.proj,
+          entries: t.data,
+          maker: {
+            id: makerUser.id,
+            name: makerUser.name,
+            designation: makerUser.designation || "KAM",
+          },
+        });
+      }
+    }
+  }
 
-  if (!makerUser) return;
+  // One-time correction for PROJ-DBH: upgrade exact fixedMonthlyBill (278685 -> 278685.16)
+  // and correct previously seeded Jan–Oct 2026 bills from old 1.5% AIT (4,180.28) to actual DBH AIT.
+  const freshDbh = await prisma.project.findUnique({ where: { code: "PROJ-DBH" } });
+  if (freshDbh) {
+    const dbhMeta = extractProjectMeta(freshDbh.costHeads);
+    if (dbhMeta.dbhHistAitSyncedV2 !== true) {
+      const existingBills = await prisma.clientBill.findMany({
+        where: {
+          projectId: freshDbh.id,
+          forMonth: { in: DBH_MONTH_INFO.map((m) => m.ym) },
+        },
+      });
+      const dbhTotalMonthlyCost = 182750 + 43514.84 + 7200; // 233,464.84
 
-  for (const t of targets) {
-    await seedProjectHistory({
-      project: t.proj,
-      entries: t.data,
-      maker: {
-        id: makerUser.id,
-        name: makerUser.name,
-        designation: makerUser.designation || "KAM",
-      },
-    });
+      for (const b of existingBills) {
+        const curAit = Number(b.aitAmount || 0);
+        // Only patch legacy 1.5% AIT seeded bills (leaves any manual admin adjustments untouched)
+        if (Math.abs(curAit - 4180.28) <= 0.05) {
+          const isJulOrLater = b.forMonth >= "2026-07";
+          const newAit = isJulOrLater ? 2786.85 : 2064.16;
+          const newExpectedInflow = isJulOrLater ? 275898.31 : 276621.0;
+          const recAmt = Number(b.receivedAmount || 0);
+          const accruedNetProfit = Number((newExpectedInflow - dbhTotalMonthlyCost).toFixed(2));
+          const realizedNetProfit =
+            recAmt > 0 ? Number((recAmt - dbhTotalMonthlyCost).toFixed(2)) : 0;
+
+          await prisma.clientBill.update({
+            where: { id: b.id },
+            data: {
+              aitAmount: newAit,
+              expectedInflow: newExpectedInflow,
+              accruedNetProfit,
+              realizedNetProfit,
+            },
+          });
+        }
+      }
+
+      const curFixedBill = Number(freshDbh.fixedMonthlyBill || 0);
+      await prisma.project.update({
+        where: { id: freshDbh.id },
+        data: {
+          ...(curFixedBill === 278685 ? { fixedMonthlyBill: 278685.16 } : {}),
+          costHeads: packCostHeadsWithMeta(
+            resolveCostHeadsForKind(freshDbh.costHeads, false, "PROJ-DBH"),
+            { ...dbhMeta, dbhHistAitSyncedV2: true }
+          ) as any,
+        },
+      });
+    }
   }
 }

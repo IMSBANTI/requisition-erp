@@ -116,6 +116,30 @@ describe("IMS Profit & Billing Engine — Golden Test Cases (TEST_CASES.md)", ()
     expect(res.netProfit).toBeCloseTo(154677.66, 2);
   });
 
+  it("Test Case 5B — DBH Office Set-up Jul–Oct 2026 Excel Reconciliation (1% AIT + 182,750 Ops + 43,514.84 EMI + 7,200 Maint)", () => {
+    const res = calculateProfitSummary({
+      terms: {
+        billingProfile: "FIXED_FEE",
+        feeRate: 0,
+        aitRate: 0.01,
+        vatRate: 0.15,
+        fixedMonthlyBill: 278685.16,
+        maintenanceBudget: 7200,
+        monthlyAmortization: 43514.84,
+      },
+      billableCost: 182750,
+      imsInvestment: 0,
+    });
+
+    expect(res.billExVat).toBeCloseTo(278685.16, 2);
+    expect(res.vatAmount).toBeCloseTo(41802.77, 2);
+    expect(res.billWithVat).toBeCloseTo(320487.93, 2);
+    expect(res.aitDeducted).toBeCloseTo(2786.85, 2);
+    expect(res.expectedInflow).toBeCloseTo(275898.31, 2);
+    expect(res.grossProfit).toBeCloseTo(93148.31, 2);
+    expect(res.netProfit).toBeCloseTo(42433.47, 2);
+  });
+
   it("Event FIXED_QUOTE & Project >10% Variance Rule", () => {
     const evtRes = calculateProfitSummary({
       terms: {

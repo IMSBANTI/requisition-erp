@@ -82,6 +82,8 @@ export interface ProjectExtendedMeta {
   robiSyncedV2?: boolean;
   /** Internal one-time marker for Jan–Oct 2026 historical Excel baseline import (Robi SME, DBH Office, DBH SO). */
   hist2026ImportedV1?: boolean;
+  /** Internal one-time marker correcting DBH 2026 historical bills AIT (1.5% -> actual Jan–Jun 2,064.16 / Jul–Oct 1%) and exact 278,685.16 bill. */
+  dbhHistAitSyncedV2?: boolean;
 }
 
 export interface BillingTermsInput {
@@ -644,7 +646,7 @@ export function getDefaultProjectTermsByCode(code: string, kind?: string): Billi
       billCycleDays: 15,
       funding: "POSTPAID",
       salaryMonthLag: 0,
-      fixedMonthlyBill: 278685,
+      fixedMonthlyBill: 278685.16,
       maintenanceBudget: 7200,
       monthlyAmortization: 43514.84,
       varianceThresholdPct: 10,
