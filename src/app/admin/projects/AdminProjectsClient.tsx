@@ -1139,7 +1139,7 @@ export default function AdminProjectsClient({
                       </div>
                       {editKind !== "EVENT" && editBillingProfile === "FIXED_FEE" && (
                         <>
-                          <div>
+                          <div className="sm:col-span-2">
                             <label className="block text-xs font-semibold text-gray-700">
                               Monthly Maintenance Reserve (BDT)
                             </label>
