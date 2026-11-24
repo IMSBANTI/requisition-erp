@@ -20,7 +20,7 @@ export default async function AdminSecurityPage() {
     redirect("/?denied=1");
   }
 
-  const [policy, reqCtx, users, securityLogs] = await Promise.all([
+  const [policy, reqCtx, users, securityLogs, devices] = await Promise.all([
     getSecurityPolicy(),
     getRequestSecurityContext(false),
     prisma.user.findMany({
@@ -36,6 +36,11 @@ export default async function AdminSecurityPage() {
             "LOGIN_FAILED",
             "LOGIN_BLOCKED_IP",
             "LOGIN_BLOCKED_MOBILE",
+            "LOGIN_BLOCKED_DEVICE",
+            "DEVICE_PENDING_APPROVAL",
+            "DEVICE_APPROVED",
+            "DEVICE_REVOKED",
+            "DEVICE_DELETED",
             "2FA_ENABLED",
             "2FA_DISABLED",
             "2FA_FAILED",
@@ -52,6 +57,22 @@ export default async function AdminSecurityPage() {
         user: { select: { name: true, email: true, designation: true } },
       },
     }),
+    prisma.trustedDevice
+      .findMany({
+        include: {
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              employeeId: true,
+              role: { select: { name: true } },
+            },
+          },
+        },
+        orderBy: [{ lastSeenAt: "desc" }],
+      })
+      .catch(() => []),
   ]);
 
   const userRows = users.map((u) => {
@@ -116,6 +137,21 @@ export default async function AdminSecurityPage() {
           detectedIp={reqCtx.ip || "local"}
           deviceSummary={reqCtx.deviceSummary}
           users={userRows}
+          devices={devices.map((d) => ({
+            id: d.id,
+            userId: d.userId,
+            userName: d.user.name,
+            userEmail: d.user.email,
+            userEmpId: d.user.employeeId || "",
+            userRole: d.user.role?.name || "",
+            deviceLabel: d.deviceLabel,
+            status: d.status as "PENDING" | "APPROVED" | "REVOKED",
+            firstIp: d.firstIp || "local",
+            lastIp: d.lastIp || "local",
+            lastSeenAt: d.lastSeenAt.toISOString(),
+            approvedAt: d.approvedAt ? d.approvedAt.toISOString() : null,
+            createdAt: d.createdAt.toISOString(),
+          }))}
           recentLogs={securityLogs.map((l) => ({
             id: l.id,
             action: l.action,

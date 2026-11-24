@@ -9,14 +9,19 @@ export interface DemoAccountItem {
   role: string;
 }
 
-type LoginStep = "CREDENTIALS" | "VERIFY_2FA" | "ENROLL_2FA" | "SHOW_BACKUP_CODES";
+type LoginStep =
+  | "CREDENTIALS"
+  | "VERIFY_2FA"
+  | "ENROLL_2FA"
+  | "SHOW_BACKUP_CODES"
+  | "PENDING_DEVICE";
 
 export default function LoginClient({
   demoAccounts,
   blockedReason = null,
 }: {
   demoAccounts: DemoAccountItem[];
-  blockedReason?: "ip" | "mobile" | null;
+  blockedReason?: "ip" | "mobile" | "device" | null;
 }) {
   const router = useRouter();
   const [step, setStep] = useState<LoginStep>("CREDENTIALS");
@@ -36,6 +41,11 @@ export default function LoginClient({
   const [trustBrowser, setTrustBrowser] = useState(true);
   const [backupCodes, setBackupCodes] = useState<string[]>([]);
   const [copiedCodes, setCopiedCodes] = useState(false);
+
+  // Pending Trusted Device Approval state
+  const [pendingDeviceLabel, setPendingDeviceLabel] = useState("");
+  const [pendingDeviceIp, setPendingDeviceIp] = useState("");
+  const [pendingDeviceUser, setPendingDeviceUser] = useState("");
 
   function detectClientTouchMobile(): boolean {
     if (typeof window === "undefined") return false;
@@ -63,6 +73,15 @@ export default function LoginClient({
 
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (data.pendingDeviceApproval) {
+          setPendingDeviceLabel(data.deviceLabel || "This Browser");
+          setPendingDeviceIp(data.detectedIp || "");
+          setPendingDeviceUser(data.userName || email);
+          setStep("PENDING_DEVICE");
+          setError("");
+          setLoading(false);
+          return;
+        }
         setError(data.error || "Login failed");
         setLoading(false);
         return;
@@ -205,6 +224,15 @@ export default function LoginClient({
               <p className="font-bold">Desktop Computer Required</p>
               <p className="mt-0.5">
                 Mobile &amp; tablet access is restricted by IMS security policy for this account. Please sign in from an office desktop browser or request Mobile Access from Super Admin.
+              </p>
+            </div>
+          )}
+
+          {blockedReason === "device" && step === "CREDENTIALS" && (
+            <div className="mb-4 bg-amber-50 border-l-4 border-amber-500 p-3 text-xs text-amber-900">
+              <p className="font-bold">Trusted Device Approval Required</p>
+              <p className="mt-0.5">
+                This browser or device is not currently approved for your account (or was revoked by Super Admin). Sign in below to submit a one-time approval request.
               </p>
             </div>
           )}
@@ -507,6 +535,63 @@ export default function LoginClient({
               >
                 I&apos;ve Saved My Codes — Continue to Dashboard
               </button>
+            </div>
+          )}
+
+          {/* ─── STEP 4: PENDING TRUSTED DEVICE APPROVAL ─── */}
+          {step === "PENDING_DEVICE" && (
+            <div className="space-y-4">
+              <div className="text-center pb-2 border-b border-gray-100">
+                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                  One-Time Device Approval Pending
+                </span>
+                <h3 className="mt-2 text-base font-bold text-gray-900">
+                  Waiting for Super Admin Approval
+                </h3>
+                <p className="text-xs text-gray-500 mt-1">
+                  For security, new laptops, PCs, and mobile phones require one-time approval by Super Admin before signing in.
+                </p>
+              </div>
+
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-3.5 text-xs space-y-1.5">
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-500 font-medium">Account:</span>
+                  <span className="font-bold text-gray-900 text-right">{pendingDeviceUser}</span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span className="text-gray-500 font-medium">Device / Browser:</span>
+                  <span className="font-semibold text-gray-800 text-right">{pendingDeviceLabel}</span>
+                </div>
+                {pendingDeviceIp && (
+                  <div className="flex justify-between gap-2">
+                    <span className="text-gray-500 font-medium">Detected IP:</span>
+                    <span className="font-mono font-semibold text-gray-800">{pendingDeviceIp}</span>
+                  </div>
+                )}
+              </div>
+
+              <p className="text-[11px] text-gray-600 bg-blue-50/70 border border-blue-200 rounded-lg p-2.5">
+                Ask Super Admin to open <span className="font-bold">Administration &rarr; Security &amp; 2FA</span> and click <span className="font-bold">Approve</span> on this device. Once approved, click the button below.
+              </p>
+
+              <button
+                type="button"
+                disabled={loading}
+                onClick={handleSubmitCredentials}
+                className="w-full py-2.5 px-4 rounded-md shadow-sm text-sm font-semibold text-white bg-[#E42528] hover:bg-[#B81D20] cursor-pointer transition-colors disabled:opacity-50"
+              >
+                {loading ? "Checking Approval..." : "Check Approval & Sign In"}
+              </button>
+
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={handleBackToLogin}
+                  className="text-xs text-gray-500 hover:text-gray-800 cursor-pointer"
+                >
+                  &larr; Back to login
+                </button>
+              </div>
             </div>
           )}
         </div>

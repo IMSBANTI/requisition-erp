@@ -8,7 +8,11 @@ import bcrypt from "bcryptjs";
 import { prisma } from "./db";
 import { syncDesignationWithLevel } from "./userDisplay";
 import { evaluateAccessPolicy, normalizeIp } from "./security";
-import { getRequestSecurityContext, getSecurityPolicy } from "./securityServer";
+import {
+  getRequestSecurityContext,
+  getSecurityPolicy,
+  verifyActiveSessionDevice,
+} from "./securityServer";
 
 const COOKIE = "ims_session";
 const PENDING_2FA_COOKIE = "ims_2fa_pending";
@@ -254,6 +258,13 @@ export async function requireUser() {
           ? "/login?blocked=mobile"
           : "/login?blocked=ip"
       );
+    }
+  }
+
+  if (policy.deviceApprovalEnabled) {
+    const deviceOk = await verifyActiveSessionDevice({ user, policy });
+    if (!deviceOk) {
+      redirect("/login?blocked=device");
     }
   }
 

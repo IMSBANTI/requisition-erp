@@ -34,6 +34,8 @@ export default async function LoginPage({
       ? "ip"
       : sp.blocked === "mobile"
       ? "mobile"
+      : sp.blocked === "device"
+      ? "device"
       : null;
   let accounts = DEFAULT_DEMO_ACCOUNTS;
 

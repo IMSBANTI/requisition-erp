@@ -24,6 +24,8 @@ import {
   isValidIpOrCidrEntry,
   normalizeIp,
   recordFailedAttempt,
+  shouldRequireDeviceApproval,
+  shouldSkip2faOnApprovedDevice,
   summarizeUserAgent,
 } from "../security";
 
@@ -227,5 +229,33 @@ describe("Role-Based Security Policy & Rate Limiting", () => {
 
     clearRateLimit(key);
     expect(checkRateLimit(key, 5, 60_000, 2000).allowed).toBe(true);
+  });
+
+  it("enforces Trusted Device Approval for MD/Directors/Staff while allowing smooth 2FA skip on approved devices", () => {
+    const devicePolicy = {
+      ...DEFAULT_SECURITY_POLICY,
+      deviceApprovalEnabled: true,
+      approvedDeviceSkips2fa: true,
+      allowSuperAdminBypass: true,
+    };
+    const superAdmin = { id: "1", priorityLevel: 5, role: { key: "super_admin", permissions: ["admin.users"] } };
+    const md = { id: "2", priorityLevel: 4, role: { key: "md", permissions: ["req.md"] } };
+    const bypassedUser = {
+      id: "9",
+      priorityLevel: 3,
+      role: { key: "manager", permissions: [] },
+      extraPermissions: [SECURITY_PERMISSIONS.BYPASS_DEVICE_APPROVAL],
+    };
+
+    expect(shouldRequireDeviceApproval(superAdmin, devicePolicy)).toBe(false);
+    expect(shouldRequireDeviceApproval(md, devicePolicy)).toBe(true);
+    expect(shouldRequireDeviceApproval(bypassedUser, devicePolicy)).toBe(false);
+    expect(shouldRequireDeviceApproval(md, DEFAULT_SECURITY_POLICY)).toBe(false);
+
+    expect(shouldSkip2faOnApprovedDevice(devicePolicy, "APPROVED")).toBe(true);
+    expect(shouldSkip2faOnApprovedDevice(devicePolicy, "PENDING")).toBe(false);
+    expect(
+      shouldSkip2faOnApprovedDevice({ ...devicePolicy, approvedDeviceSkips2fa: false }, "APPROVED")
+    ).toBe(false);
   });
 });

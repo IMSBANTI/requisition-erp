@@ -38,6 +38,11 @@ export async function POST(request: Request) {
     const mobileLockEnabled = Boolean(body?.mobileLockEnabled);
     const enforce2faSensitive = Boolean(body?.enforce2faSensitive);
     const allowSuperAdminBypass = Boolean(body?.allowSuperAdminBypass);
+    const deviceApprovalEnabled = Boolean(body?.deviceApprovalEnabled);
+    const approvedDeviceSkips2fa =
+      body?.approvedDeviceSkips2fa === undefined
+        ? true
+        : Boolean(body.approvedDeviceSkips2fa);
     const trustedDeviceDays = Math.min(
       90,
       Math.max(0, Math.floor(Number(body?.trustedDeviceDays ?? 14)))
@@ -83,6 +88,8 @@ export async function POST(request: Request) {
         enforce2faSensitive,
         trustedDeviceDays,
         allowSuperAdminBypass,
+        deviceApprovalEnabled,
+        approvedDeviceSkips2fa,
         updatedById: admin.id,
       },
       update: {
@@ -92,6 +99,8 @@ export async function POST(request: Request) {
         enforce2faSensitive,
         trustedDeviceDays,
         allowSuperAdminBypass,
+        deviceApprovalEnabled,
+        approvedDeviceSkips2fa,
         updatedById: admin.id,
       },
     });
@@ -99,7 +108,7 @@ export async function POST(request: Request) {
     await logSecurityAudit({
       userId: admin.id,
       action: "SECURITY_POLICY_UPDATED",
-      details: `IP Lock: ${ipLockEnabled ? `ON (${cleanedIps.length} entries)` : "OFF"} | Mobile Lock: ${mobileLockEnabled ? "ON" : "OFF"} | Mandatory 2FA: ${enforce2faSensitive ? "ON" : "OFF"} | Trusted Browser: ${trustedDeviceDays}d`,
+      details: `IP Lock: ${ipLockEnabled ? `ON (${cleanedIps.length} entries)` : "OFF"} | Mobile Lock: ${mobileLockEnabled ? "ON" : "OFF"} | Device Approval: ${deviceApprovalEnabled ? "ON" : "OFF"} (Skip 2FA: ${approvedDeviceSkips2fa ? "ON" : "OFF"}) | Mandatory 2FA: ${enforce2faSensitive ? "ON" : "OFF"}`,
       ip: reqCtx.ip,
     });
 

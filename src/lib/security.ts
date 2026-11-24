@@ -8,6 +8,7 @@ export const SECURITY_PERMISSIONS = {
   ALLOW_MOBILE: "security.allow.mobile",
   REQUIRE_2FA: "security.require.2fa",
   EXEMPT_2FA: "security.exempt.2fa",
+  BYPASS_DEVICE_APPROVAL: "security.bypass.device_approval",
 } as const;
 
 export const SECURITY_PERMISSION_LIST = [
@@ -15,6 +16,7 @@ export const SECURITY_PERMISSION_LIST = [
   SECURITY_PERMISSIONS.ALLOW_MOBILE,
   SECURITY_PERMISSIONS.REQUIRE_2FA,
   SECURITY_PERMISSIONS.EXEMPT_2FA,
+  SECURITY_PERMISSIONS.BYPASS_DEVICE_APPROVAL,
 ] as const;
 
 export interface SecurityPolicyConfig {
@@ -24,6 +26,8 @@ export interface SecurityPolicyConfig {
   enforce2faSensitive: boolean;
   trustedDeviceDays: number;
   allowSuperAdminBypass: boolean;
+  deviceApprovalEnabled: boolean;
+  approvedDeviceSkips2fa: boolean;
 }
 
 export const DEFAULT_SECURITY_POLICY: SecurityPolicyConfig = {
@@ -33,6 +37,8 @@ export const DEFAULT_SECURITY_POLICY: SecurityPolicyConfig = {
   enforce2faSensitive: true,
   trustedDeviceDays: 14,
   allowSuperAdminBypass: true,
+  deviceApprovalEnabled: false,
+  approvedDeviceSkips2fa: true,
 };
 
 export interface SecurityUserLike {
@@ -128,6 +134,29 @@ export function is2FARequiredForUser(
   if (extra.includes(SECURITY_PERMISSIONS.REQUIRE_2FA)) return true;
   if (policy.enforce2faSensitive && isSensitiveRoleFor2FA(user)) return true;
   return false;
+}
+
+/** Whether a user must sign in from an Admin-Approved Device under the active policy. */
+export function shouldRequireDeviceApproval(
+  user: SecurityUserLike,
+  policy: SecurityPolicyConfig
+): boolean {
+  if (!policy.deviceApprovalEnabled) return false;
+  const extra = user.extraPermissions || [];
+  if (extra.includes(SECURITY_PERMISSIONS.BYPASS_DEVICE_APPROVAL)) return false;
+  const envSuperBypass = process.env.SUPER_ADMIN_BYPASS_IP_LOCK === "true";
+  if (isSuperAdminUser(user) && (policy.allowSuperAdminBypass || envSuperBypass)) {
+    return false;
+  }
+  return true;
+}
+
+/** Whether an Admin-Approved Device allows smooth password-only login (skipping Authenticator 2FA). */
+export function shouldSkip2faOnApprovedDevice(
+  policy: SecurityPolicyConfig,
+  deviceStatus: string | null | undefined
+): boolean {
+  return Boolean(policy.approvedDeviceSkips2fa && deviceStatus === "APPROVED");
 }
 
 /** Normalize raw client IP (strips ::ffff: IPv4-mapped IPv6 prefix and ports). */

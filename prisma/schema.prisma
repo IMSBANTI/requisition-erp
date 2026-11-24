@@ -150,6 +150,7 @@ model User {
   approvals          Approval[]
   notifications      Notification[]
   auditLogs          AuditLog[]
+  trustedDevices     TrustedDevice[]
 }
 
 // ───────────────────────── Requisition ─────────────────────────
@@ -303,17 +304,40 @@ model Counter {
   value Int    @default(0)
 }
 
-/// Global security policy managed by Super Admin (IP Lock, Mobile Lock, Mandatory 2FA)
+/// Global security policy managed by Super Admin (IP Lock, Mobile Lock, Mandatory 2FA, Trusted Devices)
 model SecurityPolicy {
-  id                    String   @id @default("default")
-  ipLockEnabled         Boolean  @default(false)
-  allowedIps            String[] @default([])
-  mobileLockEnabled     Boolean  @default(false)
-  enforce2faSensitive   Boolean  @default(true)
-  trustedDeviceDays     Int      @default(14)
-  allowSuperAdminBypass Boolean  @default(true)
-  updatedById           String?
-  updatedAt             DateTime @updatedAt
+  id                     String   @id @default("default")
+  ipLockEnabled          Boolean  @default(false)
+  allowedIps             String[] @default([])
+  mobileLockEnabled      Boolean  @default(false)
+  enforce2faSensitive    Boolean  @default(true)
+  trustedDeviceDays      Int      @default(14)
+  allowSuperAdminBypass  Boolean  @default(true)
+  deviceApprovalEnabled  Boolean  @default(false)
+  approvedDeviceSkips2fa Boolean  @default(true)
+  updatedById            String?
+  updatedAt              DateTime @updatedAt
+}
+
+/// Admin-approved browsers/devices per user (smooth executive access + blocks unknown laptops/phones)
+model TrustedDevice {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash    String    // SHA-256 hash of HttpOnly ims_device_token cookie
+  deviceLabel  String    // e.g. "Chrome on Windows" or custom admin label like "MD Sami iPhone"
+  userAgent    String?
+  status       String    @default("PENDING") // PENDING | APPROVED | REVOKED
+  firstIp      String?
+  lastIp       String?
+  lastSeenAt   DateTime  @default(now())
+  approvedById String?
+  approvedAt   DateTime?
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  @@unique([userId, tokenHash])
+  @@index([status, createdAt])
 }
 
 /// Client Billing, Payment Collection & Realized Profit/Loss Tracker per Project (Monthly) or Event

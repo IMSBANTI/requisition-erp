@@ -13,8 +13,10 @@ import {
   evaluateAccessPolicy,
   is2FARequiredForUser,
   recordFailedAttempt,
+  shouldSkip2faOnApprovedDevice,
 } from "@/lib/security";
 import {
+  evaluateOrRegisterDeviceForLogin,
   getRequestSecurityContext,
   getSecurityPolicy,
   logSecurityAudit,
@@ -150,6 +152,68 @@ export async function POST(request: Request) {
         { error: access.reason, blockedCode: access.code },
         { status: 403 }
       );
+    }
+
+    // Evaluate Trusted Device Approval
+    const deviceCheck = await evaluateOrRegisterDeviceForLogin({
+      user: securityUser,
+      policy,
+      reqCtx,
+    });
+
+    if (deviceCheck.status === "REVOKED") {
+      await logSecurityAudit({
+        userId: user.id,
+        action: "LOGIN_BLOCKED_DEVICE",
+        details: `Blocked login from revoked device "${deviceCheck.deviceLabel}" (${reqCtx.deviceSummary})`,
+        ip: reqCtx.ip,
+      });
+      return NextResponse.json(
+        {
+          error:
+            "This device has been revoked by Super Admin. Please contact Super Admin to re-approve this device.",
+          blockedCode: "DEVICE_REVOKED",
+        },
+        { status: 403 }
+      );
+    }
+
+    if (deviceCheck.status === "PENDING") {
+      if (deviceCheck.isNew) {
+        await logSecurityAudit({
+          userId: user.id,
+          action: "DEVICE_PENDING_APPROVAL",
+          details: `New device awaiting Super Admin approval: "${deviceCheck.deviceLabel}"`,
+          ip: reqCtx.ip,
+        });
+      }
+      return NextResponse.json(
+        {
+          pendingDeviceApproval: true,
+          deviceId: deviceCheck.deviceId,
+          deviceLabel: deviceCheck.deviceLabel,
+          detectedIp: reqCtx.ip || "local",
+          userName: user.name,
+          error:
+            "This device is not yet approved. Super Admin can approve it in Administration → Security & 2FA.",
+        },
+        { status: 403 }
+      );
+    }
+
+    // Smooth executive login: Admin-Approved Device can skip Authenticator 2FA when configured
+    if (
+      deviceCheck.status === "APPROVED" &&
+      shouldSkip2faOnApprovedDevice(policy, "APPROVED")
+    ) {
+      await createSession(user.id);
+      await logSecurityAudit({
+        userId: user.id,
+        action: "LOGIN_SUCCESS",
+        details: `Signed in via Admin-Approved Device "${deviceCheck.deviceLabel}" (${reqCtx.deviceSummary})`,
+        ip: reqCtx.ip,
+      });
+      return NextResponse.json({ success: true });
     }
 
     // Check Two-Factor Authentication (TOTP)

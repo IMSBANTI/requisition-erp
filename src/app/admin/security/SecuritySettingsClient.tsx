@@ -23,6 +23,22 @@ interface SecurityUserRow {
   isExecOrDir: boolean;
 }
 
+interface TrustedDeviceRow {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userEmpId: string;
+  userRole: string;
+  deviceLabel: string;
+  status: "PENDING" | "APPROVED" | "REVOKED";
+  firstIp: string;
+  lastIp: string;
+  lastSeenAt: string;
+  approvedAt: string | null;
+  createdAt: string;
+}
+
 interface SecurityLogRow {
   id: string;
   action: string;
@@ -38,12 +54,14 @@ export default function SecuritySettingsClient({
   detectedIp,
   deviceSummary,
   users,
+  devices = [],
   recentLogs,
 }: {
   initialPolicy: SecurityPolicyConfig;
   detectedIp: string;
   deviceSummary: string;
   users: SecurityUserRow[];
+  devices?: TrustedDeviceRow[];
   recentLogs: SecurityLogRow[];
 }) {
   const router = useRouter();
@@ -54,6 +72,12 @@ export default function SecuritySettingsClient({
   const [newIpInput, setNewIpInput] = useState("");
   const [mobileLockEnabled, setMobileLockEnabled] = useState(
     initialPolicy.mobileLockEnabled
+  );
+  const [deviceApprovalEnabled, setDeviceApprovalEnabled] = useState(
+    initialPolicy.deviceApprovalEnabled
+  );
+  const [approvedDeviceSkips2fa, setApprovedDeviceSkips2fa] = useState(
+    initialPolicy.approvedDeviceSkips2fa
   );
   const [enforce2faSensitive, setEnforce2faSensitive] = useState(
     initialPolicy.enforce2faSensitive
@@ -67,6 +91,32 @@ export default function SecuritySettingsClient({
   const [saving, setSaving] = useState(false);
   const [resettingUserId, setResettingUserId] = useState<string | null>(null);
   const [showAllUsers, setShowAllUsers] = useState(false);
+  const [deviceFilter, setDeviceFilter] = useState<"ALL" | "PENDING" | "APPROVED" | "REVOKED">("ALL");
+  const [deviceBusyId, setDeviceBusyId] = useState<string | null>(null);
+  const [labelEdits, setLabelEdits] = useState<Record<string, string>>({});
+
+  const pendingDevicesCount = useMemo(
+    () => devices.filter((d) => d.status === "PENDING").length,
+    [devices]
+  );
+  const approvedDevicesCount = useMemo(
+    () => devices.filter((d) => d.status === "APPROVED").length,
+    [devices]
+  );
+  const revokedDevicesCount = useMemo(
+    () => devices.filter((d) => d.status === "REVOKED").length,
+    [devices]
+  );
+
+  const sortedFilteredDevices = useMemo(() => {
+    const order = { PENDING: 0, APPROVED: 1, REVOKED: 2 };
+    return devices
+      .filter((d) => deviceFilter === "ALL" || d.status === deviceFilter)
+      .sort((a, b) => {
+        if (order[a.status] !== order[b.status]) return order[a.status] - order[b.status];
+        return new Date(b.lastSeenAt).getTime() - new Date(a.lastSeenAt).getTime();
+      });
+  }, [devices, deviceFilter]);
 
   const sensitiveUsers = useMemo(
     () => users.filter((u) => u.isSensitive || u.is2faRequired || u.twoFactorEnabled),
@@ -116,6 +166,8 @@ export default function SecuritySettingsClient({
           ipLockEnabled,
           allowedIps,
           mobileLockEnabled,
+          deviceApprovalEnabled,
+          approvedDeviceSkips2fa,
           enforce2faSensitive,
           trustedDeviceDays,
           allowSuperAdminBypass,
@@ -163,14 +215,63 @@ export default function SecuritySettingsClient({
     }
   }
 
+  async function handleDeviceAction(
+    device: TrustedDeviceRow,
+    action: "APPROVE" | "REVOKE" | "DELETE"
+  ) {
+    if (action === "REVOKE" || action === "DELETE") {
+      const ok = await confirmDialog({
+        title: action === "REVOKE" ? "Revoke Approved Device" : "Remove Device Record",
+        message:
+          action === "REVOKE"
+            ? `Revoke "${device.deviceLabel}" for ${device.userName}? Their session on this device will be signed out immediately.`
+            : `Delete device record "${device.deviceLabel}" for ${device.userName}?`,
+        confirmLabel: action === "REVOKE" ? "Revoke Access" : "Remove",
+        tone: "danger",
+      });
+      if (!ok) return;
+    }
+
+    setDeviceBusyId(device.id);
+    try {
+      const customLabel = (labelEdits[device.id] ?? device.deviceLabel).trim();
+      const res = await fetch("/api/admin/devices", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deviceId: device.id,
+          action,
+          deviceLabel: customLabel || device.deviceLabel,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast.error(data.error || "Failed to update device.");
+        return;
+      }
+      if (action === "APPROVE") {
+        toast.success(`Approved "${customLabel || device.deviceLabel}" for ${device.userName}.`);
+      } else if (action === "REVOKE") {
+        toast.info(`Revoked "${device.deviceLabel}" for ${device.userName}.`);
+      } else {
+        toast.success("Device record removed.");
+      }
+      router.refresh();
+    } catch {
+      toast.error("Network error while updating device.");
+    } finally {
+      setDeviceBusyId(null);
+    }
+  }
+
   function badgeColorForAction(action: string) {
-    if (action.includes("BLOCKED") || action.includes("FAILED")) {
+    if (action.includes("BLOCKED") || action.includes("FAILED") || action === "DEVICE_REVOKED") {
       return "bg-red-50 text-red-700 border-red-200";
     }
-    if (action.includes("2FA_ENABLED") || action === "LOGIN_SUCCESS") {
+    if (action.includes("2FA_ENABLED") || action === "LOGIN_SUCCESS" || action === "DEVICE_APPROVED") {
       return "bg-emerald-50 text-emerald-800 border-emerald-200";
     }
-    if (action.includes("RESET") || action.includes("BACKUP") || action.includes("POLICY")) {
+    if (action.includes("RESET") || action.includes("BACKUP") || action.includes("POLICY") || action.includes("DEVICE_")) {
       return "bg-amber-50 text-amber-800 border-amber-200";
     }
     return "bg-gray-100 text-gray-800 border-gray-200";
@@ -393,6 +494,47 @@ export default function SecuritySettingsClient({
                 </span>
               </label>
             </div>
+
+            <div className="border-2 border-indigo-200 bg-indigo-50/40 rounded-lg p-4 space-y-3">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-bold text-indigo-950 text-sm">
+                    Trusted Device Approval (Recommended for MD, Directors &amp; 4 Offices)
+                  </h3>
+                  <p className="text-indigo-900/80 mt-0.5">
+                    Require one-time Super Admin approval for each user&apos;s laptop, office PC, or mobile browser. Unknown devices are blocked automatically — even if someone steals a password or an office ISP IP changes.
+                  </p>
+                </div>
+                <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 pt-0.5">
+                  <input
+                    type="checkbox"
+                    checked={deviceApprovalEnabled}
+                    onChange={(e) => setDeviceApprovalEnabled(e.target.checked)}
+                    className="h-4 w-4 rounded border-indigo-400 text-[#E42528] focus:ring-[#E42528]"
+                  />
+                  <span className="font-bold text-indigo-950">
+                    {deviceApprovalEnabled ? "ON" : "OFF"}
+                  </span>
+                </label>
+              </div>
+
+              <label className="flex items-start gap-2 pt-2 border-t border-indigo-200/70 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={approvedDeviceSkips2fa}
+                  onChange={(e) => setApprovedDeviceSkips2fa(e.target.checked)}
+                  className="mt-0.5 h-4 w-4 rounded border-indigo-400 text-[#E42528] focus:ring-[#E42528]"
+                />
+                <span className="text-[11px] text-indigo-950">
+                  <span className="font-bold block">
+                    Smooth Executive Login: Admin-Approved Devices Skip Authenticator 2FA
+                  </span>
+                  <span className="text-indigo-900/80">
+                    Once you approve an MD or Director&apos;s phone/laptop below, they sign in smoothly without opening Google/Microsoft Authenticator.
+                  </span>
+                </span>
+              </label>
+            </div>
           </div>
 
           {/* Right Column: Mandatory 2FA + Anti-Lockout */}
@@ -468,6 +610,167 @@ export default function SecuritySettingsClient({
           </div>
         </div>
       </form>
+
+      {/* Trusted Devices & Pending Approvals */}
+      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-gray-200 bg-gray-50/70 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
+              <span>Trusted Devices &amp; Pending Approvals</span>
+              {pendingDevicesCount > 0 && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
+                  {pendingDevicesCount} Pending
+                </span>
+              )}
+            </h2>
+            <p className="text-xs text-gray-500">
+              Approve MD/Director phones &amp; office PCs once (give them a custom label like &ldquo;MD Sami iPhone&rdquo;), or revoke a lost device immediately.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-1">
+            {(
+              [
+                { id: "ALL", label: `All (${devices.length})` },
+                { id: "PENDING", label: `Pending (${pendingDevicesCount})` },
+                { id: "APPROVED", label: `Approved (${approvedDevicesCount})` },
+                { id: "REVOKED", label: `Revoked (${revokedDevicesCount})` },
+              ] as const
+            ).map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setDeviceFilter(f.id)}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-bold cursor-pointer ${
+                  deviceFilter === f.id
+                    ? "bg-gray-900 text-white"
+                    : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-100"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
+                <th className="py-2.5 px-4">User</th>
+                <th className="py-2.5 px-4">Device / Custom Label</th>
+                <th className="py-2.5 px-4">Status</th>
+                <th className="py-2.5 px-4">Last IP &amp; Seen</th>
+                <th className="py-2.5 px-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {sortedFilteredDevices.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="py-6 text-center text-gray-400">
+                    No devices recorded in this view yet. Devices appear here automatically as users sign in.
+                  </td>
+                </tr>
+              ) : (
+                sortedFilteredDevices.map((d) => (
+                  <tr
+                    key={d.id}
+                    className={
+                      d.status === "PENDING"
+                        ? "bg-amber-50/40 hover:bg-amber-50/70"
+                        : "hover:bg-gray-50/80"
+                    }
+                  >
+                    <td className="py-2.5 px-4">
+                      <div className="font-semibold text-gray-900">
+                        {d.userName}{" "}
+                        {d.userEmpId && (
+                          <span className="font-mono text-[10px] text-gray-400">
+                            ({d.userEmpId})
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-gray-500">
+                        {d.userEmail} • {d.userRole}
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-4">
+                      {d.status === "PENDING" ? (
+                        <input
+                          type="text"
+                          value={labelEdits[d.id] ?? d.deviceLabel}
+                          onChange={(e) =>
+                            setLabelEdits((prev) => ({
+                              ...prev,
+                              [d.id]: e.target.value,
+                            }))
+                          }
+                          placeholder="e.g. MD Sami iPhone"
+                          className="w-full max-w-[220px] px-2 py-1 border border-amber-300 rounded bg-white text-xs font-medium text-gray-900"
+                        />
+                      ) : (
+                        <span className="font-semibold text-gray-800">{d.deviceLabel}</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-4">
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                          d.status === "APPROVED"
+                            ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                            : d.status === "PENDING"
+                            ? "bg-amber-100 text-amber-900 border-amber-300"
+                            : "bg-red-50 text-red-700 border-red-200"
+                        }`}
+                      >
+                        {d.status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 px-4">
+                      <div className="font-mono text-[11px] text-gray-700">{d.lastIp}</div>
+                      <div className="text-[10px] text-gray-400">
+                        {new Date(d.lastSeenAt).toLocaleString("en-GB")}
+                      </div>
+                    </td>
+                    <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                      <div className="inline-flex items-center gap-1.5">
+                        {d.status !== "APPROVED" && (
+                          <button
+                            type="button"
+                            disabled={deviceBusyId === d.id}
+                            onClick={() => handleDeviceAction(d, "APPROVE")}
+                            className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer disabled:opacity-50"
+                          >
+                            Approve
+                          </button>
+                        )}
+                        {d.status !== "REVOKED" && (
+                          <button
+                            type="button"
+                            disabled={deviceBusyId === d.id}
+                            onClick={() => handleDeviceAction(d, "REVOKE")}
+                            className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 cursor-pointer disabled:opacity-50"
+                          >
+                            Revoke
+                          </button>
+                        )}
+                        {d.status === "REVOKED" && (
+                          <button
+                            type="button"
+                            disabled={deviceBusyId === d.id}
+                            onClick={() => handleDeviceAction(d, "DELETE")}
+                            className="px-2 py-1 rounded-md text-[11px] font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 cursor-pointer disabled:opacity-50"
+                          >
+                            Remove
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {/* Sensitive Accounts 2FA Status Table */}
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">

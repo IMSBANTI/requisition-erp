@@ -2000,6 +2000,10 @@ export default function AdminUsersClient({
                       key: SECURITY_PERMISSIONS.EXEMPT_2FA,
                       label: "Temporarily Exempt from Mandatory 2FA",
                     },
+                    {
+                      key: SECURITY_PERMISSIONS.BYPASS_DEVICE_APPROVAL,
+                      label: "Bypass Trusted Device Approval Lock",
+                    },
                   ].map((opt) => (
                     <label
                       key={opt.key}
