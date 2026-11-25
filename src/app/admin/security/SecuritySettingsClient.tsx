@@ -67,17 +67,22 @@ export default function SecuritySettingsClient({
   const router = useRouter();
   const { toast, confirmDialog } = useToast();
 
+  // Clean 3-tab layout (eliminates long cluttered vertical stack)
+  const [activeTab, setActiveTab] = useState<"SETTINGS" | "DEVICES" | "ACCOUNTS">("SETTINGS");
+  const [accountsSubTab, setAccountsSubTab] = useState<"USERS" | "ACTIVITY">("USERS");
+
   const [ipLockEnabled, setIpLockEnabled] = useState(initialPolicy.ipLockEnabled);
   const [allowedIps, setAllowedIps] = useState<string[]>(initialPolicy.allowedIps);
   const [newIpInput, setNewIpInput] = useState("");
-  const [mobileLockEnabled, setMobileLockEnabled] = useState(
-    initialPolicy.mobileLockEnabled
-  );
+  const [mobileLockEnabled, setMobileLockEnabled] = useState(initialPolicy.mobileLockEnabled);
   const [deviceApprovalEnabled, setDeviceApprovalEnabled] = useState(
     initialPolicy.deviceApprovalEnabled
   );
   const [approvedDeviceSkips2fa, setApprovedDeviceSkips2fa] = useState(
     initialPolicy.approvedDeviceSkips2fa
+  );
+  const [skip2faOnOfficeIp, setSkip2faOnOfficeIp] = useState(
+    initialPolicy.skip2faOnOfficeIp
   );
   const [enforce2faSensitive, setEnforce2faSensitive] = useState(
     initialPolicy.enforce2faSensitive
@@ -88,6 +93,7 @@ export default function SecuritySettingsClient({
   const [allowSuperAdminBypass, setAllowSuperAdminBypass] = useState(
     initialPolicy.allowSuperAdminBypass
   );
+
   const [saving, setSaving] = useState(false);
   const [resettingUserId, setResettingUserId] = useState<string | null>(null);
   const [showAllUsers, setShowAllUsers] = useState(false);
@@ -122,21 +128,46 @@ export default function SecuritySettingsClient({
     () => users.filter((u) => u.isSensitive || u.is2faRequired || u.twoFactorEnabled),
     [users]
   );
-
   const displayedUsers = showAllUsers ? users : sensitiveUsers;
-  const enrolledSensitiveCount = sensitiveUsers.filter(
-    (u) => u.twoFactorEnabled
-  ).length;
+  const enrolledSensitiveCount = sensitiveUsers.filter((u) => u.twoFactorEnabled).length;
+
+  function applyPreset(preset: "SMOOTH_OFFICE" | "STRICT" | "MINIMAL") {
+    if (preset === "SMOOTH_OFFICE") {
+      setDeviceApprovalEnabled(true);
+      setApprovedDeviceSkips2fa(true);
+      setSkip2faOnOfficeIp(true);
+      setEnforce2faSensitive(true);
+      setTrustedDeviceDays(30);
+      setAllowSuperAdminBypass(true);
+      toast.info('Loaded "Smooth Office + Approved Devices" preset. Click Save Settings to apply.');
+    } else if (preset === "STRICT") {
+      setDeviceApprovalEnabled(true);
+      setApprovedDeviceSkips2fa(false);
+      setSkip2faOnOfficeIp(false);
+      setMobileLockEnabled(true);
+      setEnforce2faSensitive(true);
+      setTrustedDeviceDays(14);
+      setAllowSuperAdminBypass(true);
+      toast.info('Loaded "Strict 2FA Everywhere" preset. Click Save Settings to apply.');
+    } else {
+      setIpLockEnabled(false);
+      setMobileLockEnabled(false);
+      setDeviceApprovalEnabled(false);
+      setEnforce2faSensitive(false);
+      setAllowSuperAdminBypass(true);
+      toast.info('Loaded "Simple Password Login" preset. Click Save Settings to apply.');
+    }
+  }
 
   function handleAddIp(entryRaw?: string) {
     const raw = (entryRaw ?? newIpInput).trim();
     if (!raw) return;
     if (raw === "local") {
-      toast.info("Localhost is automatically allowed in development mode. Add your public office IP (e.g. 103.x.x.x).");
+      toast.info("Localhost is allowed automatically in dev. Add your public office IP (e.g. 103.x.x.x).");
       return;
     }
     if (allowedIps.includes(raw)) {
-      toast.info(`${raw} is already in the Office IP allowlist.`);
+      toast.info(`${raw} is already in your Office IP list.`);
       setNewIpInput("");
       return;
     }
@@ -151,9 +182,7 @@ export default function SecuritySettingsClient({
   async function handleSavePolicy(e: React.FormEvent) {
     e.preventDefault();
     if (ipLockEnabled && allowedIps.length === 0) {
-      toast.error(
-        "Add at least one authorized Office IP or CIDR before enabling Office IP Lock."
-      );
+      toast.error("Add at least one Office IP before enabling Office IP Lock.");
       return;
     }
 
@@ -168,6 +197,7 @@ export default function SecuritySettingsClient({
           mobileLockEnabled,
           deviceApprovalEnabled,
           approvedDeviceSkips2fa,
+          skip2faOnOfficeIp,
           enforce2faSensitive,
           trustedDeviceDays,
           allowSuperAdminBypass,
@@ -175,13 +205,13 @@ export default function SecuritySettingsClient({
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        toast.error(data.error || "Failed to save security policy.");
+        toast.error(data.error || "Failed to save security settings.");
         return;
       }
-      toast.success("Security policy saved and active immediately.");
+      toast.success("Security settings saved.");
       router.refresh();
     } catch {
-      toast.error("Network error while saving security policy.");
+      toast.error("Network error while saving settings.");
     } finally {
       setSaving(false);
     }
@@ -190,7 +220,7 @@ export default function SecuritySettingsClient({
   async function handleResetUser2fa(u: SecurityUserRow) {
     const ok = await confirmDialog({
       title: "Reset User 2FA",
-      message: `Reset Two-Factor Authentication for ${u.name} (${u.email})? They will be prompted to scan a new QR code on next sign-in.`,
+      message: `Reset 2FA for ${u.name} (${u.email})? They will scan a fresh QR code on next sign-in.`,
       confirmLabel: "Reset 2FA",
       tone: "danger",
     });
@@ -198,9 +228,7 @@ export default function SecuritySettingsClient({
 
     setResettingUserId(u.id);
     try {
-      const res = await fetch(`/api/admin/users/${u.id}/reset-2fa`, {
-        method: "POST",
-      });
+      const res = await fetch(`/api/admin/users/${u.id}/reset-2fa`, { method: "POST" });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         toast.error(data.error || "Failed to reset 2FA.");
@@ -224,9 +252,9 @@ export default function SecuritySettingsClient({
         title: action === "REVOKE" ? "Revoke Approved Device" : "Remove Device Record",
         message:
           action === "REVOKE"
-            ? `Revoke "${device.deviceLabel}" for ${device.userName}? Their session on this device will be signed out immediately.`
+            ? `Revoke "${device.deviceLabel}" for ${device.userName}? Their active session on this device will end immediately.`
             : `Delete device record "${device.deviceLabel}" for ${device.userName}?`,
-        confirmLabel: action === "REVOKE" ? "Revoke Access" : "Remove",
+        confirmLabel: action === "REVOKE" ? "Revoke" : "Remove",
         tone: "danger",
       });
       if (!ok) return;
@@ -254,7 +282,7 @@ export default function SecuritySettingsClient({
       } else if (action === "REVOKE") {
         toast.info(`Revoked "${device.deviceLabel}" for ${device.userName}.`);
       } else {
-        toast.success("Device record removed.");
+        toast.success("Device removed.");
       }
       router.refresh();
     } catch {
@@ -278,152 +306,180 @@ export default function SecuritySettingsClient({
   }
 
   return (
-    <div className="mt-6 space-y-6">
-      {/* KPI Summary Strip */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-xs">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
-            Your Detected Network IP
-          </div>
-          <div className="mt-1.5 flex items-center justify-between gap-2">
-            <span className="font-mono text-sm font-bold text-gray-900 truncate">
-              {detectedIp}
-            </span>
+    <div className="mt-5 space-y-4">
+      {/* Compact Top Status Bar */}
+      <div className="bg-white rounded-xl border border-gray-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3 text-xs shadow-2xs">
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+          <div className="flex items-center gap-2">
+            <span className="text-gray-500">Your IP:</span>
+            <span className="font-mono font-bold text-gray-900">{detectedIp}</span>
             {detectedIp && detectedIp !== "local" && !allowedIps.includes(detectedIp) && (
               <button
                 type="button"
-                onClick={() => handleAddIp(detectedIp)}
-                className="px-2 py-1 text-[10px] font-bold rounded bg-red-50 text-[#E42528] border border-red-200 hover:bg-red-100 cursor-pointer shrink-0"
+                onClick={() => {
+                  handleAddIp(detectedIp);
+                  setActiveTab("SETTINGS");
+                }}
+                className="px-2 py-0.5 text-[10px] font-bold rounded bg-red-50 text-[#E42528] border border-red-200 hover:bg-red-100 cursor-pointer"
               >
                 + Add Office IP
               </button>
             )}
           </div>
-          <div className="text-[11px] text-gray-400 mt-1 truncate">
-            {deviceSummary}
+          <div className="text-gray-500">
+            Device: <span className="font-semibold text-gray-800">{deviceSummary}</span>
           </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-xs">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
-            Office IP Lock
+          <div className="text-gray-500">
+            Approved Devices:{" "}
+            <span className="font-bold text-gray-900">{approvedDevicesCount}</span>
+            {pendingDevicesCount > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDeviceFilter("PENDING");
+                  setActiveTab("DEVICES");
+                }}
+                className="ml-1.5 px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 cursor-pointer"
+              >
+                {pendingDevicesCount} pending
+              </button>
+            )}
           </div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <span
-              className={`px-2 py-0.5 rounded-full text-xs font-bold border ${
-                ipLockEnabled
-                  ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                  : "bg-gray-100 text-gray-600 border-gray-200"
-              }`}
-            >
-              {ipLockEnabled ? "ACTIVE" : "OFF"}
+          <div className="text-gray-500">
+            2FA Enrolled:{" "}
+            <span className="font-bold text-gray-900">
+              {enrolledSensitiveCount}/{sensitiveUsers.length}
             </span>
-            <span className="text-xs text-gray-600">
-              {allowedIps.length} allowed {allowedIps.length === 1 ? "entry" : "entries"}
-            </span>
-          </div>
-          <div className="text-[11px] text-gray-400 mt-1">
-            MD, Directors &amp; exempted users bypass
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-xs">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
-            Mobile Access Lock
-          </div>
-          <div className="mt-1.5 flex items-center gap-2">
-            <span
-              className={`px-2 py-0.5 rounded-full text-xs font-bold border ${
-                mobileLockEnabled
-                  ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                  : "bg-gray-100 text-gray-600 border-gray-200"
-              }`}
-            >
-              {mobileLockEnabled ? "ACTIVE" : "OFF"}
-            </span>
-            <span className="text-xs text-gray-600">
-              {mobileLockEnabled ? "Desktop required" : "All devices allowed"}
-            </span>
-          </div>
-          <div className="text-[11px] text-gray-400 mt-1">
-            Per-user override in Admin &rarr; Users
-          </div>
-        </div>
-
-        <div className="bg-white rounded-xl border border-gray-200 p-4 shadow-xs">
-          <div className="text-[11px] font-bold uppercase tracking-wider text-gray-500">
-            Sensitive Role 2FA
-          </div>
-          <div className="mt-1.5 flex items-baseline gap-1.5">
-            <span className="text-lg font-extrabold text-gray-900">
-              {enrolledSensitiveCount} / {sensitiveUsers.length}
-            </span>
-            <span className="text-xs text-gray-500">enrolled</span>
-          </div>
-          <div className="text-[11px] text-gray-400 mt-1">
-            MD, Directors, Accounts, Admin &amp; Report Users
           </div>
         </div>
       </div>
 
-      {/* Main Policy Form */}
-      <form
-        onSubmit={handleSavePolicy}
-        className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden"
-      >
-        <div className="px-5 py-4 border-b border-gray-200 bg-gray-50/70 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-bold text-gray-900">
-              Global Security Policy
-            </h2>
-            <p className="text-xs text-gray-500">
-              Applies immediately on login and active sessions. Individual user exceptions are managed in{" "}
-              <Link href="/admin/users" className="text-[#E42528] font-semibold hover:underline">
-                Admin &rarr; Users
-              </Link>{" "}
-              (Tab 3: Scopes &amp; Privileges).
-            </p>
-          </div>
+      {/* Clean 3-Tab Switcher */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 pb-2">
+        <div className="flex items-center gap-1.5">
           <button
-            type="submit"
-            disabled={saving}
-            className="px-4 py-2 rounded-lg text-xs font-bold text-white bg-[#E42528] hover:bg-[#B81D20] shadow-xs cursor-pointer disabled:opacity-50"
+            type="button"
+            onClick={() => setActiveTab("SETTINGS")}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+              activeTab === "SETTINGS"
+                ? "bg-gray-900 text-white"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
           >
-            {saving ? "Saving Policy..." : "Save Security Policy"}
+            1. Access &amp; 2FA Rules
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("DEVICES")}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer inline-flex items-center gap-1.5 ${
+              activeTab === "DEVICES"
+                ? "bg-gray-900 text-white"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            <span>2. Trusted Devices</span>
+            {pendingDevicesCount > 0 && (
+              <span className="px-1.5 py-0.2 rounded-full text-[10px] font-extrabold bg-amber-400 text-gray-950">
+                {pendingDevicesCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab("ACCOUNTS")}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-colors cursor-pointer ${
+              activeTab === "ACCOUNTS"
+                ? "bg-gray-900 text-white"
+                : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+            }`}
+          >
+            3. Accounts &amp; Activity
           </button>
         </div>
 
-        <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-6 text-xs">
-          {/* Left Column: IP Lock + Mobile Lock */}
-          <div className="space-y-5">
-            <div className="border border-gray-200 rounded-lg p-4 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-bold text-gray-900 text-sm">
-                    Office IP Access Lock
-                  </h3>
-                  <p className="text-gray-500 mt-0.5">
-                    Restrict Accounts, Managers, and Staff to authorized IMS office public IPs or CIDR ranges. MD, Directors, and users with <span className="font-semibold">Allow Remote IP</span> can still access remotely.
-                  </p>
-                </div>
-                <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 pt-0.5">
-                  <input
-                    type="checkbox"
-                    checked={ipLockEnabled}
-                    onChange={(e) => setIpLockEnabled(e.target.checked)}
-                    className="h-4 w-4 rounded border-gray-300 text-[#E42528] focus:ring-[#E42528]"
-                  />
-                  <span className="font-bold text-gray-800">
-                    {ipLockEnabled ? "ON" : "OFF"}
-                  </span>
-                </label>
-              </div>
+        <Link
+          href="/admin/users"
+          className="text-xs font-semibold text-gray-500 hover:text-[#E42528]"
+        >
+          Per-user exceptions in Users &amp; Roles &rarr;
+        </Link>
+      </div>
 
-              <div className="pt-2 border-t border-gray-100 space-y-2.5">
-                <label className="block font-semibold text-gray-700">
-                  Authorized Office IPs / CIDR Ranges
-                </label>
-                <div className="flex gap-2">
+      {/* ────────────────── TAB 1: COMPACT ACCESS & 2FA RULES ────────────────── */}
+      {activeTab === "SETTINGS" && (
+        <form
+          onSubmit={handleSavePolicy}
+          className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden text-xs"
+        >
+          {/* Quick Presets Strip */}
+          <div className="px-5 py-3 bg-gray-50/80 border-b border-gray-200 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-gray-400">
+                Quick Presets:
+              </span>
+              <button
+                type="button"
+                onClick={() => applyPreset("SMOOTH_OFFICE")}
+                className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white border border-gray-300 hover:border-[#E42528] hover:text-[#E42528] text-gray-700 cursor-pointer"
+              >
+                Smooth Office + Approved Devices
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset("STRICT")}
+                className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white border border-gray-300 hover:border-gray-500 text-gray-700 cursor-pointer"
+              >
+                Strict 2FA Everywhere
+              </button>
+              <button
+                type="button"
+                onClick={() => applyPreset("MINIMAL")}
+                className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-white border border-gray-300 hover:border-gray-500 text-gray-700 cursor-pointer"
+              >
+                Simple Password Only
+              </button>
+            </div>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-1.5 rounded-lg text-xs font-bold text-white bg-[#E42528] hover:bg-[#B81D20] cursor-pointer disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save Settings"}
+            </button>
+          </div>
+
+          <div className="divide-y divide-gray-100">
+            {/* Row 1: Office Network IPs */}
+            <div className="p-4 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+              <div className="lg:col-span-4">
+                <h3 className="font-bold text-gray-900 text-sm">Office Network (IPs)</h3>
+                <p className="text-gray-500 mt-0.5">
+                  Add your 4 office public IPs. Lets office logins stay smooth even when switching Chrome/Edge.
+                </p>
+              </div>
+              <div className="lg:col-span-8 space-y-2.5">
+                <div className="flex flex-wrap items-center gap-4">
+                  <label className="inline-flex items-center gap-2 font-semibold text-gray-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={ipLockEnabled}
+                      onChange={(e) => setIpLockEnabled(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-[#E42528] focus:ring-[#E42528]"
+                    />
+                    <span>Restrict Staff to Office IPs</span>
+                  </label>
+                  <label className="inline-flex items-center gap-2 font-semibold text-gray-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={skip2faOnOfficeIp}
+                      onChange={(e) => setSkip2faOnOfficeIp(e.target.checked)}
+                      className="h-4 w-4 rounded border-gray-300 text-[#E42528] focus:ring-[#E42528]"
+                    />
+                    <span>Skip 2FA inside Authorized Office IPs</span>
+                  </label>
+                </div>
+
+                <div className="flex gap-2 max-w-md">
                   <input
                     type="text"
                     value={newIpInput}
@@ -446,16 +502,12 @@ export default function SecuritySettingsClient({
                   </button>
                 </div>
 
-                {allowedIps.length === 0 ? (
-                  <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5">
-                    No office IPs added yet. Add your office static public IP before turning IP Lock ON.
-                  </p>
-                ) : (
+                {allowedIps.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {allowedIps.map((entry) => (
                       <span
                         key={entry}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 text-slate-800 border border-slate-200 font-mono text-[11px] font-semibold"
+                        className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-800 border border-slate-200 font-mono text-[11px] font-semibold"
                       >
                         {entry}
                         <button
@@ -473,487 +525,418 @@ export default function SecuritySettingsClient({
               </div>
             </div>
 
-            <div className="border border-gray-200 rounded-lg p-4 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="font-bold text-gray-900 text-sm">
-                  Mobile &amp; Tablet Access Lock
-                </h3>
+            {/* Row 2: Devices & Mobile */}
+            <div className="p-4 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+              <div className="lg:col-span-4">
+                <h3 className="font-bold text-gray-900 text-sm">Devices &amp; Mobile</h3>
                 <p className="text-gray-500 mt-0.5">
-                  Block phones and tablets for non-exempt staff so sensitive ERP actions happen on office desktops. MD, Directors, Super Admin, and users with <span className="font-semibold">Allow Mobile</span> remain allowed.
+                  Approve MD/Director phones &amp; office PCs once; block unknown devices or mobile browsers.
                 </p>
               </div>
-              <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 pt-0.5">
-                <input
-                  type="checkbox"
-                  checked={mobileLockEnabled}
-                  onChange={(e) => setMobileLockEnabled(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-[#E42528] focus:ring-[#E42528]"
-                />
-                <span className="font-bold text-gray-800">
-                  {mobileLockEnabled ? "ON" : "OFF"}
-                </span>
-              </label>
-            </div>
-
-            <div className="border-2 border-indigo-200 bg-indigo-50/40 rounded-lg p-4 space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-bold text-indigo-950 text-sm">
-                    Trusted Device Approval (Recommended for MD, Directors &amp; 4 Offices)
-                  </h3>
-                  <p className="text-indigo-900/80 mt-0.5">
-                    Require one-time Super Admin approval for each user&apos;s laptop, office PC, or mobile browser. Unknown devices are blocked automatically — even if someone steals a password or an office ISP IP changes.
-                  </p>
-                </div>
-                <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 pt-0.5">
+              <div className="lg:col-span-8 flex flex-wrap gap-x-6 gap-y-2.5 pt-0.5">
+                <label className="inline-flex items-center gap-2 font-semibold text-gray-800 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={deviceApprovalEnabled}
                     onChange={(e) => setDeviceApprovalEnabled(e.target.checked)}
-                    className="h-4 w-4 rounded border-indigo-400 text-[#E42528] focus:ring-[#E42528]"
+                    className="h-4 w-4 rounded border-gray-300 text-[#E42528] focus:ring-[#E42528]"
                   />
-                  <span className="font-bold text-indigo-950">
-                    {deviceApprovalEnabled ? "ON" : "OFF"}
-                  </span>
+                  <span>Require Admin Device Approval</span>
+                </label>
+                <label className="inline-flex items-center gap-2 font-semibold text-gray-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={approvedDeviceSkips2fa}
+                    onChange={(e) => setApprovedDeviceSkips2fa(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-[#E42528] focus:ring-[#E42528]"
+                  />
+                  <span>Approved Devices Skip 2FA</span>
+                </label>
+                <label className="inline-flex items-center gap-2 font-semibold text-gray-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={mobileLockEnabled}
+                    onChange={(e) => setMobileLockEnabled(e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-[#E42528] focus:ring-[#E42528]"
+                  />
+                  <span>Block Mobile Browsers (Staff)</span>
                 </label>
               </div>
-
-              <label className="flex items-start gap-2 pt-2 border-t border-indigo-200/70 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={approvedDeviceSkips2fa}
-                  onChange={(e) => setApprovedDeviceSkips2fa(e.target.checked)}
-                  className="mt-0.5 h-4 w-4 rounded border-indigo-400 text-[#E42528] focus:ring-[#E42528]"
-                />
-                <span className="text-[11px] text-indigo-950">
-                  <span className="font-bold block">
-                    Smooth Executive Login: Admin-Approved Devices Skip Authenticator 2FA
-                  </span>
-                  <span className="text-indigo-900/80">
-                    Once you approve an MD or Director&apos;s phone/laptop below, they sign in smoothly without opening Google/Microsoft Authenticator.
-                  </span>
-                </span>
-              </label>
             </div>
-          </div>
 
-          {/* Right Column: Mandatory 2FA + Anti-Lockout */}
-          <div className="space-y-5">
-            <div className="border border-gray-200 rounded-lg p-4 space-y-4">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="font-bold text-gray-900 text-sm">
-                    Mandatory 2FA for Sensitive Roles
-                  </h3>
-                  <p className="text-gray-500 mt-0.5">
-                    Requires Google Authenticator / Microsoft Authenticator (6-digit TOTP) for{" "}
-                    <span className="font-semibold text-gray-800">
-                      Super Admin, Managing Directors, Directors, Accounts, and all Financial Report / P&amp;L users
-                    </span>
-                    . Unenrolled users are guided through QR setup automatically on next sign-in.
-                  </p>
-                </div>
-                <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 pt-0.5">
+            {/* Row 3: Two-Factor Authentication */}
+            <div className="p-4 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+              <div className="lg:col-span-4">
+                <h3 className="font-bold text-gray-900 text-sm">Two-Factor (Authenticator)</h3>
+                <p className="text-gray-500 mt-0.5">
+                  Applies to Super Admin, MD, Directors, Accounts &amp; Report users on untrusted browsers/IPs.
+                </p>
+              </div>
+              <div className="lg:col-span-8 flex flex-wrap items-center gap-4">
+                <label className="inline-flex items-center gap-2 font-semibold text-gray-800 cursor-pointer">
                   <input
                     type="checkbox"
                     checked={enforce2faSensitive}
                     onChange={(e) => setEnforce2faSensitive(e.target.checked)}
                     className="h-4 w-4 rounded border-gray-300 text-[#E42528] focus:ring-[#E42528]"
                   />
-                  <span className="font-bold text-gray-800">
-                    {enforce2faSensitive ? "ON" : "OFF"}
-                  </span>
+                  <span>Require 2FA for Sensitive Roles</span>
                 </label>
-              </div>
 
-              <div className="pt-3 border-t border-gray-100">
-                <label className="block font-semibold text-gray-700 mb-1">
-                  Trusted Browser Duration (&ldquo;Remember this browser&rdquo;)
-                </label>
-                <select
-                  value={trustedDeviceDays}
-                  onChange={(e) => setTrustedDeviceDays(Number(e.target.value))}
-                  className="w-full sm:w-72 px-3 py-1.5 border border-gray-300 rounded-md bg-white text-xs font-medium"
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500 font-medium">Remember browser:</span>
+                  <select
+                    value={trustedDeviceDays}
+                    onChange={(e) => setTrustedDeviceDays(Number(e.target.value))}
+                    className="px-2.5 py-1 border border-gray-300 rounded-md bg-white text-xs font-semibold"
+                  >
+                    <option value={0}>Every login</option>
+                    <option value={7}>7 days</option>
+                    <option value={14}>14 days</option>
+                    <option value={30}>30 days</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Quiet Anti-Lockout Footer */}
+          <div className="px-5 py-3 bg-gray-50 border-t border-gray-200 flex flex-wrap items-center justify-between gap-2">
+            <label className="inline-flex items-center gap-2 text-[11px] text-gray-600 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={allowSuperAdminBypass}
+                onChange={(e) => setAllowSuperAdminBypass(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-gray-300 text-[#E42528]"
+              />
+              <span>Super Admin anti-lockout safeguard (always allow Super Admin IP/device access)</span>
+            </label>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-4 py-1.5 rounded-lg text-xs font-bold text-white bg-[#E42528] hover:bg-[#B81D20] cursor-pointer disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save Settings"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {/* ────────────────── TAB 2: TRUSTED DEVICES & PENDING APPROVALS ────────────────── */}
+      {activeTab === "DEVICES" && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-200 bg-gray-50/70 flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h2 className="text-sm font-bold text-gray-900">
+                Trusted Devices &amp; Pending Approvals
+              </h2>
+              <p className="text-xs text-gray-500">
+                Approve MD/Director phones &amp; office PCs once, or revoke any lost/ex-employee device immediately.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-1">
+              {(
+                [
+                  { id: "ALL", label: `All (${devices.length})` },
+                  { id: "PENDING", label: `Pending (${pendingDevicesCount})` },
+                  { id: "APPROVED", label: `Approved (${approvedDevicesCount})` },
+                  { id: "REVOKED", label: `Revoked (${revokedDevicesCount})` },
+                ] as const
+              ).map((f) => (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setDeviceFilter(f.id)}
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-bold cursor-pointer ${
+                    deviceFilter === f.id
+                      ? "bg-gray-900 text-white"
+                      : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-100"
+                  }`}
                 >
-                  <option value={0}>0 days — Require 6-digit code on every login</option>
-                  <option value={7}>7 days — Remember verified browser for 1 week</option>
-                  <option value={14}>14 days — Recommended balance (2 weeks)</option>
-                  <option value={30}>30 days — Remember verified browser for 1 month</option>
-                </select>
-                <p className="text-[11px] text-gray-400 mt-1">
-                  New or unrecognized browsers always require the 6-digit Authenticator code.
-                </p>
-              </div>
+                  {f.label}
+                </button>
+              ))}
             </div>
+          </div>
 
-            <div className="border border-amber-200 bg-amber-50/50 rounded-lg p-4 flex items-start justify-between gap-3">
-              <div>
-                <h3 className="font-bold text-amber-950 text-sm">
-                  Super Admin Anti-Lockout Safeguard
-                </h3>
-                <p className="text-amber-900/80 mt-0.5">
-                  Allows Super Admin (Priority 5) to sign in from any IP/device so an unexpected office ISP IP change can never lock you out of updating the allowlist. (Super Admin still requires 2FA.)
-                </p>
-              </div>
-              <label className="inline-flex items-center gap-2 cursor-pointer shrink-0 pt-0.5">
-                <input
-                  type="checkbox"
-                  checked={allowSuperAdminBypass}
-                  onChange={(e) => setAllowSuperAdminBypass(e.target.checked)}
-                  className="h-4 w-4 rounded border-amber-400 text-[#E42528] focus:ring-[#E42528]"
-                />
-                <span className="font-bold text-amber-950">
-                  {allowSuperAdminBypass ? "ON" : "OFF"}
-                </span>
-              </label>
-            </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
+                  <th className="py-2.5 px-4">User</th>
+                  <th className="py-2.5 px-4">Device / Label</th>
+                  <th className="py-2.5 px-4">Status</th>
+                  <th className="py-2.5 px-4">Last IP &amp; Seen</th>
+                  <th className="py-2.5 px-4 text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {sortedFilteredDevices.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="py-8 text-center text-gray-400">
+                      No devices in this view yet. Devices appear here automatically when users sign in.
+                    </td>
+                  </tr>
+                ) : (
+                  sortedFilteredDevices.map((d) => (
+                    <tr
+                      key={d.id}
+                      className={
+                        d.status === "PENDING"
+                          ? "bg-amber-50/40 hover:bg-amber-50/70"
+                          : "hover:bg-gray-50/80"
+                      }
+                    >
+                      <td className="py-2.5 px-4">
+                        <div className="font-semibold text-gray-900">
+                          {d.userName}{" "}
+                          {d.userEmpId && (
+                            <span className="font-mono text-[10px] text-gray-400">
+                              ({d.userEmpId})
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-gray-500">{d.userEmail}</div>
+                      </td>
+                      <td className="py-2.5 px-4">
+                        {d.status === "PENDING" ? (
+                          <input
+                            type="text"
+                            value={labelEdits[d.id] ?? d.deviceLabel}
+                            onChange={(e) =>
+                              setLabelEdits((prev) => ({
+                                ...prev,
+                                [d.id]: e.target.value,
+                              }))
+                            }
+                            placeholder="e.g. MD Sami iPhone"
+                            className="w-full max-w-[220px] px-2 py-1 border border-amber-300 rounded bg-white text-xs font-medium text-gray-900"
+                          />
+                        ) : (
+                          <span className="font-semibold text-gray-800">{d.deviceLabel}</span>
+                        )}
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <span
+                          className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                            d.status === "APPROVED"
+                              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                              : d.status === "PENDING"
+                              ? "bg-amber-100 text-amber-900 border-amber-300"
+                              : "bg-red-50 text-red-700 border-red-200"
+                          }`}
+                        >
+                          {d.status}
+                        </span>
+                      </td>
+                      <td className="py-2.5 px-4">
+                        <div className="font-mono text-[11px] text-gray-700">{d.lastIp}</div>
+                        <div className="text-[10px] text-gray-400">
+                          {new Date(d.lastSeenAt).toLocaleString("en-GB")}
+                        </div>
+                      </td>
+                      <td className="py-2.5 px-4 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1.5">
+                          {d.status !== "APPROVED" && (
+                            <button
+                              type="button"
+                              disabled={deviceBusyId === d.id}
+                              onClick={() => handleDeviceAction(d, "APPROVE")}
+                              className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer disabled:opacity-50"
+                            >
+                              Approve
+                            </button>
+                          )}
+                          {d.status !== "REVOKED" && (
+                            <button
+                              type="button"
+                              disabled={deviceBusyId === d.id}
+                              onClick={() => handleDeviceAction(d, "REVOKE")}
+                              className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 cursor-pointer disabled:opacity-50"
+                            >
+                              Revoke
+                            </button>
+                          )}
+                          {d.status === "REVOKED" && (
+                            <button
+                              type="button"
+                              disabled={deviceBusyId === d.id}
+                              onClick={() => handleDeviceAction(d, "DELETE")}
+                              className="px-2 py-1 rounded-md text-[11px] font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 cursor-pointer disabled:opacity-50"
+                            >
+                              Remove
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
-      </form>
+      )}
 
-      {/* Trusted Devices & Pending Approvals */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-gray-200 bg-gray-50/70 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-bold text-gray-900 flex items-center gap-2">
-              <span>Trusted Devices &amp; Pending Approvals</span>
-              {pendingDevicesCount > 0 && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-100 text-amber-900 border border-amber-300">
-                  {pendingDevicesCount} Pending
-                </span>
-              )}
-            </h2>
-            <p className="text-xs text-gray-500">
-              Approve MD/Director phones &amp; office PCs once (give them a custom label like &ldquo;MD Sami iPhone&rdquo;), or revoke a lost device immediately.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {(
-              [
-                { id: "ALL", label: `All (${devices.length})` },
-                { id: "PENDING", label: `Pending (${pendingDevicesCount})` },
-                { id: "APPROVED", label: `Approved (${approvedDevicesCount})` },
-                { id: "REVOKED", label: `Revoked (${revokedDevicesCount})` },
-              ] as const
-            ).map((f) => (
+      {/* ────────────────── TAB 3: ACCOUNTS & SECURITY ACTIVITY ────────────────── */}
+      {activeTab === "ACCOUNTS" && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-xs overflow-hidden">
+          <div className="px-5 py-3 border-b border-gray-200 bg-gray-50/70 flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
               <button
-                key={f.id}
                 type="button"
-                onClick={() => setDeviceFilter(f.id)}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-bold cursor-pointer ${
-                  deviceFilter === f.id
+                onClick={() => setAccountsSubTab("USERS")}
+                className={`px-3 py-1 rounded-md text-xs font-bold cursor-pointer ${
+                  accountsSubTab === "USERS"
                     ? "bg-gray-900 text-white"
-                    : "bg-white border border-gray-200 text-gray-600 hover:bg-gray-100"
+                    : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-100"
                 }`}
               >
-                {f.label}
+                2FA Account Status ({displayedUsers.length})
               </button>
-            ))}
-          </div>
-        </div>
+              <button
+                type="button"
+                onClick={() => setAccountsSubTab("ACTIVITY")}
+                className={`px-3 py-1 rounded-md text-xs font-bold cursor-pointer ${
+                  accountsSubTab === "ACTIVITY"
+                    ? "bg-gray-900 text-white"
+                    : "bg-white border border-gray-200 text-gray-700 hover:bg-gray-100"
+                }`}
+              >
+                Recent Security Activity ({recentLogs.length})
+              </button>
+            </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
-                <th className="py-2.5 px-4">User</th>
-                <th className="py-2.5 px-4">Device / Custom Label</th>
-                <th className="py-2.5 px-4">Status</th>
-                <th className="py-2.5 px-4">Last IP &amp; Seen</th>
-                <th className="py-2.5 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {sortedFilteredDevices.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-6 text-center text-gray-400">
-                    No devices recorded in this view yet. Devices appear here automatically as users sign in.
-                  </td>
-                </tr>
-              ) : (
-                sortedFilteredDevices.map((d) => (
-                  <tr
-                    key={d.id}
-                    className={
-                      d.status === "PENDING"
-                        ? "bg-amber-50/40 hover:bg-amber-50/70"
-                        : "hover:bg-gray-50/80"
-                    }
-                  >
-                    <td className="py-2.5 px-4">
-                      <div className="font-semibold text-gray-900">
-                        {d.userName}{" "}
-                        {d.userEmpId && (
-                          <span className="font-mono text-[10px] text-gray-400">
-                            ({d.userEmpId})
+            {accountsSubTab === "USERS" ? (
+              <button
+                type="button"
+                onClick={() => setShowAllUsers(!showAllUsers)}
+                className="px-2.5 py-1 rounded-md text-[11px] font-semibold border border-gray-300 bg-white hover:bg-gray-100 text-gray-700 cursor-pointer"
+              >
+                {showAllUsers ? "Sensitive Roles Only" : `Show All Users (${users.length})`}
+              </button>
+            ) : (
+              <Link href="/admin/audit" className="text-xs font-semibold text-[#E42528] hover:underline">
+                Full Audit Trail &rarr;
+              </Link>
+            )}
+          </div>
+
+          {accountsSubTab === "USERS" ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
+                    <th className="py-2.5 px-4">User</th>
+                    <th className="py-2.5 px-4">Role</th>
+                    <th className="py-2.5 px-4">2FA Status</th>
+                    <th className="py-2.5 px-4">Access Scope</th>
+                    <th className="py-2.5 px-4 text-right">Recovery</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {displayedUsers.map((u) => (
+                    <tr key={u.id} className="hover:bg-gray-50/80">
+                      <td className="py-2.5 px-4">
+                        <div className="font-semibold text-gray-900">
+                          {u.name}{" "}
+                          {u.employeeId && (
+                            <span className="font-mono text-[10px] text-gray-400">
+                              ({u.employeeId})
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-gray-500">{u.email}</div>
+                      </td>
+                      <td className="py-2.5 px-4 text-gray-700">{u.roleName}</td>
+                      <td className="py-2.5 px-4">
+                        {u.twoFactorEnabled ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            Active ({u.backupCodesLeft} codes)
+                          </span>
+                        ) : u.is2faRequired ? (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                            Pending Setup
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500">
+                            Optional
                           </span>
                         )}
-                      </div>
-                      <div className="text-[11px] text-gray-500">
-                        {d.userEmail} • {d.userRole}
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-4">
-                      {d.status === "PENDING" ? (
-                        <input
-                          type="text"
-                          value={labelEdits[d.id] ?? d.deviceLabel}
-                          onChange={(e) =>
-                            setLabelEdits((prev) => ({
-                              ...prev,
-                              [d.id]: e.target.value,
-                            }))
-                          }
-                          placeholder="e.g. MD Sami iPhone"
-                          className="w-full max-w-[220px] px-2 py-1 border border-amber-300 rounded bg-white text-xs font-medium text-gray-900"
-                        />
-                      ) : (
-                        <span className="font-semibold text-gray-800">{d.deviceLabel}</span>
-                      )}
-                    </td>
-                    <td className="py-2.5 px-4">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border ${
-                          d.status === "APPROVED"
-                            ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                            : d.status === "PENDING"
-                            ? "bg-amber-100 text-amber-900 border-amber-300"
-                            : "bg-red-50 text-red-700 border-red-200"
-                        }`}
-                      >
-                        {d.status}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-4">
-                      <div className="font-mono text-[11px] text-gray-700">{d.lastIp}</div>
-                      <div className="text-[10px] text-gray-400">
-                        {new Date(d.lastSeenAt).toLocaleString("en-GB")}
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-4 text-right whitespace-nowrap">
-                      <div className="inline-flex items-center gap-1.5">
-                        {d.status !== "APPROVED" && (
+                      </td>
+                      <td className="py-2.5 px-4 text-[11px] text-gray-600">
+                        {u.allowRemoteIp ? "Any IP" : "Office IP"} ·{" "}
+                        {u.allowMobile ? "Desktop & Mobile" : "Desktop Only"}
+                      </td>
+                      <td className="py-2.5 px-4 text-right">
+                        {u.twoFactorEnabled ? (
                           <button
                             type="button"
-                            disabled={deviceBusyId === d.id}
-                            onClick={() => handleDeviceAction(d, "APPROVE")}
-                            className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-emerald-600 text-white hover:bg-emerald-700 cursor-pointer disabled:opacity-50"
+                            disabled={resettingUserId === u.id}
+                            onClick={() => handleResetUser2fa(u)}
+                            className="px-2.5 py-1 rounded-md text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 cursor-pointer disabled:opacity-50"
                           >
-                            Approve
+                            {resettingUserId === u.id ? "Resetting..." : "Reset 2FA"}
                           </button>
+                        ) : (
+                          <span className="text-gray-300">—</span>
                         )}
-                        {d.status !== "REVOKED" && (
-                          <button
-                            type="button"
-                            disabled={deviceBusyId === d.id}
-                            onClick={() => handleDeviceAction(d, "REVOKE")}
-                            className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 cursor-pointer disabled:opacity-50"
-                          >
-                            Revoke
-                          </button>
-                        )}
-                        {d.status === "REVOKED" && (
-                          <button
-                            type="button"
-                            disabled={deviceBusyId === d.id}
-                            onClick={() => handleDeviceAction(d, "DELETE")}
-                            className="px-2 py-1 rounded-md text-[11px] font-semibold bg-gray-100 text-gray-600 hover:bg-gray-200 cursor-pointer disabled:opacity-50"
-                          >
-                            Remove
-                          </button>
-                        )}
-                      </div>
-                    </td>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
+                    <th className="py-2 px-4">Time</th>
+                    <th className="py-2 px-4">Event</th>
+                    <th className="py-2 px-4">User</th>
+                    <th className="py-2 px-4">Details</th>
+                    <th className="py-2 px-4">IP</th>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {recentLogs.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-6 text-center text-gray-400">
+                        No security events recorded yet.
+                      </td>
+                    </tr>
+                  ) : (
+                    recentLogs.map((log) => (
+                      <tr key={log.id} className="hover:bg-gray-50/80">
+                        <td className="py-2.5 px-4 font-mono text-[11px] text-gray-500 whitespace-nowrap">
+                          {new Date(log.createdAt).toLocaleString("en-GB")}
+                        </td>
+                        <td className="py-2.5 px-4 whitespace-nowrap">
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded font-mono text-[10px] font-bold border ${badgeColorForAction(
+                              log.action
+                            )}`}
+                          >
+                            {log.action}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-4 font-semibold text-gray-900">
+                          {log.userName}
+                        </td>
+                        <td className="py-2.5 px-4 text-gray-700 max-w-md">{log.details}</td>
+                        <td className="py-2.5 px-4 font-mono text-[10px] text-gray-500 whitespace-nowrap">
+                          {log.ip}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
-      </div>
-
-      {/* Sensitive Accounts 2FA Status Table */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-gray-200 bg-gray-50/70 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <h2 className="text-sm font-bold text-gray-900">
-              Account 2FA &amp; Access Status ({displayedUsers.length})
-            </h2>
-            <p className="text-xs text-gray-500">
-              Monitor 2FA enrollment across MD, Directors, Accounts, Super Admin &amp; Financial Report users, or reset 2FA if someone loses their phone.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowAllUsers(!showAllUsers)}
-            className="px-3 py-1.5 rounded-md text-xs font-semibold border border-gray-300 bg-white hover:bg-gray-100 text-gray-700 cursor-pointer"
-          >
-            {showAllUsers ? "Show Sensitive Roles Only" : `Show All Active Users (${users.length})`}
-          </button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
-                <th className="py-2.5 px-4">User</th>
-                <th className="py-2.5 px-4">Role / Level</th>
-                <th className="py-2.5 px-4">2FA Status</th>
-                <th className="py-2.5 px-4">Remote IP / Mobile</th>
-                <th className="py-2.5 px-4 text-right">Recovery Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {displayedUsers.map((u) => (
-                <tr key={u.id} className="hover:bg-gray-50/80">
-                  <td className="py-2.5 px-4">
-                    <div className="font-semibold text-gray-900">
-                      {u.name}{" "}
-                      {u.employeeId && (
-                        <span className="font-mono text-[10px] text-gray-400">
-                          ({u.employeeId})
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[11px] text-gray-500">{u.email}</div>
-                  </td>
-                  <td className="py-2.5 px-4">
-                    <div className="font-medium text-gray-800">{u.roleName}</div>
-                    {u.isSensitive && (
-                      <span className="inline-block mt-0.5 px-1.5 py-0.2 rounded text-[10px] font-bold bg-red-50 text-[#E42528] border border-red-200">
-                        Sensitive Role
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-2.5 px-4">
-                    {u.twoFactorEnabled ? (
-                      <div>
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-50 text-emerald-800 border border-emerald-200">
-                          2FA Active
-                        </span>
-                        <span className="block text-[10px] text-gray-400 mt-0.5">
-                          {u.backupCodesLeft} backup codes left
-                        </span>
-                      </div>
-                    ) : u.is2faRequired ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                        Required — Pending Setup
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-gray-100 text-gray-500 border border-gray-200">
-                        Optional (Off)
-                      </span>
-                    )}
-                  </td>
-                  <td className="py-2.5 px-4">
-                    <div className="flex flex-wrap gap-1">
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
-                          u.allowRemoteIp
-                            ? "bg-blue-50 text-blue-800 border-blue-200"
-                            : "bg-gray-50 text-gray-600 border-gray-200"
-                        }`}
-                      >
-                        {u.allowRemoteIp ? "Remote IP Allowed" : "Office IP Only"}
-                      </span>
-                      <span
-                        className={`px-1.5 py-0.5 rounded text-[10px] font-semibold border ${
-                          u.allowMobile
-                            ? "bg-blue-50 text-blue-800 border-blue-200"
-                            : "bg-gray-50 text-gray-600 border-gray-200"
-                        }`}
-                      >
-                        {u.allowMobile ? "Mobile Allowed" : "Desktop Only"}
-                      </span>
-                    </div>
-                  </td>
-                  <td className="py-2.5 px-4 text-right">
-                    {u.twoFactorEnabled ? (
-                      <button
-                        type="button"
-                        disabled={resettingUserId === u.id}
-                        onClick={() => handleResetUser2fa(u)}
-                        className="px-2.5 py-1 rounded-md text-[11px] font-bold text-red-700 bg-red-50 border border-red-200 hover:bg-red-100 cursor-pointer disabled:opacity-50"
-                      >
-                        {resettingUserId === u.id ? "Resetting..." : "Reset 2FA"}
-                      </button>
-                    ) : (
-                      <span className="text-[11px] text-gray-400">—</span>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Recent Security Events Feed */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-        <div className="px-5 py-3.5 border-b border-gray-200 bg-gray-50/70 flex items-center justify-between">
-          <div>
-            <h2 className="text-sm font-bold text-gray-900">
-              Recent Security &amp; Login Events
-            </h2>
-            <p className="text-xs text-gray-500">
-              Latest sign-ins, 2FA setups, failed attempts, and blocked IP/mobile access.
-            </p>
-          </div>
-          <Link
-            href="/admin/audit"
-            className="text-xs font-semibold text-[#E42528] hover:underline"
-          >
-            Full Audit Trail &rarr;
-          </Link>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
-                <th className="py-2 px-4">Time</th>
-                <th className="py-2 px-4">Event</th>
-                <th className="py-2 px-4">User</th>
-                <th className="py-2 px-4">Details</th>
-                <th className="py-2 px-4">IP</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {recentLogs.length === 0 ? (
-                <tr>
-                  <td colSpan={5} className="py-6 text-center text-gray-400">
-                    No security events recorded yet.
-                  </td>
-                </tr>
-              ) : (
-                recentLogs.map((log) => (
-                  <tr key={log.id} className="hover:bg-gray-50/80">
-                    <td className="py-2.5 px-4 font-mono text-[11px] text-gray-500 whitespace-nowrap">
-                      {new Date(log.createdAt).toLocaleString("en-GB")}
-                    </td>
-                    <td className="py-2.5 px-4 whitespace-nowrap">
-                      <span
-                        className={`inline-block px-2 py-0.5 rounded font-mono text-[10px] font-bold border ${badgeColorForAction(
-                          log.action
-                        )}`}
-                      >
-                        {log.action}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-4">
-                      <span className="font-semibold text-gray-900">{log.userName}</span>
-                    </td>
-                    <td className="py-2.5 px-4 text-gray-700 max-w-md">{log.details}</td>
-                    <td className="py-2.5 px-4 font-mono text-[10px] text-gray-500 whitespace-nowrap">
-                      {log.ip}
-                    </td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+      )}
     </div>
   );
 }

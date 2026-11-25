@@ -315,6 +315,7 @@ model SecurityPolicy {
   allowSuperAdminBypass  Boolean  @default(true)
   deviceApprovalEnabled  Boolean  @default(false)
   approvedDeviceSkips2fa Boolean  @default(true)
+  skip2faOnOfficeIp      Boolean  @default(true)
   updatedById            String?
   updatedAt              DateTime @updatedAt
 }

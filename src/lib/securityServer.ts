@@ -36,6 +36,7 @@ export async function getSecurityPolicy(): Promise<SecurityPolicyConfig> {
       allowSuperAdminBypass: row.allowSuperAdminBypass,
       deviceApprovalEnabled: row.deviceApprovalEnabled,
       approvedDeviceSkips2fa: row.approvedDeviceSkips2fa,
+      skip2faOnOfficeIp: row.skip2faOnOfficeIp,
     };
   } catch {
     return { ...DEFAULT_SECURITY_POLICY };

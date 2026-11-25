@@ -28,6 +28,7 @@ export interface SecurityPolicyConfig {
   allowSuperAdminBypass: boolean;
   deviceApprovalEnabled: boolean;
   approvedDeviceSkips2fa: boolean;
+  skip2faOnOfficeIp: boolean;
 }
 
 export const DEFAULT_SECURITY_POLICY: SecurityPolicyConfig = {
@@ -39,6 +40,7 @@ export const DEFAULT_SECURITY_POLICY: SecurityPolicyConfig = {
   allowSuperAdminBypass: true,
   deviceApprovalEnabled: false,
   approvedDeviceSkips2fa: true,
+  skip2faOnOfficeIp: true,
 };
 
 export interface SecurityUserLike {
@@ -157,6 +159,16 @@ export function shouldSkip2faOnApprovedDevice(
   deviceStatus: string | null | undefined
 ): boolean {
   return Boolean(policy.approvedDeviceSkips2fa && deviceStatus === "APPROVED");
+}
+
+/** Whether signing in from an Authorized Office IP skips 2FA (so switching Chrome/Edge on an office laptop is smooth). */
+export function shouldSkip2faOnOfficeIp(
+  policy: SecurityPolicyConfig,
+  ip: string | null | undefined
+): boolean {
+  if (!policy.skip2faOnOfficeIp) return false;
+  if (!policy.allowedIps || policy.allowedIps.length === 0) return false;
+  return isIpAllowed(ip, policy.allowedIps, { allowLocalhostInDev: false });
 }
 
 /** Normalize raw client IP (strips ::ffff: IPv4-mapped IPv6 prefix and ports). */

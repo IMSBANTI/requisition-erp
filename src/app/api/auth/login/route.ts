@@ -14,6 +14,7 @@ import {
   is2FARequiredForUser,
   recordFailedAttempt,
   shouldSkip2faOnApprovedDevice,
+  shouldSkip2faOnOfficeIp,
 } from "@/lib/security";
 import {
   evaluateOrRegisterDeviceForLogin,
@@ -211,6 +212,18 @@ export async function POST(request: Request) {
         userId: user.id,
         action: "LOGIN_SUCCESS",
         details: `Signed in via Admin-Approved Device "${deviceCheck.deviceLabel}" (${reqCtx.deviceSummary})`,
+        ip: reqCtx.ip,
+      });
+      return NextResponse.json({ success: true });
+    }
+
+    // Smooth office login: Authorized Office IP skips 2FA so switching Chrome/Edge on an office laptop works smoothly
+    if (shouldSkip2faOnOfficeIp(policy, reqCtx.ip)) {
+      await createSession(user.id);
+      await logSecurityAudit({
+        userId: user.id,
+        action: "LOGIN_SUCCESS",
+        details: `Signed in from Authorized Office IP (${reqCtx.deviceSummary})`,
         ip: reqCtx.ip,
       });
       return NextResponse.json({ success: true });

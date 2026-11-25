@@ -26,6 +26,7 @@ import {
   recordFailedAttempt,
   shouldRequireDeviceApproval,
   shouldSkip2faOnApprovedDevice,
+  shouldSkip2faOnOfficeIp,
   summarizeUserAgent,
 } from "../security";
 
@@ -257,5 +258,14 @@ describe("Role-Based Security Policy & Rate Limiting", () => {
     expect(
       shouldSkip2faOnApprovedDevice({ ...devicePolicy, approvedDeviceSkips2fa: false }, "APPROVED")
     ).toBe(false);
+
+    const officeSkipPolicy = {
+      ...devicePolicy,
+      allowedIps: ["103.112.54.10"],
+      skip2faOnOfficeIp: true,
+    };
+    expect(shouldSkip2faOnOfficeIp(officeSkipPolicy, "103.112.54.10")).toBe(true);
+    expect(shouldSkip2faOnOfficeIp(officeSkipPolicy, "185.10.20.30")).toBe(false);
+    expect(shouldSkip2faOnOfficeIp({ ...officeSkipPolicy, allowedIps: [] }, "127.0.0.1")).toBe(false);
   });
 });

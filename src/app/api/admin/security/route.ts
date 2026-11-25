@@ -43,6 +43,10 @@ export async function POST(request: Request) {
       body?.approvedDeviceSkips2fa === undefined
         ? true
         : Boolean(body.approvedDeviceSkips2fa);
+    const skip2faOnOfficeIp =
+      body?.skip2faOnOfficeIp === undefined
+        ? true
+        : Boolean(body.skip2faOnOfficeIp);
     const trustedDeviceDays = Math.min(
       90,
       Math.max(0, Math.floor(Number(body?.trustedDeviceDays ?? 14)))
@@ -90,6 +94,7 @@ export async function POST(request: Request) {
         allowSuperAdminBypass,
         deviceApprovalEnabled,
         approvedDeviceSkips2fa,
+        skip2faOnOfficeIp,
         updatedById: admin.id,
       },
       update: {
@@ -101,6 +106,7 @@ export async function POST(request: Request) {
         allowSuperAdminBypass,
         deviceApprovalEnabled,
         approvedDeviceSkips2fa,
+        skip2faOnOfficeIp,
         updatedById: admin.id,
       },
     });
