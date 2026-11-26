@@ -9,13 +9,66 @@ import { amountInWords } from "@/lib/numberToWords";
 import { grandTotal, lineAmount, formatMoney, resolveCurrency, getCurrencyMeta } from "@/lib/money";
 import { createNotification, notifyUsers, findUsersWithPermission } from "@/lib/notifications";
 import { isR2Configured, uploadToR2 } from "@/lib/r2";
+import { COMPANY_DIVISION_CODES_LIST, projectScope } from "@/lib/rbac";
+import {
+  normalizeRequisitionMode,
+  REQ_MODE_LABELS,
+  resolveAllowedRequisitionModes,
+} from "@/lib/reqTypes";
 
 export async function POST(request: Request) {
   try {
     const user = await requireUser();
     const formData = await request.formData();
 
-    const requisitionMode = ((formData.get("requisitionMode") as string) || "PROJECT").toUpperCase();
+    const requisitionMode = normalizeRequisitionMode(formData.get("requisitionMode") as string);
+
+    // Server-side enforcement of per-user Requisition Type access (IMS Group Company / Project / Event)
+    const hasExplicitReqTypeOrMode = user.permissions.some(
+      (p) => p.startsWith("req.type.") || p.startsWith("req.mode.")
+    );
+    let hasAssignedProjects = false;
+    let hasAssignedEvents = false;
+    if (!hasExplicitReqTypeOrMode || user.permissions.includes("req.mode.project")) {
+      const scopedProjects = await prisma.project.findMany({
+        where: projectScope(user),
+        select: { code: true, kind: true, name: true },
+      });
+      const divSet = new Set(COMPANY_DIVISION_CODES_LIST);
+      const nonDiv = scopedProjects.filter(
+        (p) =>
+          !divSet.has(p.code) &&
+          !p.code.endsWith("-CORP") &&
+          p.name.toLowerCase() !== "tradepulse"
+      );
+      const effectiveList = nonDiv.length > 0 ? nonDiv : scopedProjects;
+      hasAssignedEvents = effectiveList.some(
+        (p) => p.kind === "EVENT" || p.code.toUpperCase().startsWith("EVT-")
+      );
+      hasAssignedProjects = effectiveList.some(
+        (p) => p.kind !== "EVENT" && !p.code.toUpperCase().startsWith("EVT-")
+      );
+    }
+
+    const allowedModes = resolveAllowedRequisitionModes({
+      permissions: user.permissions,
+      priorityLevel: user.priorityLevel,
+      roleKey: user.role.key,
+      isManager: user.role.isManager,
+      departmentName: user.department?.name || "",
+      secondaryDepartments: user.secondaryDepartments,
+      hasAssignedProjects,
+      hasAssignedEvents,
+    });
+
+    if (!allowedModes.includes(requisitionMode)) {
+      return NextResponse.json(
+        {
+          error: `You do not have permission to submit ${REQ_MODE_LABELS[requisitionMode]} requisitions. Please contact Super Admin if you need access.`,
+        },
+        { status: 403 }
+      );
+    }
     const rawProjectId = formData.get("projectId") as string;
     const rawCompanyId = formData.get("companyId") as string;
     const rawDepartmentId = (formData.get("departmentId") as string) || user.departmentId || null;

@@ -22,6 +22,7 @@ import {
   calculateVariance,
 } from "@/lib/profitEngine";
 import { parseSpreadsheetToRequisitionItems } from "@/lib/spreadsheetImport";
+import { resolveAllowedRequisitionModes, type RequisitionMode } from "@/lib/reqTypes";
 
 interface FormProps {
   user: {
@@ -132,59 +133,27 @@ export default function RequisitionForm({
   );
 
   // Resolve which of the 3 separate Requisition Types this user is allowed to use: COMPANY | PROJECT | EVENT
-  const allowedModes = useMemo<Array<"COMPANY" | "PROJECT" | "EVENT">>(() => {
-    const perms = user.permissions || [];
-    const hasGranularTypeFlags = perms.some((p) => p.startsWith("req.type."));
-    if (hasGranularTypeFlags) {
-      const modes: Array<"COMPANY" | "PROJECT" | "EVENT"> = [];
-      if (perms.includes("req.type.company")) modes.push("COMPANY");
-      if (perms.includes("req.type.project")) modes.push("PROJECT");
-      if (perms.includes("req.type.event")) modes.push("EVENT");
-      if (modes.length > 0) return modes;
-    }
-
-    if (perms.includes("req.mode.company")) return ["COMPANY"];
-    if (perms.includes("req.mode.project")) {
-      const modes: Array<"COMPANY" | "PROJECT" | "EVENT"> = [];
-      if (onlyProjectsList.length > 0) modes.push("PROJECT");
-      if (onlyEventsList.length > 0) modes.push("EVENT");
-      return modes.length > 0 ? modes : ["PROJECT"];
-    }
-    if (perms.includes("req.mode.ops_events")) return ["COMPANY", "PROJECT", "EVENT"];
-    if (perms.includes("req.mode.both")) return ["COMPANY", "PROJECT", "EVENT"];
-
-    const deptText = [user.departmentName || "", ...(user.secondaryDepartments || [])]
-      .join(" ")
-      .toLowerCase();
-
-    if ((user.priorityLevel ?? 2) >= 4) {
-      return ["COMPANY", "PROJECT", "EVENT"];
-    }
-    if (deptText.includes("operation") || deptText.includes("event")) {
-      return ["COMPANY", "PROJECT", "EVENT"];
-    }
-    if (deptText.includes("project ")) {
-      return ["PROJECT"];
-    }
-    if (user.isManager) {
-      return ["COMPANY", "PROJECT", "EVENT"];
-    }
-
-    const assignedModes: Array<"COMPANY" | "PROJECT" | "EVENT"> = [];
-    if (onlyProjectsList.length > 0) assignedModes.push("PROJECT");
-    if (onlyEventsList.length > 0) assignedModes.push("EVENT");
-    if (assignedModes.length > 0) return assignedModes;
-
-    return ["COMPANY"];
-  }, [
-    user.permissions,
-    user.departmentName,
-    user.secondaryDepartments,
-    user.priorityLevel,
-    user.isManager,
-    onlyProjectsList.length,
-    onlyEventsList.length,
-  ]);
+  const allowedModes = useMemo<RequisitionMode[]>(
+    () =>
+      resolveAllowedRequisitionModes({
+        permissions: user.permissions,
+        priorityLevel: user.priorityLevel,
+        isManager: user.isManager,
+        departmentName: user.departmentName,
+        secondaryDepartments: user.secondaryDepartments,
+        hasAssignedProjects: onlyProjectsList.length > 0,
+        hasAssignedEvents: onlyEventsList.length > 0,
+      }),
+    [
+      user.permissions,
+      user.departmentName,
+      user.secondaryDepartments,
+      user.priorityLevel,
+      user.isManager,
+      onlyProjectsList.length,
+      onlyEventsList.length,
+    ]
+  );
 
   const canSwitchModeAndFilter = allowedModes.length > 1;
 

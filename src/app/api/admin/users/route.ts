@@ -2,6 +2,13 @@ import { NextResponse } from "next/server";
 import { requirePermission, hashSecret, clientIp } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { syncDesignationWithLevel } from "@/lib/userDisplay";
+import {
+  isValidReqTypePermission,
+  mergeReqTypePermissions,
+  PERMISSION_TO_MODE,
+  REQ_MODE_LABELS,
+  type ReqTypePermission,
+} from "@/lib/reqTypes";
 
 export async function POST(request: Request) {
   try {
@@ -121,6 +128,78 @@ export async function PATCH(request: Request) {
   try {
     const admin = await requirePermission("admin.users");
     const body = await request.json();
+
+    // Fast path: 1-click inline toggle or bulk update of Requisition Type Access only
+    if (body?.action === "SET_REQ_TYPES") {
+      const rawIds = Array.isArray(body.userIds)
+        ? body.userIds
+        : body.id
+        ? [body.id]
+        : [];
+      const userIds = Array.from(
+        new Set(rawIds.map((x: unknown) => String(x || "").trim()).filter(Boolean))
+      ) as string[];
+      const rawTypes: unknown[] = Array.isArray(body.reqTypes) ? body.reqTypes : [];
+      const validTypes: ReqTypePermission[] = Array.from(
+        new Set(
+          rawTypes
+            .map((t) => String(t || "").trim())
+            .filter(isValidReqTypePermission)
+        )
+      );
+
+      if (userIds.length === 0) {
+        return NextResponse.json({ error: "Select at least one user" }, { status: 400 });
+      }
+      if (validTypes.length === 0) {
+        return NextResponse.json(
+          { error: "At least one requisition type must remain enabled" },
+          { status: 400 }
+        );
+      }
+
+      const targets = await prisma.user.findMany({
+        where: { id: { in: userIds } },
+        select: { id: true, name: true, email: true, extraPermissions: true },
+      });
+
+      if (targets.length === 0) {
+        return NextResponse.json({ error: "No matching users found" }, { status: 404 });
+      }
+
+      await prisma.$transaction(
+        targets.map((u) =>
+          prisma.user.update({
+            where: { id: u.id },
+            data: {
+              extraPermissions: mergeReqTypePermissions(u.extraPermissions, validTypes),
+            },
+          })
+        )
+      );
+
+      const typeLabels = validTypes
+        .map((perm) => REQ_MODE_LABELS[PERMISSION_TO_MODE[perm]])
+        .join(", ");
+      const ip = await clientIp();
+      await prisma.auditLog.create({
+        data: {
+          userId: admin.id,
+          action: "USER_REQ_TYPES_UPDATED",
+          details:
+            targets.length === 1
+              ? `Updated Requisition Type access for ${targets[0].name} (${targets[0].email}) to [${typeLabels}]`
+              : `Bulk updated Requisition Type access for ${targets.length} users to [${typeLabels}]`,
+          ip,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        updatedCount: targets.length,
+        reqTypes: validTypes,
+      });
+    }
 
     const {
       id,

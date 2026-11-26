@@ -10,6 +10,12 @@ import {
   extractBackupApproverId,
 } from "@/lib/workflow";
 import { SECURITY_PERMISSIONS } from "@/lib/security";
+import { COMPANY_DIVISION_CODES_LIST } from "@/lib/rbac";
+import {
+  modesToReqTypePermissions,
+  resolveAllowedRequisitionModes,
+  type ReqTypePermission,
+} from "@/lib/reqTypes";
 import { useToast } from "@/components/ToastProvider";
 
 interface Props {
@@ -45,6 +51,12 @@ export default function AdminUsersClient({
   const [companyFilter, setCompanyFilter] = useState("ALL");
   const [priorityFilter, setPriorityFilter] = useState("ALL");
   const [roleFilter, setRoleFilter] = useState("ALL");
+
+  // Quick Requisition Type inline toggles & bulk selection
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [optimisticReqTypes, setOptimisticReqTypes] = useState<Record<string, ReqTypePermission[]>>({});
+  const [savingReqTypeUsers, setSavingReqTypeUsers] = useState<Record<string, boolean>>({});
+  const [bulkSavingReqTypes, setBulkSavingReqTypes] = useState(false);
 
   // Modal states: "CREATE_USER" | "EDIT_USER" | "PASSWORD" | "PROJECT_MANAGER" | null
   const [modalType, setModalType] = useState<
@@ -144,39 +156,121 @@ export default function AdminUsersClient({
     [users]
   );
 
-  function inferReqTypesForUser(u: any): string[] {
-    const ep: string[] = u.extraPermissions || [];
-    const granular = ep.filter((p) => p.startsWith("req.type."));
-    if (granular.length > 0) return granular;
+  const companyDivisionCodeSet = useMemo(() => new Set(COMPANY_DIVISION_CODES_LIST), []);
 
-    if (ep.includes("req.mode.company")) return ["req.type.company"];
-    if (ep.includes("req.mode.project")) return ["req.type.project"];
-    if (ep.includes("req.mode.ops_events")) {
-      return ["req.type.company", "req.type.project", "req.type.event"];
+  function inferReqTypesForUser(u: any): ReqTypePermission[] {
+    if (optimisticReqTypes[u.id]) {
+      return optimisticReqTypes[u.id];
     }
-    if (ep.includes("req.mode.both")) {
-      return ["req.type.company", "req.type.project", "req.type.event"];
+    const assocIds = new Set(getAssociatedProjectIdsForUser(u));
+    const assocProjects = projects.filter(
+      (p) =>
+        assocIds.has(p.id) &&
+        !companyDivisionCodeSet.has(p.code) &&
+        !p.code?.endsWith("-CORP") &&
+        (p.name || "").toLowerCase() !== "tradepulse"
+    );
+    const hasAssignedEvents = assocProjects.some(
+      (p) => p.kind === "EVENT" || p.code?.toUpperCase().startsWith("EVT-")
+    );
+    const hasAssignedProjects = assocProjects.some(
+      (p) => p.kind !== "EVENT" && !p.code?.toUpperCase().startsWith("EVT-")
+    );
+
+    const modes = resolveAllowedRequisitionModes({
+      permissions: [...(u.rolePermissions || []), ...(u.extraPermissions || [])],
+      priorityLevel: u.priorityLevel ?? 2,
+      levelLabel: u.levelLabel,
+      roleKey: u.roleKey,
+      departmentName: u.departmentName,
+      secondaryDepartments: u.secondaryDepartments,
+      hasAssignedProjects,
+      hasAssignedEvents,
+    });
+    return modesToReqTypePermissions(modes);
+  }
+
+  async function handleToggleUserReqType(u: any, perm: ReqTypePermission) {
+    if (isReadOnly || savingReqTypeUsers[u.id]) return;
+    const current = inferReqTypesForUser(u);
+    const hasPerm = current.includes(perm);
+    const next = hasPerm
+      ? current.filter((p) => p !== perm)
+      : [...current, perm];
+
+    if (next.length === 0) {
+      toast.error("Each user must keep at least one requisition type enabled.");
+      return;
     }
 
-    const deptText = [u.departmentName || "", ...(u.secondaryDepartments || [])]
-      .join(" ")
-      .toLowerCase();
-    if ((u.priorityLevel ?? 2) >= 4) {
-      return ["req.type.company", "req.type.project", "req.type.event"];
+    const prevOptimistic = optimisticReqTypes[u.id];
+    setOptimisticReqTypes((prev) => ({ ...prev, [u.id]: next }));
+    setSavingReqTypeUsers((prev) => ({ ...prev, [u.id]: true }));
+
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "SET_REQ_TYPES",
+          userIds: [u.id],
+          reqTypes: next,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to update requisition types");
+      toast.success(`Updated requisition types for ${u.name}.`);
+      router.refresh();
+    } catch (err: any) {
+      setOptimisticReqTypes((prev) => {
+        const copy = { ...prev };
+        if (prevOptimistic) copy[u.id] = prevOptimistic;
+        else delete copy[u.id];
+        return copy;
+      });
+      toast.error(err.message || "Error updating requisition types");
+    } finally {
+      setSavingReqTypeUsers((prev) => {
+        const copy = { ...prev };
+        delete copy[u.id];
+        return copy;
+      });
     }
-    if (deptText.includes("operation") || deptText.includes("event")) {
-      return ["req.type.company", "req.type.project", "req.type.event"];
+  }
+
+  async function handleBulkApplyReqTypes(reqTypes: ReqTypePermission[], label: string) {
+    if (isReadOnly || selectedUserIds.length === 0 || bulkSavingReqTypes) return;
+    setBulkSavingReqTypes(true);
+    try {
+      const res = await fetch("/api/admin/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "SET_REQ_TYPES",
+          userIds: selectedUserIds,
+          reqTypes,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || "Failed to bulk update requisition types");
+
+      setOptimisticReqTypes((prev) => {
+        const nextMap = { ...prev };
+        for (const uid of selectedUserIds) {
+          nextMap[uid] = reqTypes;
+        }
+        return nextMap;
+      });
+      toast.success(
+        `Set Requisition Types (${label}) for ${data.updatedCount ?? selectedUserIds.length} user(s).`
+      );
+      setSelectedUserIds([]);
+      router.refresh();
+    } catch (err: any) {
+      toast.error(err.message || "Bulk update failed");
+    } finally {
+      setBulkSavingReqTypes(false);
     }
-    if (deptText.includes("project ")) {
-      return ["req.type.project"];
-    }
-    if (u.levelLabel === "Manager" || u.roleKey === "manager" || u.roleKey === "sr_manager") {
-      return ["req.type.company", "req.type.project", "req.type.event"];
-    }
-    if ((u.projectScopeIds?.length ?? 0) > 0) {
-      return ["req.type.project"];
-    }
-    return ["req.type.company"];
   }
 
   function getAssociatedProjectIdsForUser(u: any): string[] {
@@ -490,6 +584,13 @@ export default function AdminUsersClient({
           ? `User "${name}" created! Login Password: ${userPassword || email.trim().toLowerCase()}`
           : `User "${name}" updated successfully!`
       );
+      if (selectedUser?.id) {
+        setOptimisticReqTypes((prev) => {
+          const copy = { ...prev };
+          delete copy[selectedUser.id];
+          return copy;
+        });
+      }
       router.refresh();
       setTimeout(() => {
         setModalType(null);
@@ -759,17 +860,94 @@ export default function AdminUsersClient({
         </div>
       </div>
 
+      {/* Bulk Requisition Type Bar (appears only when 1+ users are checked) */}
+      {!isReadOnly && selectedUserIds.length > 0 && (
+        <div className="mt-3 bg-gray-900 text-white px-3.5 py-2.5 rounded-xl shadow-sm flex flex-wrap items-center justify-between gap-2.5 text-xs">
+          <div className="flex items-center gap-2">
+            <span className="px-2 py-0.5 rounded-md bg-[#E42528] text-white font-bold text-[11px]">
+              {selectedUserIds.length} selected
+            </span>
+            <span className="text-gray-200 font-medium">
+              Set allowed New Requisition types:
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(
+              [
+                { label: "IMS Only", perms: ["req.type.company"] as ReqTypePermission[] },
+                { label: "Project Only", perms: ["req.type.project"] as ReqTypePermission[] },
+                { label: "Event Only", perms: ["req.type.event"] as ReqTypePermission[] },
+                {
+                  label: "Project + Event",
+                  perms: ["req.type.project", "req.type.event"] as ReqTypePermission[],
+                },
+                {
+                  label: "All 3",
+                  perms: [
+                    "req.type.company",
+                    "req.type.project",
+                    "req.type.event",
+                  ] as ReqTypePermission[],
+                },
+              ]
+            ).map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                disabled={bulkSavingReqTypes}
+                onClick={() => handleBulkApplyReqTypes(preset.perms, preset.label)}
+                className="px-2.5 py-1 rounded-md text-[11px] font-bold bg-white/10 hover:bg-white/20 text-white border border-white/15 transition-colors cursor-pointer disabled:opacity-50"
+              >
+                {preset.label}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setSelectedUserIds([])}
+              className="ml-1 px-2 py-1 rounded-md text-[11px] font-semibold text-gray-300 hover:text-white cursor-pointer"
+            >
+              Clear
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Users Table — Fits cleanly on screen with Sticky Header, Sticky Right Actions & Scroll Slider */}
       <div className="mt-4 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="overflow-x-auto overflow-y-auto max-h-[72vh]">
           <table className="w-full text-left border-collapse text-xs">
             <thead className="sticky top-0 z-20 bg-gray-50 shadow-2xs">
               <tr className="border-b border-gray-200 text-gray-500 uppercase tracking-wider text-[10px] font-semibold">
+                {!isReadOnly && (
+                  <th className="py-2.5 pl-3 pr-1 w-8">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all filtered users"
+                      checked={
+                        filteredUsers.length > 0 &&
+                        filteredUsers.every((u) => selectedUserIds.includes(u.id))
+                      }
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedUserIds(
+                            Array.from(
+                              new Set([...selectedUserIds, ...filteredUsers.map((u) => u.id)])
+                            )
+                          );
+                        } else {
+                          const filteredSet = new Set(filteredUsers.map((u) => u.id));
+                          setSelectedUserIds((prev) => prev.filter((id) => !filteredSet.has(id)));
+                        }
+                      }}
+                      className="accent-[#E42528] cursor-pointer"
+                    />
+                  </th>
+                )}
                 <th className="py-2.5 px-3">Employee / Login Email</th>
                 <th className="py-2.5 px-2.5">Priority & Role</th>
                 <th className="py-2.5 px-2.5">Company & Dept</th>
                 <th className="py-2.5 px-2.5">Reporting Approver</th>
-                <th className="py-2.5 px-2.5">Scopes & Projects</th>
+                <th className="py-2.5 px-2.5">Req Types & Scopes</th>
                 {!isReadOnly && (
                   <th className="py-2.5 px-3 text-right sticky right-0 bg-gray-50 z-20 border-l border-gray-200">
                     Actions
@@ -780,8 +958,27 @@ export default function AdminUsersClient({
             <tbody className="divide-y divide-gray-100">
               {filteredUsers.map((u) => {
                 const pBadge = PRIORITY_BADGES[u.priorityLevel] || PRIORITY_BADGES[2];
+                const isSelected = selectedUserIds.includes(u.id);
                 return (
-                  <tr key={u.id} className="hover:bg-gray-50/90 transition-colors group">
+                  <tr
+                    key={u.id}
+                    className={`hover:bg-gray-50/90 transition-colors group ${
+                      isSelected ? "bg-red-50/30" : ""
+                    }`}
+                  >
+                    {!isReadOnly && (
+                      <td className="py-2.5 pl-3 pr-1 align-middle">
+                        <input
+                          type="checkbox"
+                          aria-label={`Select ${u.name}`}
+                          checked={isSelected}
+                          onChange={() =>
+                            toggleArrayItem(selectedUserIds, u.id, setSelectedUserIds)
+                          }
+                          className="accent-[#E42528] cursor-pointer"
+                        />
+                      </td>
+                    )}
                     <td className="py-2.5 px-3 min-w-[180px]">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         {u.employeeId && (
@@ -852,15 +1049,74 @@ export default function AdminUsersClient({
                         </span>
                       )}
                     </td>
-                    <td className="py-2.5 px-2.5 max-w-[200px]">
+                    <td className="py-2.5 px-2.5 max-w-[235px]">
                       {(() => {
                         const rMode = inferReportAccessModeForUser(u);
+                        const userReqTypes = inferReqTypesForUser(u);
+                        const isSavingTypes = Boolean(savingReqTypeUsers[u.id]);
                         const assocIds = getAssociatedProjectIdsForUser(u);
                         const assocNames = projects
                           .filter((p) => assocIds.includes(p.id))
                           .map((p) => p.name);
                         return (
-                          <div className="space-y-1">
+                          <div className="space-y-1.5">
+                            {/* 1-click Requisition Type toggles: IMS / Project / Event */}
+                            <div className="flex items-center gap-1 flex-wrap">
+                              {(
+                                [
+                                  {
+                                    perm: "req.type.company" as ReqTypePermission,
+                                    short: "IMS",
+                                    full: "IMS Group Company",
+                                    activeClass:
+                                      "bg-red-50 text-[#E42528] border-red-300 font-bold",
+                                  },
+                                  {
+                                    perm: "req.type.project" as ReqTypePermission,
+                                    short: "Project",
+                                    full: "Project Requisition",
+                                    activeClass:
+                                      "bg-gray-900 text-white border-gray-900 font-bold",
+                                  },
+                                  {
+                                    perm: "req.type.event" as ReqTypePermission,
+                                    short: "Event",
+                                    full: "Event Requisition",
+                                    activeClass:
+                                      "bg-blue-600 text-white border-blue-600 font-bold",
+                                  },
+                                ]
+                              ).map((t) => {
+                                const enabled = userReqTypes.includes(t.perm);
+                                return (
+                                  <button
+                                    key={t.perm}
+                                    type="button"
+                                    disabled={isReadOnly || isSavingTypes}
+                                    onClick={() => handleToggleUserReqType(u, t.perm)}
+                                    title={
+                                      isReadOnly
+                                        ? `${t.full}: ${enabled ? "Allowed" : "Hidden"}`
+                                        : enabled
+                                        ? `${t.full} is shown — click to hide`
+                                        : `${t.full} is hidden — click to allow`
+                                    }
+                                    className={`px-1.5 py-0.5 rounded text-[9px] border transition-all ${
+                                      enabled
+                                        ? t.activeClass
+                                        : "bg-white text-gray-300 border-gray-200 line-through hover:text-gray-500 hover:border-gray-300"
+                                    } ${
+                                      isReadOnly
+                                        ? "cursor-default"
+                                        : "cursor-pointer disabled:opacity-60"
+                                    }`}
+                                  >
+                                    {t.short}
+                                  </button>
+                                );
+                              })}
+                            </div>
+
                             <div>
                               {rMode === "ALL_REPORTS" ? (
                                 <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-50 text-purple-800 border border-purple-200">
@@ -957,7 +1213,10 @@ export default function AdminUsersClient({
               })}
               {filteredUsers.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-gray-400 text-xs">
+                  <td
+                    colSpan={isReadOnly ? 5 : 7}
+                    className="py-8 text-center text-gray-400 text-xs"
+                  >
                     No users match the selected filters.
                   </td>
                 </tr>
